@@ -2,7 +2,7 @@ package com.loopers.domain.example
 
 import com.loopers.infrastructure.example.ExampleJpaRepository
 import com.loopers.support.error.CoreException
-import com.loopers.support.error.ErrorType
+import com.loopers.support.error.CommonErrorType
 import com.loopers.utils.DatabaseCleanUp
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.AfterEach
@@ -58,7 +58,7 @@ class ExampleServiceIntegrationTest @Autowired constructor(
             }
 
             // assert
-            assertThat(exception.errorType).isEqualTo(ErrorType.NOT_FOUND)
+            assertThat(exception.errorType).isEqualTo(CommonErrorType.NOT_FOUND)
         }
     }
 }

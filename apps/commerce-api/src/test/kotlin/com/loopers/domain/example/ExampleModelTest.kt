@@ -1,7 +1,7 @@
 package com.loopers.domain.example
 
+import com.loopers.support.error.CommonErrorType
 import com.loopers.support.error.CoreException
-import com.loopers.support.error.ErrorType
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Nested
@@ -43,7 +43,7 @@ class ExampleModelTest {
             }
 
             // assert
-            assertThat(result.errorType).isEqualTo(ErrorType.BAD_REQUEST)
+            assertThat(result.errorType).isEqualTo(CommonErrorType.BAD_REQUEST)
         }
 
         @DisplayName("설명이 비어있으면, BAD_REQUEST 예외가 발생한다.")
@@ -58,7 +58,7 @@ class ExampleModelTest {
             }
 
             // assert
-            assertThat(result.errorType).isEqualTo(ErrorType.BAD_REQUEST)
+            assertThat(result.errorType).isEqualTo(CommonErrorType.BAD_REQUEST)
         }
     }
 }
