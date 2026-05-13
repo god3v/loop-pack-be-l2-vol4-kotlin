@@ -157,6 +157,83 @@ class UserServiceTest {
             // then
             assertThat(result.errorType).isEqualTo(UserErrorType.SIGNUP_BAD_REQUEST)
         }
+
+        @DisplayName("비밀번호 길이가 8~16자 범위를 벗어나면, SIGNUP_BAD_REQUEST 예외가 발생한다.")
+        @ParameterizedTest
+        @ValueSource(strings = ["Ab1!", "Ab1!Ab1", "Ab1!Ab1!Ab1!Ab1!A", "Ab1!Ab1!Ab1!Ab1!Ab1!"])
+        fun throwsSignupBadRequest_whenPasswordLengthIsInvalid(invalidPassword: String) {
+            // give
+            every { userRepository.findByLoginId(any()) } returns null
+            every { userRepository.findByEmail(any()) } returns null
+
+            // when
+            val result = assertThrows<CoreException> {
+                userService.signup("goryeojin", invalidPassword, "고려진", LocalDate.of(2001, 7, 9), "goryeojin@example.com")
+            }
+
+            // then
+            assertThat(result.errorType).isEqualTo(UserErrorType.SIGNUP_BAD_REQUEST)
+        }
+
+        @DisplayName("비밀번호에 허용되지 않은 문자가 포함되면, SIGNUP_BAD_REQUEST 예외가 발생한다.")
+        @ParameterizedTest
+        @ValueSource(strings = ["Asdf1234한", "Asdf 1234!", "한a1!@#\$%"])
+        fun throwsSignupBadRequest_whenPasswordContainsDisallowedChar(invalidPassword: String) {
+            // give
+            every { userRepository.findByLoginId(any()) } returns null
+            every { userRepository.findByEmail(any()) } returns null
+
+            // when
+            val result = assertThrows<CoreException> {
+                userService.signup("goryeojin", invalidPassword, "고려진", LocalDate.of(2001, 7, 9), "goryeojin@example.com")
+            }
+
+            // then
+            assertThat(result.errorType).isEqualTo(UserErrorType.SIGNUP_BAD_REQUEST)
+        }
+
+        @DisplayName("비밀번호의 3 카테고리(영문/숫자/특수문자) 중 하나라도 빠지면, SIGNUP_BAD_REQUEST 예외가 발생한다.")
+        @ParameterizedTest
+        @ValueSource(
+            strings = [
+                "Asdfasdf",
+                "12345678",
+                "!@#\$%^&*",
+                "Asdf1234",
+                "Asdfasdf!",
+                "12345678!",
+            ],
+        )
+        fun throwsSignupBadRequest_whenPasswordMissingCategory(invalidPassword: String) {
+            // give
+            every { userRepository.findByLoginId(any()) } returns null
+            every { userRepository.findByEmail(any()) } returns null
+
+            // when
+            val result = assertThrows<CoreException> {
+                userService.signup("goryeojin", invalidPassword, "고려진", LocalDate.of(2001, 7, 9), "goryeojin@example.com")
+            }
+
+            // then
+            assertThat(result.errorType).isEqualTo(UserErrorType.SIGNUP_BAD_REQUEST)
+        }
+
+        @DisplayName("비밀번호에 생년월일(yyyyMMdd 또는 yyMMdd)이 포함되면, SIGNUP_BAD_REQUEST 예외가 발생한다.")
+        @ParameterizedTest
+        @ValueSource(strings = ["Ab1!20010709", "20010709Ab!", "Ab!010709AB1"])
+        fun throwsSignupBadRequest_whenPasswordContainsBirthDate(invalidPassword: String) {
+            // give
+            every { userRepository.findByLoginId(any()) } returns null
+            every { userRepository.findByEmail(any()) } returns null
+
+            // when
+            val result = assertThrows<CoreException> {
+                userService.signup("goryeojin", invalidPassword, "고려진", LocalDate.of(2001, 7, 9), "goryeojin@example.com")
+            }
+
+            // then
+            assertThat(result.errorType).isEqualTo(UserErrorType.SIGNUP_BAD_REQUEST)
+        }
     }
 
     companion object {
