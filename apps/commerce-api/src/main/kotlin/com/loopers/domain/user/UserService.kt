@@ -24,4 +24,13 @@ class UserService(
         val user = User.signUp(loginId, password, name, birthDate, email)
         return userRepository.save(user)
     }
+
+    fun authenticate(loginId: String, plainPassword: String): User {
+        val user = userRepository.findByLoginId(loginId)
+            ?: throw CoreException(UserErrorType.UNAUTHORIZED)
+        if (user.password != plainPassword) {
+            throw CoreException(UserErrorType.UNAUTHORIZED)
+        }
+        return user
+    }
 }
