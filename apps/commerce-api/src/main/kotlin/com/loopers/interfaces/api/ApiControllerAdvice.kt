@@ -3,6 +3,7 @@ package com.loopers.interfaces.api
 import com.fasterxml.jackson.databind.JsonMappingException
 import com.fasterxml.jackson.databind.exc.InvalidFormatException
 import com.fasterxml.jackson.databind.exc.MismatchedInputException
+import com.loopers.support.error.CommonErrorType
 import com.loopers.support.error.CoreException
 import com.loopers.support.error.ErrorType
 import org.slf4j.LoggerFactory
@@ -35,7 +36,7 @@ class ApiControllerAdvice {
         val type = e.requiredType?.simpleName ?: "unknown"
         val value = e.value ?: "null"
         val message = "요청 파라미터 '$name' (타입: $type)의 값 '$value'이(가) 잘못되었습니다."
-        return failureResponse(errorType = ErrorType.BAD_REQUEST, errorMessage = message)
+        return failureResponse(errorType = CommonErrorType.BAD_REQUEST, errorMessage = message)
     }
 
     @ExceptionHandler
@@ -43,7 +44,7 @@ class ApiControllerAdvice {
         val name = e.parameterName
         val type = e.parameterType
         val message = "필수 요청 파라미터 '$name' (타입: $type)가 누락되었습니다."
-        return failureResponse(errorType = ErrorType.BAD_REQUEST, errorMessage = message)
+        return failureResponse(errorType = CommonErrorType.BAD_REQUEST, errorMessage = message)
     }
 
     @ExceptionHandler
@@ -81,7 +82,7 @@ class ApiControllerAdvice {
             else -> "요청 본문을 처리하는 중 오류가 발생했습니다. JSON 메세지 규격을 확인해주세요."
         }
 
-        return failureResponse(errorType = ErrorType.BAD_REQUEST, errorMessage = errorMessage)
+        return failureResponse(errorType = CommonErrorType.BAD_REQUEST, errorMessage = errorMessage)
     }
 
     @ExceptionHandler
@@ -93,21 +94,21 @@ class ApiControllerAdvice {
 
         val missingParams = extractMissingParameter(e.reason ?: "")
         return if (missingParams.isNotEmpty()) {
-            failureResponse(errorType = ErrorType.BAD_REQUEST, errorMessage = "필수 요청 값 \'$missingParams\'가 누락되었습니다.")
+            failureResponse(errorType = CommonErrorType.BAD_REQUEST, errorMessage = "필수 요청 값 \'$missingParams\'가 누락되었습니다.")
         } else {
-            failureResponse(errorType = ErrorType.BAD_REQUEST)
+            failureResponse(errorType = CommonErrorType.BAD_REQUEST)
         }
     }
 
     @ExceptionHandler
     fun handleNotFound(e: NoResourceFoundException): ResponseEntity<ApiResponse<*>> {
-        return failureResponse(errorType = ErrorType.NOT_FOUND)
+        return failureResponse(errorType = CommonErrorType.NOT_FOUND)
     }
 
     @ExceptionHandler
     fun handle(e: Throwable): ResponseEntity<ApiResponse<*>> {
         log.error("Exception : {}", e.message, e)
-        val errorType = ErrorType.INTERNAL_ERROR
+        val errorType = CommonErrorType.INTERNAL_ERROR
         return failureResponse(errorType = errorType)
     }
 
