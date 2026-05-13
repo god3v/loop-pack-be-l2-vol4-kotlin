@@ -18,4 +18,9 @@ class UserFacade(
             email = command.email,
         ).let { UserInfo.from(it) }
     }
+
+    @Transactional(readOnly = true)
+    fun getMyInfo(loginId: String, plainPassword: String): MyInfoResult {
+        return MyInfoResult.from(userService.authenticate(loginId, plainPassword))
+    }
 }

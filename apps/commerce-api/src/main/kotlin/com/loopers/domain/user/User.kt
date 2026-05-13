@@ -65,6 +65,8 @@ class User private constructor(
         }
     }
 
+    fun maskedName(): String = name.dropLast(1) + "*"
+
     companion object {
         private val LOGIN_ID_REGEX = Regex("^[A-Za-z0-9]+$")
         private val NAME_REGEX = Regex("^[가-힣A-Za-z]+$")
