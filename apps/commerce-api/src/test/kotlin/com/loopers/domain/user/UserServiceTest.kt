@@ -270,6 +270,116 @@ class UserServiceTest {
         }
     }
 
+    @DisplayName("비밀번호를 변경할 때, ")
+    @Nested
+    inner class ChangePassword {
+        private val newPassword = "NewPw5678!"
+
+        @DisplayName("헤더 비밀번호가 일치하지 않으면, UNAUTHORIZED 예외가 발생한다.")
+        @Test
+        fun throwsUnauthorized_whenHeaderPasswordMismatch() {
+            // give
+            every { userRepository.findByLoginId(DEFAULT_LOGIN_ID) } returns UserFixture.validUser()
+
+            // when
+            val result = assertThrows<CoreException> {
+                userService.changePassword(
+                    loginId = DEFAULT_LOGIN_ID,
+                    headerPassword = "Wrong1234!",
+                    currentPassword = DEFAULT_PASSWORD,
+                    newPassword = newPassword,
+                )
+            }
+
+            // then
+            assertThat(result.errorType).isEqualTo(UserErrorType.UNAUTHORIZED)
+        }
+
+        @DisplayName("헤더 비밀번호는 일치하지만 body 의 currentPassword 가 일치하지 않으면, UNAUTHORIZED 예외가 발생한다.")
+        @Test
+        fun throwsUnauthorized_whenBodyCurrentPasswordMismatch() {
+            // give
+            every { userRepository.findByLoginId(DEFAULT_LOGIN_ID) } returns UserFixture.validUser()
+
+            // when
+            val result = assertThrows<CoreException> {
+                userService.changePassword(
+                    loginId = DEFAULT_LOGIN_ID,
+                    headerPassword = DEFAULT_PASSWORD,
+                    currentPassword = "Wrong1234!",
+                    newPassword = newPassword,
+                )
+            }
+
+            // then
+            assertThat(result.errorType).isEqualTo(UserErrorType.UNAUTHORIZED)
+        }
+
+        @DisplayName("새 비밀번호가 현재 비밀번호와 동일하면, PASSWORD_CHANGE_BAD_REQUEST 예외가 발생한다.")
+        @Test
+        fun throwsPasswordChangeBadRequest_whenNewPasswordEqualsCurrent() {
+            // give
+            every { userRepository.findByLoginId(DEFAULT_LOGIN_ID) } returns UserFixture.validUser()
+
+            // when
+            val result = assertThrows<CoreException> {
+                userService.changePassword(
+                    loginId = DEFAULT_LOGIN_ID,
+                    headerPassword = DEFAULT_PASSWORD,
+                    currentPassword = DEFAULT_PASSWORD,
+                    newPassword = DEFAULT_PASSWORD,
+                )
+            }
+
+            // then
+            assertThat(result.errorType).isEqualTo(UserErrorType.PASSWORD_CHANGE_BAD_REQUEST)
+        }
+
+        @DisplayName("새 비밀번호가 RULE(길이/카테고리/생년월일) 을 위반하면, PASSWORD_CHANGE_BAD_REQUEST 예외가 발생한다.")
+        @ParameterizedTest
+        @ValueSource(strings = ["short1!", "Asdfasdf", "Ab1!20010709"])
+        fun throwsPasswordChangeBadRequest_whenNewPasswordViolatesRule(invalidNewPassword: String) {
+            // give
+            every { userRepository.findByLoginId(DEFAULT_LOGIN_ID) } returns UserFixture.validUser()
+
+            // when
+            val result = assertThrows<CoreException> {
+                userService.changePassword(
+                    loginId = DEFAULT_LOGIN_ID,
+                    headerPassword = DEFAULT_PASSWORD,
+                    currentPassword = DEFAULT_PASSWORD,
+                    newPassword = invalidNewPassword,
+                )
+            }
+
+            // then
+            assertThat(result.errorType).isEqualTo(UserErrorType.PASSWORD_CHANGE_BAD_REQUEST)
+        }
+
+        @DisplayName("이중 인증과 RULE 을 모두 통과한 새 비밀번호로 변경하면, 비밀번호가 갱신된 User 가 save 를 거쳐 반환된다.")
+        @Test
+        fun savesAndReturnsUserWithNewPassword_whenAllValidationsPass() {
+            // give
+            val savedUser = UserFixture.validUser()
+            every { userRepository.findByLoginId(DEFAULT_LOGIN_ID) } returns savedUser
+            every { userRepository.save(any()) } answers { firstArg() }
+
+            // when
+            val result = userService.changePassword(
+                loginId = DEFAULT_LOGIN_ID,
+                headerPassword = DEFAULT_PASSWORD,
+                currentPassword = DEFAULT_PASSWORD,
+                newPassword = newPassword,
+            )
+
+            // then
+            assertAll(
+                { assertThat(result.password).isEqualTo(newPassword) },
+                { verify(exactly = 1) { userRepository.save(savedUser) } },
+            )
+        }
+    }
+
     companion object {
         @JvmStatic
         fun invalidNames(): List<String> = listOf(

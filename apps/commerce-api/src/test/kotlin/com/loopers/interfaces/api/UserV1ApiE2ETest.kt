@@ -30,6 +30,7 @@ class UserV1ApiE2ETest @Autowired constructor(
     companion object {
         private const val ENDPOINT_SIGNUP = "/api/v1/users"
         private const val ENDPOINT_ME = "/api/v1/users/me"
+        private const val ENDPOINT_PASSWORD = "/api/v1/users/me/password"
         private const val HEADER_LOGIN_ID = "X-Loopers-LoginId"
         private const val HEADER_LOGIN_PW = "X-Loopers-LoginPw"
 
@@ -219,6 +220,130 @@ class UserV1ApiE2ETest @Autowired constructor(
         }
     }
 
+    @DisplayName("PATCH /api/v1/users/me/password")
+    @Nested
+    inner class ChangePassword {
+        private val newPassword = "NewPw5678!"
+
+        @DisplayName("정상 이중 인증과 RULE 을 통과한 새 비밀번호로 변경하면, 200 응답을 반환하고 새 비밀번호로 GET /me 인증이 가능하다.")
+        @Test
+        fun returnsSuccessAndAllowsAuthenticationWithNewPassword_whenValidRequest() {
+            // give
+            signUpDefaultUser()
+
+            // when
+            val response = exchangePatchPassword(
+                loginId = UserFixture.DEFAULT_LOGIN_ID,
+                headerPassword = UserFixture.DEFAULT_PASSWORD,
+                body = UserV1Dto.ChangePasswordRequest(
+                    currentPassword = UserFixture.DEFAULT_PASSWORD,
+                    newPassword = newPassword,
+                ),
+            )
+            val afterMe = exchangeGetMe(UserFixture.DEFAULT_LOGIN_ID, newPassword)
+
+            // then
+            assertAll(
+                { assertThat(response.statusCode.is2xxSuccessful).isTrue() },
+                { assertThat(response.body?.meta?.result).isEqualTo(ApiResponse.Metadata.Result.SUCCESS) },
+                { assertThat(afterMe.statusCode.is2xxSuccessful).isTrue() },
+                { assertThat(afterMe.body?.data?.loginId).isEqualTo(UserFixture.DEFAULT_LOGIN_ID) },
+            )
+        }
+
+        @DisplayName("헤더의 비밀번호가 일치하지 않으면, 401 UNAUTHORIZED 응답을 반환한다.")
+        @Test
+        fun returnsUnauthorized_whenHeaderPasswordMismatch() {
+            // give
+            signUpDefaultUser()
+
+            // when
+            val response = exchangePatchPassword(
+                loginId = UserFixture.DEFAULT_LOGIN_ID,
+                headerPassword = "Wrong1234!",
+                body = UserV1Dto.ChangePasswordRequest(
+                    currentPassword = UserFixture.DEFAULT_PASSWORD,
+                    newPassword = newPassword,
+                ),
+            )
+
+            // then
+            assertAll(
+                { assertThat(response.statusCode).isEqualTo(HttpStatus.UNAUTHORIZED) },
+                { assertThat(response.body?.meta?.errorCode).isEqualTo("UNAUTHORIZED") },
+            )
+        }
+
+        @DisplayName("헤더는 일치하지만 body 의 currentPassword 가 일치하지 않으면, 401 UNAUTHORIZED 응답을 반환한다.")
+        @Test
+        fun returnsUnauthorized_whenBodyCurrentPasswordMismatch() {
+            // give
+            signUpDefaultUser()
+
+            // when
+            val response = exchangePatchPassword(
+                loginId = UserFixture.DEFAULT_LOGIN_ID,
+                headerPassword = UserFixture.DEFAULT_PASSWORD,
+                body = UserV1Dto.ChangePasswordRequest(
+                    currentPassword = "Wrong1234!",
+                    newPassword = newPassword,
+                ),
+            )
+
+            // then
+            assertAll(
+                { assertThat(response.statusCode).isEqualTo(HttpStatus.UNAUTHORIZED) },
+                { assertThat(response.body?.meta?.errorCode).isEqualTo("UNAUTHORIZED") },
+            )
+        }
+
+        @DisplayName("새 비밀번호가 RULE 을 위반하면, 400 PASSWORD_CHANGE_BAD_REQUEST 응답을 반환한다.")
+        @Test
+        fun returnsBadRequest_whenNewPasswordViolatesRule() {
+            // give
+            signUpDefaultUser()
+
+            // when
+            val response = exchangePatchPassword(
+                loginId = UserFixture.DEFAULT_LOGIN_ID,
+                headerPassword = UserFixture.DEFAULT_PASSWORD,
+                body = UserV1Dto.ChangePasswordRequest(
+                    currentPassword = UserFixture.DEFAULT_PASSWORD,
+                    newPassword = "short1!",
+                ),
+            )
+
+            // then
+            assertAll(
+                { assertThat(response.statusCode).isEqualTo(HttpStatus.BAD_REQUEST) },
+                { assertThat(response.body?.meta?.errorCode).isEqualTo("PASSWORD_CHANGE_BAD_REQUEST") },
+            )
+        }
+
+        @DisplayName("새 비밀번호가 현재 비밀번호와 동일하면, 400 PASSWORD_CHANGE_BAD_REQUEST 응답을 반환한다.")
+        @Test
+        fun returnsBadRequest_whenNewPasswordEqualsCurrent() {
+            // give
+            signUpDefaultUser()
+
+            // when
+            val response = exchangePatchPassword(
+                loginId = UserFixture.DEFAULT_LOGIN_ID,
+                headerPassword = UserFixture.DEFAULT_PASSWORD,
+                body = UserV1Dto.ChangePasswordRequest(
+                    currentPassword = UserFixture.DEFAULT_PASSWORD,
+                    newPassword = UserFixture.DEFAULT_PASSWORD,
+                ),
+            )
+
+            // then
+            assertAll(
+                { assertThat(response.statusCode).isEqualTo(HttpStatus.BAD_REQUEST) },
+                { assertThat(response.body?.meta?.errorCode).isEqualTo("PASSWORD_CHANGE_BAD_REQUEST") },
+            )
+        }
+    }
+
     private fun signUpDefaultUser() {
         val responseType = object : ParameterizedTypeReference<ApiResponse<UserV1Dto.SignupResponse>>() {}
         testRestTemplate.exchange(ENDPOINT_SIGNUP, HttpMethod.POST, HttpEntity(validSignupRequest()), responseType)
@@ -234,5 +359,18 @@ class UserV1ApiE2ETest @Autowired constructor(
         }
         val responseType = object : ParameterizedTypeReference<ApiResponse<UserV1Dto.MyInfoResponse>>() {}
         return testRestTemplate.exchange(ENDPOINT_ME, HttpMethod.GET, HttpEntity<Unit>(headers), responseType)
+    }
+
+    private fun exchangePatchPassword(
+        loginId: String?,
+        headerPassword: String?,
+        body: UserV1Dto.ChangePasswordRequest,
+    ): ResponseEntity<ApiResponse<Any>> {
+        val headers = HttpHeaders().apply {
+            if (loginId != null) set(HEADER_LOGIN_ID, loginId)
+            if (headerPassword != null) set(HEADER_LOGIN_PW, headerPassword)
+        }
+        val responseType = object : ParameterizedTypeReference<ApiResponse<Any>>() {}
+        return testRestTemplate.exchange(ENDPOINT_PASSWORD, HttpMethod.PATCH, HttpEntity(body, headers), responseType)
     }
 }
