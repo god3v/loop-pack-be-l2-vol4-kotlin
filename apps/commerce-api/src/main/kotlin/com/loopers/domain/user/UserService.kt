@@ -33,4 +33,18 @@ class UserService(
         }
         return user
     }
+
+    fun changePassword(
+        loginId: String,
+        headerPassword: String,
+        currentPassword: String,
+        newPassword: String,
+    ): User {
+        val user = authenticate(loginId, headerPassword)
+        if (user.password != currentPassword) {
+            throw CoreException(UserErrorType.UNAUTHORIZED)
+        }
+        user.changePassword(newPassword)
+        return userRepository.save(user)
+    }
 }

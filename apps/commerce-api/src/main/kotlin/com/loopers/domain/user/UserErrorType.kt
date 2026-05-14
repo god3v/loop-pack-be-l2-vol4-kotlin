@@ -12,4 +12,5 @@ enum class UserErrorType(
     DUPLICATE_EMAIL(HttpStatus.CONFLICT, "DUPLICATE_EMAIL", "이미 사용 중인 이메일입니다."),
     SIGNUP_BAD_REQUEST(HttpStatus.BAD_REQUEST, "SIGNUP_BAD_REQUEST", "회원가입 입력값이 올바르지 않습니다."),
     UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "인증에 실패했습니다."),
+    PASSWORD_CHANGE_BAD_REQUEST(HttpStatus.BAD_REQUEST, "PASSWORD_CHANGE_BAD_REQUEST", "비밀번호 변경 입력값이 올바르지 않습니다."),
 }
