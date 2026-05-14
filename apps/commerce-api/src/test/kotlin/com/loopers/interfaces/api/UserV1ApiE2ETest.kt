@@ -49,12 +49,12 @@ class UserV1ApiE2ETest @Autowired constructor(
     @DisplayName("POST /api/v1/users")
     @Nested
     inner class SignUp {
-        @DisplayName("유효한 정보로 회원가입하면, 성공 응답을 받는다.")
+        @DisplayName("유효한 정보로 회원가입하면, data 가 없는 success 응답을 받는다.")
         @Test
-        fun returnsSuccessWithIdAndLoginId_whenValidRequest() {
+        fun returnsSuccess_whenValidRequest() {
             // give
             val request = validSignupRequest()
-            val responseType = object : ParameterizedTypeReference<ApiResponse<UserV1Dto.SignupResponse>>() {}
+            val responseType = object : ParameterizedTypeReference<ApiResponse<Any>>() {}
 
             // when
             val response = testRestTemplate.exchange(ENDPOINT_SIGNUP, HttpMethod.POST, HttpEntity(request), responseType)
@@ -63,8 +63,7 @@ class UserV1ApiE2ETest @Autowired constructor(
             assertAll(
                 { assertThat(response.statusCode.is2xxSuccessful).isTrue() },
                 { assertThat(response.body?.meta?.result).isEqualTo(ApiResponse.Metadata.Result.SUCCESS) },
-                { assertThat(response.body?.data?.id).isNotNull() },
-                { assertThat(response.body?.data?.loginId).isEqualTo(UserFixture.DEFAULT_LOGIN_ID) },
+                { assertThat(response.body?.data).isNull() },
             )
         }
 
@@ -73,7 +72,7 @@ class UserV1ApiE2ETest @Autowired constructor(
         fun returnsBadRequest_whenInputIsInvalid() {
             // give
             val request = validSignupRequest(loginId = "한글포함")
-            val responseType = object : ParameterizedTypeReference<ApiResponse<UserV1Dto.SignupResponse>>() {}
+            val responseType = object : ParameterizedTypeReference<ApiResponse<Any>>() {}
 
             // when
             val response = testRestTemplate.exchange(ENDPOINT_SIGNUP, HttpMethod.POST, HttpEntity(request), responseType)
@@ -90,7 +89,7 @@ class UserV1ApiE2ETest @Autowired constructor(
         fun returnsConflict_whenLoginIdAlreadyExists() {
             // give
             val first = validSignupRequest()
-            val responseType = object : ParameterizedTypeReference<ApiResponse<UserV1Dto.SignupResponse>>() {}
+            val responseType = object : ParameterizedTypeReference<ApiResponse<Any>>() {}
             testRestTemplate.exchange(ENDPOINT_SIGNUP, HttpMethod.POST, HttpEntity(first), responseType)
             val duplicate = validSignupRequest(email = "other@example.com")
 
@@ -109,7 +108,7 @@ class UserV1ApiE2ETest @Autowired constructor(
         fun returnsConflict_whenEmailAlreadyExists() {
             // give
             val first = validSignupRequest()
-            val responseType = object : ParameterizedTypeReference<ApiResponse<UserV1Dto.SignupResponse>>() {}
+            val responseType = object : ParameterizedTypeReference<ApiResponse<Any>>() {}
             testRestTemplate.exchange(ENDPOINT_SIGNUP, HttpMethod.POST, HttpEntity(first), responseType)
             val duplicate = validSignupRequest(loginId = "anothername")
 
@@ -183,24 +182,24 @@ class UserV1ApiE2ETest @Autowired constructor(
     @DisplayName("PATCH /api/v1/users/me/password")
     @Nested
     inner class ChangePassword {
-        private val newPassword = "NewPw5678!"
+        private val nextPw = "NewPw5678!"
 
         @DisplayName("정상 이중 인증과 RULE 을 통과한 새 비밀번호로 변경하면, 200 응답을 반환하고 새 비밀번호로 GET /me 인증이 가능하다.")
         @Test
-        fun returnsSuccessAndAllowsAuthenticationWithNewPassword_whenValidRequest() {
+        fun returnsSuccessAndAllowsAuthenticationWithnextPw_whenValidRequest() {
             // give
             signUpDefaultUser()
 
             // when
             val response = exchangePatchPassword(
                 loginId = UserFixture.DEFAULT_LOGIN_ID,
-                headerPassword = UserFixture.DEFAULT_PASSWORD,
+                loginPw = UserFixture.DEFAULT_PASSWORD,
                 body = UserV1Dto.ChangePasswordRequest(
-                    currentPassword = UserFixture.DEFAULT_PASSWORD,
-                    newPassword = newPassword,
+                    prevPw = UserFixture.DEFAULT_PASSWORD,
+                    nextPw = nextPw,
                 ),
             )
-            val afterMe = exchangeGetMe(UserFixture.DEFAULT_LOGIN_ID, newPassword)
+            val afterMe = exchangeGetMe(UserFixture.DEFAULT_LOGIN_ID, nextPw)
 
             // then
             assertAll(
@@ -213,17 +212,17 @@ class UserV1ApiE2ETest @Autowired constructor(
 
         @DisplayName("헤더의 비밀번호가 일치하지 않으면, 401 UNAUTHORIZED 응답을 반환한다.")
         @Test
-        fun returnsUnauthorized_whenHeaderPasswordMismatch() {
+        fun returnsUnauthorized_whenloginPwMismatch() {
             // give
             signUpDefaultUser()
 
             // when
             val response = exchangePatchPassword(
                 loginId = UserFixture.DEFAULT_LOGIN_ID,
-                headerPassword = "Wrong1234!",
+                loginPw = "Wrong1234!",
                 body = UserV1Dto.ChangePasswordRequest(
-                    currentPassword = UserFixture.DEFAULT_PASSWORD,
-                    newPassword = newPassword,
+                    prevPw = UserFixture.DEFAULT_PASSWORD,
+                    nextPw = nextPw,
                 ),
             )
 
@@ -234,19 +233,19 @@ class UserV1ApiE2ETest @Autowired constructor(
             )
         }
 
-        @DisplayName("헤더는 일치하지만 body 의 currentPassword 가 일치하지 않으면, 401 UNAUTHORIZED 응답을 반환한다.")
+        @DisplayName("헤더는 일치하지만 body 의 prevPw 가 일치하지 않으면, 401 UNAUTHORIZED 응답을 반환한다.")
         @Test
-        fun returnsUnauthorized_whenBodyCurrentPasswordMismatch() {
+        fun returnsUnauthorized_whenBodyprevPwMismatch() {
             // give
             signUpDefaultUser()
 
             // when
             val response = exchangePatchPassword(
                 loginId = UserFixture.DEFAULT_LOGIN_ID,
-                headerPassword = UserFixture.DEFAULT_PASSWORD,
+                loginPw = UserFixture.DEFAULT_PASSWORD,
                 body = UserV1Dto.ChangePasswordRequest(
-                    currentPassword = "Wrong1234!",
-                    newPassword = newPassword,
+                    prevPw = "Wrong1234!",
+                    nextPw = nextPw,
                 ),
             )
 
@@ -257,42 +256,42 @@ class UserV1ApiE2ETest @Autowired constructor(
             )
         }
 
-        @DisplayName("새 비밀번호가 RULE 을 위반하면, 400 PASSWORD_CHANGE_BAD_REQUEST 응답을 반환한다.")
+        @DisplayName("새 비밀번호가 RULE 을 위반하면, 400 INVALID_PASSWORD 응답을 반환한다.")
         @Test
-        fun returnsBadRequest_whenNewPasswordViolatesRule() {
+        fun returnsBadRequest_whennextPwViolatesRule() {
             // give
             signUpDefaultUser()
 
             // when
             val response = exchangePatchPassword(
                 loginId = UserFixture.DEFAULT_LOGIN_ID,
-                headerPassword = UserFixture.DEFAULT_PASSWORD,
+                loginPw = UserFixture.DEFAULT_PASSWORD,
                 body = UserV1Dto.ChangePasswordRequest(
-                    currentPassword = UserFixture.DEFAULT_PASSWORD,
-                    newPassword = "short1!",
+                    prevPw = UserFixture.DEFAULT_PASSWORD,
+                    nextPw = "short1!",
                 ),
             )
 
             // then
             assertAll(
                 { assertThat(response.statusCode).isEqualTo(HttpStatus.BAD_REQUEST) },
-                { assertThat(response.body?.meta?.errorCode).isEqualTo("PASSWORD_CHANGE_BAD_REQUEST") },
+                { assertThat(response.body?.meta?.errorCode).isEqualTo("INVALID_PASSWORD") },
             )
         }
 
         @DisplayName("새 비밀번호가 현재 비밀번호와 동일하면, 400 PASSWORD_CHANGE_BAD_REQUEST 응답을 반환한다.")
         @Test
-        fun returnsBadRequest_whenNewPasswordEqualsCurrent() {
+        fun returnsBadRequest_whennextPwEqualsCurrent() {
             // give
             signUpDefaultUser()
 
             // when
             val response = exchangePatchPassword(
                 loginId = UserFixture.DEFAULT_LOGIN_ID,
-                headerPassword = UserFixture.DEFAULT_PASSWORD,
+                loginPw = UserFixture.DEFAULT_PASSWORD,
                 body = UserV1Dto.ChangePasswordRequest(
-                    currentPassword = UserFixture.DEFAULT_PASSWORD,
-                    newPassword = UserFixture.DEFAULT_PASSWORD,
+                    prevPw = UserFixture.DEFAULT_PASSWORD,
+                    nextPw = UserFixture.DEFAULT_PASSWORD,
                 ),
             )
 
@@ -305,7 +304,7 @@ class UserV1ApiE2ETest @Autowired constructor(
     }
 
     private fun signUpDefaultUser() {
-        val responseType = object : ParameterizedTypeReference<ApiResponse<UserV1Dto.SignupResponse>>() {}
+        val responseType = object : ParameterizedTypeReference<ApiResponse<Any>>() {}
         testRestTemplate.exchange(ENDPOINT_SIGNUP, HttpMethod.POST, HttpEntity(validSignupRequest()), responseType)
     }
 
@@ -323,12 +322,12 @@ class UserV1ApiE2ETest @Autowired constructor(
 
     private fun exchangePatchPassword(
         loginId: String?,
-        headerPassword: String?,
+        loginPw: String?,
         body: UserV1Dto.ChangePasswordRequest,
     ): ResponseEntity<ApiResponse<Any>> {
         val headers = HttpHeaders().apply {
             if (loginId != null) set(HEADER_LOGIN_ID, loginId)
-            if (headerPassword != null) set(HEADER_LOGIN_PW, headerPassword)
+            if (loginPw != null) set(HEADER_LOGIN_PW, loginPw)
         }
         val responseType = object : ParameterizedTypeReference<ApiResponse<Any>>() {}
         return testRestTemplate.exchange(ENDPOINT_PASSWORD, HttpMethod.PATCH, HttpEntity(body, headers), responseType)

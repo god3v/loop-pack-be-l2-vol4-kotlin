@@ -25,6 +25,9 @@ class UserService(
         return userRepository.save(user)
     }
 
+    /*
+    TODO 추후 인터셉터에서 인증 책임 분리
+     */
     fun authenticate(loginId: String, plainPassword: String): User {
         val user = userRepository.findByLoginId(loginId)
             ?: throw CoreException(UserErrorType.UNAUTHORIZED)
@@ -36,15 +39,12 @@ class UserService(
 
     fun changePassword(
         loginId: String,
-        headerPassword: String,
-        currentPassword: String,
-        newPassword: String,
+        loginPw: String,
+        prevPw: String,
+        nextPw: String,
     ): User {
-        val user = authenticate(loginId, headerPassword)
-        if (!user.password.matches(currentPassword)) {
-            throw CoreException(UserErrorType.UNAUTHORIZED)
-        }
-        user.changePassword(newPassword)
+        val user = authenticate(loginId, loginPw)
+        user.changePassword(prevPw, nextPw)
         return userRepository.save(user)
     }
 }

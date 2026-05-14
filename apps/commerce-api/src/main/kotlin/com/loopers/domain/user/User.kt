@@ -5,7 +5,7 @@ import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 
 class User internal constructor(
-    val id: Long,
+    val id: Long = 0L,
     val loginId: String,
     password: Password,
     val name: String,
@@ -15,13 +15,29 @@ class User internal constructor(
     var password: Password = password
         private set
 
-    fun maskedName(): String = name.dropLast(1) + "*"
+    init {
+        if (loginId.length !in 4..20 || !loginId.matches(LOGIN_ID_REGEX)) {
+            throw CoreException(UserErrorType.SIGNUP_BAD_REQUEST, "loginId 형식이 올바르지 않습니다.")
+        }
+        if (name.length !in 2..50 || !name.matches(NAME_REGEX)) {
+            throw CoreException(UserErrorType.SIGNUP_BAD_REQUEST, "name 형식이 올바르지 않습니다.")
+        }
+        val today = LocalDate.now()
+        if (birthDate.isAfter(today) || ChronoUnit.YEARS.between(birthDate, today) < 14) {
+            throw CoreException(UserErrorType.SIGNUP_BAD_REQUEST, "birthDate 형식이 올바르지 않습니다.")
+        }
+    }
 
-    fun changePassword(newPasswordPlain: String) {
-        if (this.password.matches(newPasswordPlain)) {
+    fun name(): String = name.dropLast(1) + "*"
+
+    fun changePassword(prevPwPlain: String, nextPwPlain: String) {
+        if (!this.password.matches(prevPwPlain)) {
+            throw CoreException(UserErrorType.UNAUTHORIZED)
+        }
+        if (this.password.matches(nextPwPlain)) {
             throw CoreException(UserErrorType.PASSWORD_CHANGE_BAD_REQUEST, "현재 비밀번호와 동일합니다.")
         }
-        this.password = Password.of(newPasswordPlain, birthDate, UserErrorType.PASSWORD_CHANGE_BAD_REQUEST)
+        this.password = Password.of(nextPwPlain, birthDate)
     }
 
     companion object {
@@ -34,25 +50,12 @@ class User internal constructor(
             name: String,
             birthDate: LocalDate,
             email: String,
-        ): User {
-            if (loginId.length !in 4..20 || !loginId.matches(LOGIN_ID_REGEX)) {
-                throw CoreException(UserErrorType.SIGNUP_BAD_REQUEST, "loginId 형식이 올바르지 않습니다.")
-            }
-            if (name.length !in 2..50 || !name.matches(NAME_REGEX)) {
-                throw CoreException(UserErrorType.SIGNUP_BAD_REQUEST, "name 형식이 올바르지 않습니다.")
-            }
-            val today = LocalDate.now()
-            if (birthDate.isAfter(today) || ChronoUnit.YEARS.between(birthDate, today) < 14) {
-                throw CoreException(UserErrorType.SIGNUP_BAD_REQUEST, "birthDate 형식이 올바르지 않습니다.")
-            }
-            return User(
-                id = 0,
-                loginId = loginId,
-                password = Password.of(password, birthDate, UserErrorType.SIGNUP_BAD_REQUEST),
-                name = name,
-                birthDate = birthDate,
-                email = Email.of(email),
-            )
-        }
+        ): User = User(
+            loginId = loginId,
+            password = Password.of(password, birthDate),
+            name = name,
+            birthDate = birthDate,
+            email = Email.of(email),
+        )
     }
 }

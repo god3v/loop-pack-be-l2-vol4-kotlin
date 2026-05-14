@@ -28,7 +28,7 @@ class UserTest {
             )
         }
 
-        @DisplayName("잘못된 loginId 로 회원을 생성하면, SIGNUP_BAD_REQUEST 예외가 발생한다.")
+        @DisplayName("잘못된 아이디, SIGNUP_BAD_REQUEST 예외가 발생한다.")
         @Test
         fun throwsSignupBadRequest_whenLoginIdIsInvalid() {
             // when
@@ -64,7 +64,7 @@ class UserTest {
             assertThat(result.errorType).isEqualTo(UserErrorType.SIGNUP_BAD_REQUEST)
         }
 
-        @DisplayName("만 14세 미만의 birthDate 로 회원을 생성하면, SIGNUP_BAD_REQUEST 예외가 발생한다.")
+        @DisplayName("만 14세 미만이면, SIGNUP_BAD_REQUEST 예외가 발생한다.")
         @Test
         fun throwsSignupBadRequest_whenBirthDateIsUnderAge14() {
             // when
@@ -88,28 +88,95 @@ class UserTest {
             assertThat(result.errorType).isEqualTo(UserErrorType.SIGNUP_BAD_REQUEST)
         }
 
-        @DisplayName("영문/숫자/특수문자 3 카테고리 중 하나라도 빠진 비밀번호로 회원을 생성하면, SIGNUP_BAD_REQUEST 예외가 발생한다.")
+        @DisplayName("영문/숫자/특수문자 3 카테고리 중 하나라도 빠진 비밀번호로 회원을 생성하면, INVALID_PASSWORD 예외가 발생한다.")
         @Test
-        fun throwsSignupBadRequest_whenPasswordMissingCategory() {
+        fun throwsInvalidPassword_whenPasswordMissingCategory() {
             // when
             val result = assertThrows<CoreException> {
                 UserFixture.validUser(password = "asdfasdf")
             }
 
             // then
-            assertThat(result.errorType).isEqualTo(UserErrorType.SIGNUP_BAD_REQUEST)
+            assertThat(result.errorType).isEqualTo(UserErrorType.INVALID_PASSWORD)
         }
 
-        @DisplayName("생년월일(yyyyMMdd) 이 포함된 비밀번호로 회원을 생성하면, SIGNUP_BAD_REQUEST 예외가 발생한다.")
+        @DisplayName("생년월일(yyyyMMdd) 이 포함된 비밀번호로 회원을 생성하면, INVALID_PASSWORD 예외가 발생한다.")
         @Test
-        fun throwsSignupBadRequest_whenPasswordContainsBirthDate() {
+        fun throwsInvalidPassword_whenPasswordContainsBirthDate() {
             // when
             val result = assertThrows<CoreException> {
                 UserFixture.validUser(password = "Ab1!20010709")
             }
 
             // then
-            assertThat(result.errorType).isEqualTo(UserErrorType.SIGNUP_BAD_REQUEST)
+            assertThat(result.errorType).isEqualTo(UserErrorType.INVALID_PASSWORD)
+        }
+    }
+
+    @DisplayName("비밀번호를 변경할 때, ")
+    @Nested
+    inner class ChangePassword {
+        private val newPassword = "NewPw5678!"
+
+        @DisplayName("현재 비밀번호가 일치하지 않으면, UNAUTHORIZED 예외가 발생한다.")
+        @Test
+        fun throwsUnauthorized_whenPrevPwMismatch() {
+            // give
+            val user = UserFixture.validUser()
+
+            // when
+            val result = assertThrows<CoreException> {
+                user.changePassword(prevPwPlain = "Wrong1234!", nextPwPlain = newPassword)
+            }
+
+            // then
+            assertThat(result.errorType).isEqualTo(UserErrorType.UNAUTHORIZED)
+        }
+
+        @DisplayName("새 비밀번호가 현재 비밀번호와 동일하면, PASSWORD_CHANGE_BAD_REQUEST 예외가 발생한다.")
+        @Test
+        fun throwsPasswordChangeBadRequest_whenNewEqualsCurrent() {
+            // give
+            val user = UserFixture.validUser()
+
+            // when
+            val result = assertThrows<CoreException> {
+                user.changePassword(prevPwPlain = UserFixture.DEFAULT_PASSWORD, nextPwPlain = UserFixture.DEFAULT_PASSWORD)
+            }
+
+            // then
+            assertThat(result.errorType).isEqualTo(UserErrorType.PASSWORD_CHANGE_BAD_REQUEST)
+        }
+
+        @DisplayName("새 비밀번호가 RULE 을 위반하면, INVALID_PASSWORD 예외가 발생한다.")
+        @Test
+        fun throwsInvalidPassword_whenNewViolatesRule() {
+            // give
+            val user = UserFixture.validUser()
+
+            // when
+            val result = assertThrows<CoreException> {
+                user.changePassword(prevPwPlain = UserFixture.DEFAULT_PASSWORD, nextPwPlain = "short1!")
+            }
+
+            // then
+            assertThat(result.errorType).isEqualTo(UserErrorType.INVALID_PASSWORD)
+        }
+
+        @DisplayName("정상 입력으로 비밀번호를 변경하면, User.password 가 새 값으로 갱신되고 새 평문에 matches 한다.")
+        @Test
+        fun updatesPassword_whenValidInput() {
+            // give
+            val user = UserFixture.validUser()
+
+            // when
+            user.changePassword(prevPwPlain = UserFixture.DEFAULT_PASSWORD, nextPwPlain = newPassword)
+
+            // then
+            assertAll(
+                { assertThat(user.password.matches(newPassword)).isTrue() },
+                { assertThat(user.password.matches(UserFixture.DEFAULT_PASSWORD)).isFalse() },
+            )
         }
     }
 }

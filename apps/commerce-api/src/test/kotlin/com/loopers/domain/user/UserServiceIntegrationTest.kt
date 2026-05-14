@@ -80,4 +80,38 @@ class UserServiceIntegrationTest @Autowired constructor(
             assertThat(result.errorType).isEqualTo(UserErrorType.DUPLICATE_EMAIL)
         }
     }
+
+    @DisplayName("비밀번호를 변경할 때, ")
+    @Nested
+    inner class ChangePassword {
+        private val newPassword = "NewPw5678!"
+
+        @DisplayName("정상 입력으로 비밀번호를 변경하면, DB 의 password 가 새 값으로 갱신되고 새 비번으로 다시 인증이 가능하다.")
+        @Test
+        fun updatesPasswordAndAuthenticatesWithNew_whenValidInput() {
+            // give
+            userService.signup(DEFAULT_LOGIN_ID, DEFAULT_PASSWORD, DEFAULT_NAME, DEFAULT_BIRTH_DATE, DEFAULT_EMAIL)
+
+            // when
+            userService.changePassword(
+                loginId = DEFAULT_LOGIN_ID,
+                loginPw = DEFAULT_PASSWORD,
+                prevPw = DEFAULT_PASSWORD,
+                nextPw = newPassword,
+            )
+
+            // then
+            val reloaded = userJpaRepository.findByLoginId(DEFAULT_LOGIN_ID)!!
+            val reAuthenticated = userService.authenticate(DEFAULT_LOGIN_ID, newPassword)
+            assertAll(
+                { assertThat(reloaded.password).isEqualTo(newPassword) },
+                { assertThat(reAuthenticated.loginId).isEqualTo(DEFAULT_LOGIN_ID) },
+                {
+                    assertThrows<CoreException> {
+                        userService.authenticate(DEFAULT_LOGIN_ID, DEFAULT_PASSWORD)
+                    }.also { assertThat(it.errorType).isEqualTo(UserErrorType.UNAUTHORIZED) }
+                },
+            )
+        }
+    }
 }

@@ -140,10 +140,10 @@ class UserServiceTest {
             assertThat(result.errorType).isEqualTo(UserErrorType.SIGNUP_BAD_REQUEST)
         }
 
-        @DisplayName("비밀번호 길이가 8~16자 범위를 벗어나면, SIGNUP_BAD_REQUEST 예외가 발생한다.")
+        @DisplayName("비밀번호 길이가 8~16자 범위를 벗어나면, INVALID_PASSWORD 예외가 발생한다.")
         @ParameterizedTest
         @ValueSource(strings = ["Ab1!", "Ab1!Ab1", "Ab1!Ab1!Ab1!Ab1!A", "Ab1!Ab1!Ab1!Ab1!Ab1!"])
-        fun throwsSignupBadRequest_whenPasswordLengthIsInvalid(invalidPassword: String) {
+        fun throwsInvalidPassword_whenPasswordLengthIsInvalid(invalidPassword: String) {
             // give
             stubNoDuplicate()
 
@@ -153,13 +153,13 @@ class UserServiceTest {
             }
 
             // then
-            assertThat(result.errorType).isEqualTo(UserErrorType.SIGNUP_BAD_REQUEST)
+            assertThat(result.errorType).isEqualTo(UserErrorType.INVALID_PASSWORD)
         }
 
-        @DisplayName("비밀번호에 허용되지 않은 문자가 포함되면, SIGNUP_BAD_REQUEST 예외가 발생한다.")
+        @DisplayName("비밀번호에 허용되지 않은 문자가 포함되면, INVALID_PASSWORD 예외가 발생한다.")
         @ParameterizedTest
         @ValueSource(strings = ["Asdf1234한", "Asdf 1234!", "한a1!@#\$%"])
-        fun throwsSignupBadRequest_whenPasswordContainsDisallowedChar(invalidPassword: String) {
+        fun throwsInvalidPassword_whenPasswordContainsDisallowedChar(invalidPassword: String) {
             // give
             stubNoDuplicate()
 
@@ -169,10 +169,10 @@ class UserServiceTest {
             }
 
             // then
-            assertThat(result.errorType).isEqualTo(UserErrorType.SIGNUP_BAD_REQUEST)
+            assertThat(result.errorType).isEqualTo(UserErrorType.INVALID_PASSWORD)
         }
 
-        @DisplayName("비밀번호의 3 카테고리(영문/숫자/특수문자) 중 하나라도 빠지면, SIGNUP_BAD_REQUEST 예외가 발생한다.")
+        @DisplayName("비밀번호의 3 카테고리(영문/숫자/특수문자) 중 하나라도 빠지면, INVALID_PASSWORD 예외가 발생한다.")
         @ParameterizedTest
         @ValueSource(
             strings = [
@@ -184,7 +184,7 @@ class UserServiceTest {
                 "12345678!",
             ],
         )
-        fun throwsSignupBadRequest_whenPasswordMissingCategory(invalidPassword: String) {
+        fun throwsInvalidPassword_whenPasswordMissingCategory(invalidPassword: String) {
             // give
             stubNoDuplicate()
 
@@ -194,13 +194,13 @@ class UserServiceTest {
             }
 
             // then
-            assertThat(result.errorType).isEqualTo(UserErrorType.SIGNUP_BAD_REQUEST)
+            assertThat(result.errorType).isEqualTo(UserErrorType.INVALID_PASSWORD)
         }
 
-        @DisplayName("비밀번호에 생년월일(yyyyMMdd 또는 yyMMdd)이 포함되면, SIGNUP_BAD_REQUEST 예외가 발생한다.")
+        @DisplayName("비밀번호에 생년월일(yyyyMMdd 또는 yyMMdd)이 포함되면, INVALID_PASSWORD 예외가 발생한다.")
         @ParameterizedTest
         @ValueSource(strings = ["Ab1!20010709", "20010709Ab!", "Ab!010709AB1"])
-        fun throwsSignupBadRequest_whenPasswordContainsBirthDate(invalidPassword: String) {
+        fun throwsInvalidPassword_whenPasswordContainsBirthDate(invalidPassword: String) {
             // give
             stubNoDuplicate()
 
@@ -210,7 +210,7 @@ class UserServiceTest {
             }
 
             // then
-            assertThat(result.errorType).isEqualTo(UserErrorType.SIGNUP_BAD_REQUEST)
+            assertThat(result.errorType).isEqualTo(UserErrorType.INVALID_PASSWORD)
         }
 
         private fun stubNoDuplicate() {
@@ -273,11 +273,11 @@ class UserServiceTest {
     @DisplayName("비밀번호를 변경할 때, ")
     @Nested
     inner class ChangePassword {
-        private val newPassword = "NewPw5678!"
+        private val nextPw = "NewPw5678!"
 
         @DisplayName("헤더 비밀번호가 일치하지 않으면, UNAUTHORIZED 예외가 발생한다.")
         @Test
-        fun throwsUnauthorized_whenHeaderPasswordMismatch() {
+        fun throwsUnauthorized_whenloginPwMismatch() {
             // give
             every { userRepository.findByLoginId(DEFAULT_LOGIN_ID) } returns UserFixture.validUser()
 
@@ -285,9 +285,9 @@ class UserServiceTest {
             val result = assertThrows<CoreException> {
                 userService.changePassword(
                     loginId = DEFAULT_LOGIN_ID,
-                    headerPassword = "Wrong1234!",
-                    currentPassword = DEFAULT_PASSWORD,
-                    newPassword = newPassword,
+                    loginPw = "Wrong1234!",
+                    prevPw = DEFAULT_PASSWORD,
+                    nextPw = nextPw,
                 )
             }
 
@@ -295,9 +295,9 @@ class UserServiceTest {
             assertThat(result.errorType).isEqualTo(UserErrorType.UNAUTHORIZED)
         }
 
-        @DisplayName("헤더 비밀번호는 일치하지만 body 의 currentPassword 가 일치하지 않으면, UNAUTHORIZED 예외가 발생한다.")
+        @DisplayName("헤더 비밀번호는 일치하지만 body 의 prevPw 가 일치하지 않으면, UNAUTHORIZED 예외가 발생한다.")
         @Test
-        fun throwsUnauthorized_whenBodyCurrentPasswordMismatch() {
+        fun throwsUnauthorized_whenBodyprevPwMismatch() {
             // give
             every { userRepository.findByLoginId(DEFAULT_LOGIN_ID) } returns UserFixture.validUser()
 
@@ -305,9 +305,9 @@ class UserServiceTest {
             val result = assertThrows<CoreException> {
                 userService.changePassword(
                     loginId = DEFAULT_LOGIN_ID,
-                    headerPassword = DEFAULT_PASSWORD,
-                    currentPassword = "Wrong1234!",
-                    newPassword = newPassword,
+                    loginPw = DEFAULT_PASSWORD,
+                    prevPw = "Wrong1234!",
+                    nextPw = nextPw,
                 )
             }
 
@@ -317,7 +317,7 @@ class UserServiceTest {
 
         @DisplayName("새 비밀번호가 현재 비밀번호와 동일하면, PASSWORD_CHANGE_BAD_REQUEST 예외가 발생한다.")
         @Test
-        fun throwsPasswordChangeBadRequest_whenNewPasswordEqualsCurrent() {
+        fun throwsPasswordChangeBadRequest_whennextPwEqualsCurrent() {
             // give
             every { userRepository.findByLoginId(DEFAULT_LOGIN_ID) } returns UserFixture.validUser()
 
@@ -325,9 +325,9 @@ class UserServiceTest {
             val result = assertThrows<CoreException> {
                 userService.changePassword(
                     loginId = DEFAULT_LOGIN_ID,
-                    headerPassword = DEFAULT_PASSWORD,
-                    currentPassword = DEFAULT_PASSWORD,
-                    newPassword = DEFAULT_PASSWORD,
+                    loginPw = DEFAULT_PASSWORD,
+                    prevPw = DEFAULT_PASSWORD,
+                    nextPw = DEFAULT_PASSWORD,
                 )
             }
 
@@ -335,10 +335,10 @@ class UserServiceTest {
             assertThat(result.errorType).isEqualTo(UserErrorType.PASSWORD_CHANGE_BAD_REQUEST)
         }
 
-        @DisplayName("새 비밀번호가 RULE(길이/카테고리/생년월일) 을 위반하면, PASSWORD_CHANGE_BAD_REQUEST 예외가 발생한다.")
+        @DisplayName("새 비밀번호가 RULE(길이/카테고리/생년월일) 을 위반하면, INVALID_PASSWORD 예외가 발생한다.")
         @ParameterizedTest
         @ValueSource(strings = ["short1!", "Asdfasdf", "Ab1!20010709"])
-        fun throwsPasswordChangeBadRequest_whenNewPasswordViolatesRule(invalidNewPassword: String) {
+        fun throwsInvalidPassword_whennextPwViolatesRule(invalidnextPw: String) {
             // give
             every { userRepository.findByLoginId(DEFAULT_LOGIN_ID) } returns UserFixture.validUser()
 
@@ -346,19 +346,19 @@ class UserServiceTest {
             val result = assertThrows<CoreException> {
                 userService.changePassword(
                     loginId = DEFAULT_LOGIN_ID,
-                    headerPassword = DEFAULT_PASSWORD,
-                    currentPassword = DEFAULT_PASSWORD,
-                    newPassword = invalidNewPassword,
+                    loginPw = DEFAULT_PASSWORD,
+                    prevPw = DEFAULT_PASSWORD,
+                    nextPw = invalidnextPw,
                 )
             }
 
             // then
-            assertThat(result.errorType).isEqualTo(UserErrorType.PASSWORD_CHANGE_BAD_REQUEST)
+            assertThat(result.errorType).isEqualTo(UserErrorType.INVALID_PASSWORD)
         }
 
         @DisplayName("이중 인증과 RULE 을 모두 통과한 새 비밀번호로 변경하면, 비밀번호가 갱신된 User 가 save 를 거쳐 반환된다.")
         @Test
-        fun savesAndReturnsUserWithNewPassword_whenAllValidationsPass() {
+        fun savesAndReturnsUserWithnextPw_whenAllValidationsPass() {
             // give
             val savedUser = UserFixture.validUser()
             every { userRepository.findByLoginId(DEFAULT_LOGIN_ID) } returns savedUser
@@ -367,14 +367,14 @@ class UserServiceTest {
             // when
             val result = userService.changePassword(
                 loginId = DEFAULT_LOGIN_ID,
-                headerPassword = DEFAULT_PASSWORD,
-                currentPassword = DEFAULT_PASSWORD,
-                newPassword = newPassword,
+                loginPw = DEFAULT_PASSWORD,
+                prevPw = DEFAULT_PASSWORD,
+                nextPw = nextPw,
             )
 
             // then
             assertAll(
-                { assertThat(result.password.matches(newPassword)).isTrue() },
+                { assertThat(result.password.matches(nextPw)).isTrue() },
                 { verify(exactly = 1) { userRepository.save(savedUser) } },
             )
         }
