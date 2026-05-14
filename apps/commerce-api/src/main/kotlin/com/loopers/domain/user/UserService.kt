@@ -28,7 +28,7 @@ class UserService(
     fun authenticate(loginId: String, plainPassword: String): User {
         val user = userRepository.findByLoginId(loginId)
             ?: throw CoreException(UserErrorType.UNAUTHORIZED)
-        if (user.password != plainPassword) {
+        if (!user.password.matches(plainPassword)) {
             throw CoreException(UserErrorType.UNAUTHORIZED)
         }
         return user
@@ -41,7 +41,7 @@ class UserService(
         newPassword: String,
     ): User {
         val user = authenticate(loginId, headerPassword)
-        if (user.password != currentPassword) {
+        if (!user.password.matches(currentPassword)) {
             throw CoreException(UserErrorType.UNAUTHORIZED)
         }
         user.changePassword(newPassword)

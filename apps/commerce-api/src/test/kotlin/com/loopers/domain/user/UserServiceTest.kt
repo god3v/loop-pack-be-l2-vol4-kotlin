@@ -374,7 +374,7 @@ class UserServiceTest {
 
             // then
             assertAll(
-                { assertThat(result.password).isEqualTo(newPassword) },
+                { assertThat(result.password.matches(newPassword)).isTrue() },
                 { verify(exactly = 1) { userRepository.save(savedUser) } },
             )
         }

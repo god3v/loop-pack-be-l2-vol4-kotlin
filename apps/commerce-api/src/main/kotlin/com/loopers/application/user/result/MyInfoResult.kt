@@ -15,7 +15,7 @@ data class MyInfoResult(
                 loginId = user.loginId,
                 maskedName = user.maskedName(),
                 birthDate = user.birthDate,
-                email = user.email,
+                email = user.email.value,
             )
         }
     }

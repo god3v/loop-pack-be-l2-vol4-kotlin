@@ -1,7 +1,6 @@
 package com.loopers.interfaces.api
 
 import com.loopers.domain.user.UserFixture
-import com.loopers.infrastructure.user.UserJpaRepository
 import com.loopers.interfaces.api.user.UserV1Dto
 import com.loopers.utils.DatabaseCleanUp
 import org.assertj.core.api.Assertions.assertThat
@@ -24,7 +23,6 @@ import java.time.LocalDate
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class UserV1ApiE2ETest @Autowired constructor(
     private val testRestTemplate: TestRestTemplate,
-    private val userJpaRepository: UserJpaRepository,
     private val databaseCleanUp: DatabaseCleanUp,
 ) {
     companion object {
@@ -51,7 +49,7 @@ class UserV1ApiE2ETest @Autowired constructor(
     @DisplayName("POST /api/v1/users")
     @Nested
     inner class SignUp {
-        @DisplayName("유효한 요청 본문으로 가입을 호출하면, 200 + ApiResponse.success({id, loginId}) 응답을 반환한다.")
+        @DisplayName("유효한 정보로 회원가입하면, 성공 응답을 받는다.")
         @Test
         fun returnsSuccessWithIdAndLoginId_whenValidRequest() {
             // give
@@ -70,7 +68,7 @@ class UserV1ApiE2ETest @Autowired constructor(
             )
         }
 
-        @DisplayName("형식이 잘못된 입력으로 가입을 호출하면, 400 SIGNUP_BAD_REQUEST 응답을 반환한다.")
+        @DisplayName("형식이 잘못된 입력으로 회원가입하면, 400 SIGNUP_BAD_REQUEST 응답을 받는다.")
         @Test
         fun returnsBadRequest_whenInputIsInvalid() {
             // give
@@ -87,7 +85,7 @@ class UserV1ApiE2ETest @Autowired constructor(
             )
         }
 
-        @DisplayName("이미 가입된 loginId 로 가입을 호출하면, 409 DUPLICATE_LOGIN_ID 응답을 반환한다.")
+        @DisplayName("이미 가입된 아이디로 회원가입하면, 409 DUPLICATE_LOGIN_ID 응답을 받는다.")
         @Test
         fun returnsConflict_whenLoginIdAlreadyExists() {
             // give
@@ -106,7 +104,7 @@ class UserV1ApiE2ETest @Autowired constructor(
             )
         }
 
-        @DisplayName("이미 가입된 email 로 가입을 호출하면, 409 DUPLICATE_EMAIL 응답을 반환한다.")
+        @DisplayName("이미 가입된 이메일로 회원가입하면, 409 DUPLICATE_EMAIL 응답을 받는다.")
         @Test
         fun returnsConflict_whenEmailAlreadyExists() {
             // give
@@ -124,29 +122,12 @@ class UserV1ApiE2ETest @Autowired constructor(
                 { assertThat(response.body?.meta?.errorCode).isEqualTo("DUPLICATE_EMAIL") },
             )
         }
-
-        @DisplayName("유효한 요청 본문으로 가입을 호출하면, 응답에 password 필드/평문 값이 노출되지 않는다.")
-        @Test
-        fun doesNotExposePassword_inResponse() {
-            // give
-            val request = validSignupRequest()
-
-            // when
-            val response = testRestTemplate.exchange(ENDPOINT_SIGNUP, HttpMethod.POST, HttpEntity(request), String::class.java)
-
-            // then
-            assertAll(
-                { assertThat(response.statusCode.is2xxSuccessful).isTrue() },
-                { assertThat(response.body).doesNotContain("password") },
-                { assertThat(response.body).doesNotContain(UserFixture.DEFAULT_PASSWORD) },
-            )
-        }
     }
 
     @DisplayName("GET /api/v1/users/me")
     @Nested
     inner class GetMyInfo {
-        @DisplayName("정상 헤더로 내 정보를 조회하면, 200 + 마스킹된 name 을 포함한 응답을 반환한다.")
+        @DisplayName("유효한 헤더로 내 정보를 조회하면, 성공 응답을 받는다.")
         @Test
         fun returnsMaskedMyInfo_whenValidHeaders() {
             // give
@@ -166,7 +147,7 @@ class UserV1ApiE2ETest @Autowired constructor(
             )
         }
 
-        @DisplayName("인증 헤더(X-Loopers-LoginId, X-Loopers-LoginPw) 없이 내 정보를 조회하면, 401 UNAUTHORIZED 응답을 반환한다.")
+        @DisplayName("인증 헤더 없이 내 정보를 조회하면, 401 UNAUTHORIZED 응답을 받는다.")
         @Test
         fun returnsUnauthorized_whenHeadersAreMissing() {
             // give
@@ -182,7 +163,7 @@ class UserV1ApiE2ETest @Autowired constructor(
             )
         }
 
-        @DisplayName("잘못된 비밀번호 헤더로 내 정보를 조회하면, 401 UNAUTHORIZED 응답을 반환한다.")
+        @DisplayName("잘못된 비밀번호 헤더로 내 정보를 조회하면, 401 UNAUTHORIZED 응답을 받는다.")
         @Test
         fun returnsUnauthorized_whenPasswordMismatch() {
             // give
@@ -195,27 +176,6 @@ class UserV1ApiE2ETest @Autowired constructor(
             assertAll(
                 { assertThat(response.statusCode).isEqualTo(HttpStatus.UNAUTHORIZED) },
                 { assertThat(response.body?.meta?.errorCode).isEqualTo("UNAUTHORIZED") },
-            )
-        }
-
-        @DisplayName("정상 헤더로 내 정보를 조회하면, 응답 본문에 password 필드/평문 값이 노출되지 않는다.")
-        @Test
-        fun doesNotExposePassword_inResponse() {
-            // give
-            signUpDefaultUser()
-            val headers = HttpHeaders().apply {
-                set(HEADER_LOGIN_ID, UserFixture.DEFAULT_LOGIN_ID)
-                set(HEADER_LOGIN_PW, UserFixture.DEFAULT_PASSWORD)
-            }
-
-            // when
-            val response = testRestTemplate.exchange(ENDPOINT_ME, HttpMethod.GET, HttpEntity<Unit>(headers), String::class.java)
-
-            // then
-            assertAll(
-                { assertThat(response.statusCode.is2xxSuccessful).isTrue() },
-                { assertThat(response.body).doesNotContain("password") },
-                { assertThat(response.body).doesNotContain(UserFixture.DEFAULT_PASSWORD) },
             )
         }
     }

@@ -24,7 +24,7 @@ class UserTest {
                 { assertThat(user.loginId).isEqualTo(UserFixture.DEFAULT_LOGIN_ID) },
                 { assertThat(user.name).isEqualTo(UserFixture.DEFAULT_NAME) },
                 { assertThat(user.birthDate).isEqualTo(UserFixture.DEFAULT_BIRTH_DATE) },
-                { assertThat(user.email).isEqualTo(UserFixture.DEFAULT_EMAIL) },
+                { assertThat(user.email.value).isEqualTo(UserFixture.DEFAULT_EMAIL) },
             )
         }
 
