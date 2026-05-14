@@ -1,8 +1,10 @@
 # Week 1 — 사용자(User) 도메인 요구사항 명세
 
-> **상태**: **v1.1 확정** — [docs/week1/plan.md](./plan.md) 작성의 기준 문서로 사용한다.
+> **상태**: **v1.2 확정** — [docs/week1/plan.md](./plan.md) 작성의 기준 문서로 사용한다.
 > **작성일**: 2026-05-10
+> **최종 동기화**: 2026-05-15 — 실제 구현(`UserErrorType`, `Password`, `Email`)에 맞춰 갱신.
 > **변경 이력**:
+> - v1.2 (2026-05-15): 구현 정렬 — 회원가입 성공 응답을 `data: null` 로 단순화, ErrorType 을 구체 enum(`SIGNUP_BAD_REQUEST` / `PASSWORD_CHANGE_BAD_REQUEST` / `INVALID_PASSWORD`) 으로 분리, 비밀번호 RULE 위반은 `INVALID_PASSWORD` 로 통일. `email` 최대 길이 255자로 정정. 인증은 현재 평문 비교(BCrypt 해시는 후속 작업)임을 명시.
 > - v1.1 (2026-05-10): `name` 최소 2자로 상향 (1글자 가입 차단), `email` 검증 규칙 구체화 (정규식 수준 + 255자 길이 제한).
 > - v1.0 (2026-05-10): 13개 결정 사항 모두 확정. 도메인 명칭을 `User` 로 정렬 (한국어 호칭은 "회원" 유지).
 > - v0.2 (2026-05-10): 범위 축소 — 가입/내 정보 조회/비밀번호 수정 3개로 한정. 헤더 기반 사용자 식별 도입.
@@ -39,13 +41,15 @@
 | 헤더 | 의미 |
 |---|---|
 | `X-Loopers-LoginId` | 로그인 ID |
-| `X-Loopers-LoginPw` | 비밀번호 (평문 전달, 서버에서 해시 비교) |
+| `X-Loopers-LoginPw` | 비밀번호 (현재는 **평문 비교** — `Password.matches` 가 평문 동등성 비교. BCrypt 해시 도입은 TODO) |
 
 ### 식별 절차
-1. 헤더 둘 중 하나라도 없으면 `UNAUTHORIZED` (401)
-2. `LoginId` 가 존재하지 않거나, `LoginPw` 가 저장된 해시와 일치하지 않으면 `UNAUTHORIZED` (401)
+1. 헤더 둘 중 하나라도 없으면 `UNAUTHORIZED` (401) — Controller 의 `requireAuthHeaders` 에서 차단
+2. `LoginId` 가 존재하지 않거나, `LoginPw` 가 저장된 값과 일치하지 않으면 `UNAUTHORIZED` (401)
    - **보안상 두 경우를 구분해서 응답하지 않는다** (ID 존재 여부 노출 방지)
 3. 식별 성공 시 해당 회원을 컨텍스트로 후속 로직 수행
+
+> 헤더 인증은 응용 계층(`UserService.authenticate`)이 담당한다. 도메인 VO 는 형식 검증만, 헤더 인증은 응용에서 결합한다.
 
 ---
 
@@ -65,7 +69,7 @@
 **불변 규칙**
 - 이미 가입된 `loginId` 로 가입 시 `DUPLICATE_LOGIN_ID` (409)
 - 이미 가입된 `email` 로 가입 시 `DUPLICATE_EMAIL` (409)
-- 비밀번호는 **BCrypt** 등 단방향 해시로 저장 (평문 저장 금지, 로그 출력 금지)
+- 비밀번호는 **장기적으로** BCrypt 등 단방향 해시로 저장한다 (현재는 평문 비교, 해시 도입은 TODO). 단, 평문 로그 출력은 지금도 금지.
 - 가입 성공 시 시스템 발급 `Long id`, `createdAt` 기록 (`BaseEntity` 활용)
 
 **검증 규칙**
@@ -74,13 +78,13 @@
 - `email`:
   - 형식: `local@domain.tld` 구조를 만족 (로컬파트 1자 이상 + `@` + 도메인 + `.` + TLD 1자 이상)
   - 권장 검증: Bean Validation `@Email` + 도메인에서 추가 정규식 (`^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$` 수준)
-  - 6~254자
+  - **최대 255자** (`Email.of` 가 `length > 255` 입력을 거부)
   - 유일 (이미 가입된 이메일 거부 — `DUPLICATE_EMAIL` 409)
 - `birthDate`: `yyyy-MM-dd` 형식, **만 14세 이상**, 미래 일자 거부
   - 만 나이 계산은 가입 시점(`now()`) 기준
 
-**성공 응답**: `id`, `loginId` (추가 정보는 `GET /api/v1/me` 로 조회)
-**실패 응답**: `ApiResponse` 표준 에러
+**성공 응답**: `200 OK` + `ApiResponse.success()` (data 는 null) — `id`/`loginId` 는 노출하지 않는다. 부가 정보 확인은 `GET /api/v1/users/me` 로 한다.
+**실패 응답**: `ApiResponse` 표준 에러 — 필드/형식 검증 실패는 `SIGNUP_BAD_REQUEST` (400), 단 **비밀번호 RULE 위반은 `INVALID_PASSWORD` (400)** 으로 분리된다.
 
 ### 4.2 내 정보 조회
 
@@ -108,15 +112,16 @@
 **요청 바디**
 | 필드 | 의미 |
 |---|---|
-| `currentPassword` | 기존 비밀번호 |
-| `newPassword` | 새 비밀번호 |
+| `prevPw` | 기존 비밀번호 |
+| `nextPw` | 새 비밀번호 |
 
 **규칙**
-- 헤더의 `X-Loopers-LoginPw` 와 body 의 `currentPassword` 가 **둘 다 일치**해야 한다 (이중 확인).
+- 헤더의 `X-Loopers-LoginPw` 와 body 의 `prevPw` 가 **둘 다 일치**해야 한다 (이중 확인).
   - 일치하지 않으면 `UNAUTHORIZED` (401)
-- `newPassword` 는 비밀번호 RULE (4.4) 을 만족해야 한다 — 위반 시 `BAD_REQUEST` (400)
-- `newPassword` 는 **현재 비밀번호와 동일할 수 없다** — 위반 시 `BAD_REQUEST` (400)
-- 변경 성공 시 BCrypt 해시 재계산 후 저장
+- `nextPw` 는 비밀번호 RULE (4.4) 을 만족해야 한다 — 위반 시 `INVALID_PASSWORD` (400)
+  (Password VO 의 RULE 검증은 가입/변경 양쪽 모두 `INVALID_PASSWORD` 로 통일)
+- `nextPw` 는 **현재 비밀번호와 동일할 수 없다** — 위반 시 `PASSWORD_CHANGE_BAD_REQUEST` (400). 검사는 도메인(`User.changePassword`) 이 수행.
+- 변경 성공 시 (현재는) 새 평문을 그대로 저장. BCrypt 해시 재계산 도입은 TODO.
 
 **성공 응답**: `200 OK` + `ApiResponse.success()` (data 는 null)
 
@@ -138,21 +143,28 @@
 ## 5. 도메인 규칙 / 불변식
 
 - `Email`, `LoginId`, `Password` 는 **값 객체(Value Object)** 로 표현한다.
-  - 형식 검증을 생성 시점에 수행 → 인스턴스는 항상 유효
-- `Password` 값 객체는 평문/해시 두 상태를 표현할 수 있어야 한다 (해시 후 저장).
+  - 형식 검증을 생성 시점(`Email.of` / `LoginId.of` / `Password.of`)에 수행 → 인스턴스는 항상 유효
+  - `Password.of` 는 RULE 위반 시 **항상 `INVALID_PASSWORD` 를 던진다** (호출 측 `errorType` 매개변수 없음 — 가입/변경 모두 동일 에러 타입 사용).
+- `Password` 값 객체는 평문/해시 두 상태를 표현할 수 있는 형태로 두되, **현재 구현은 평문 비교**다 (BCrypt 도입은 TODO).
 - `User` 의 `password` 는 어떤 외부 응답 DTO 에도 포함되지 않는다 (해시조차 포함 금지).
 - 도메인 단에서 검증이 끝나야 하며, 컨트롤러는 검증 위임만 한다 (Bean Validation 으로 1차 검증, 도메인에서 최종 검증).
+- 규칙 위치 정리:
+  - 형식 검증 → VO 팩토리 (`Email.of` / `Password.of` / `LoginId.of`)
+  - "새 비밀번호 ≠ 현재 비밀번호" 검증 → 도메인 (`User.changePassword`)
+  - 헤더 인증 (loginId 조회 + password 일치) → 응용 (`UserService.authenticate`)
 
 ---
 
 ## 6. 에러 코드
 
-`com.loopers.support.error.ErrorType` 에 다음을 사용한다.
+`com.loopers.domain.user.UserErrorType` (구현체는 `com.loopers.support.error.ErrorType` 인터페이스) 에 다음을 사용한다.
 
 | 코드 | HTTP | 발생 케이스 |
 |---|---|---|
-| `BAD_REQUEST` | 400 | 형식/길이 검증 실패, 비밀번호 RULE 위반, 새 비번이 현재와 동일 |
-| `UNAUTHORIZED` | 401 | 헤더 누락 / ID 존재하지 않음 / 비밀번호 불일치 (3가지를 응답에서 구분하지 않음) |
+| `SIGNUP_BAD_REQUEST` | 400 | 회원가입 시 `loginId` / `name` / `email` / `birthDate` 형식·길이 검증 실패 |
+| `INVALID_PASSWORD` | 400 | `Password` VO RULE 검증 실패 (길이/문자/카테고리/생년월일 포함) — **가입/비밀번호 변경 양쪽 공통** |
+| `PASSWORD_CHANGE_BAD_REQUEST` | 400 | 비밀번호 수정 시 `nextPw` 가 현재 비밀번호와 동일 (`User.changePassword` 의 도메인 검증) |
+| `UNAUTHORIZED` | 401 | 헤더 누락 / ID 존재하지 않음 / 비밀번호 불일치 / 비밀번호 수정 body `prevPw` 불일치 (응답에서 구분하지 않음) |
 | `DUPLICATE_LOGIN_ID` | 409 | 가입 시 동일 loginId 존재 |
 | `DUPLICATE_EMAIL` | 409 | 가입 시 동일 email 존재 |
 
@@ -166,7 +178,7 @@
 | `GET` | `/api/v1/users/me` | 헤더 필수 | 내 정보 조회 |
 | `PATCH` | `/api/v1/users/me/password` | 헤더 필수 | 비밀번호 수정 |
 
-상세 요청/응답 스키마는 `interfaces.api.user.UserV1Dto` 에 정의하고 `UserV1ApiSpec` 에 OpenAPI 시그니처를 둔다.
+상세 요청/응답 스키마는 `interfaces.api.user.UserV1Dto` 에 정의하고 `UserV1ApiSpec` 에 OpenAPI 시그니처를 둔다. 전체 스펙은 [docs/week1/api-spec.md](./api-spec.md) 를 진실의 원천으로 본다.
 
 ---
 
@@ -187,7 +199,7 @@
 users
 ├── id              BIGINT       PK, auto-increment
 ├── login_id        VARCHAR(20)  UNIQUE, NOT NULL
-├── password        VARCHAR(255) NOT NULL  (BCrypt 해시)
+├── password        VARCHAR(255) NOT NULL  (현재 평문 저장 — BCrypt 해시 도입은 TODO. 컬럼 폭은 해시 대비 255 유지)
 ├── name            VARCHAR(50)  NOT NULL
 ├── birth_date      DATE         NOT NULL
 ├── email           VARCHAR(255) UNIQUE, NOT NULL
@@ -203,7 +215,7 @@ Week 1 종료 시점에 다음이 모두 만족해야 한다.
 
 - [ ] 회원가입 / 내 정보 조회 / 비밀번호 수정 3개 API 가 동작한다
 - [ ] 모든 기능에 도메인 단위 테스트 + 통합 테스트 + 컨트롤러 E2E 가 존재한다
-- [ ] 비밀번호 평문 저장하지 않는다
+- [ ] 비밀번호 평문/해시 어떤 형태로도 응답 DTO 와 로그에 노출되지 않는다 (저장 형태의 해시화는 후속 TODO)
 - [ ] 이름 마스킹이 내 정보 조회 응답에서 일관되게 적용된다
 - [ ] 모든 테스트와 `./gradlew ktlintCheck` 가 통과한다
 - [ ] [docs/week1/plan.md](./plan.md) 의 모든 항목이 `- [x]` 로 마감된다

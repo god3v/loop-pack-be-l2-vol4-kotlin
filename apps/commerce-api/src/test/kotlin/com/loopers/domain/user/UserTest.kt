@@ -13,101 +13,242 @@ class UserTest {
     @DisplayName("회원을 생성할 때, ")
     @Nested
     inner class Create {
-        @DisplayName("유효한 입력이 모두 주어지면, 회원이 정상적으로 생성된다.")
+        @DisplayName("올바른 정보가 주어지면, 회원이 정상적으로 생성된다.")
         @Test
         fun createsUser_whenAllInputsAreValid() {
-            // give
-            val loginId = "goryeojin"
-            val password = "Asdf1234!"
-            val name = "고려진"
-            val birthDate = LocalDate.of(2001, 7, 9)
-            val email = "goryeojin@example.com"
-
             // when
-            val user = User.signUp(
-                loginId = loginId,
-                password = password,
-                name = name,
-                birthDate = birthDate,
-                email = email,
-            )
+            val user = UserFixture.validUser()
 
             // then
             assertAll(
-                { assertThat(user.loginId).isEqualTo(loginId) },
-                { assertThat(user.name).isEqualTo(name) },
-                { assertThat(user.birthDate).isEqualTo(birthDate) },
-                { assertThat(user.email).isEqualTo(email) },
+                { assertThat(user.loginId).isEqualTo(UserFixture.DEFAULT_LOGIN_ID) },
+                { assertThat(user.name).isEqualTo(UserFixture.DEFAULT_NAME) },
+                { assertThat(user.birthDate).isEqualTo(UserFixture.DEFAULT_BIRTH_DATE) },
+                { assertThat(user.email.value).isEqualTo(UserFixture.DEFAULT_EMAIL) },
             )
+        }
+
+        @DisplayName("아이디가 4자 미만이면, SIGNUP_BAD_REQUEST 예외가 발생한다.")
+        @Test
+        fun throwsSignupBadRequest_whenLoginIdIsTooShort() {
+            // when
+            val result = assertThrows<CoreException> {
+                UserFixture.validUser(loginId = "abc")
+            }
+
+            // then
+            assertThat(result.errorType).isEqualTo(UserErrorType.SIGNUP_BAD_REQUEST)
+        }
+
+        @DisplayName("아이디가 20자를 초과하면, SIGNUP_BAD_REQUEST 예외가 발생한다.")
+        @Test
+        fun throwsSignupBadRequest_whenLoginIdIsTooLong() {
+            // when
+            val result = assertThrows<CoreException> {
+                UserFixture.validUser(loginId = "abcdefghijklmnopqrstuv")
+            }
+
+            // then
+            assertThat(result.errorType).isEqualTo(UserErrorType.SIGNUP_BAD_REQUEST)
+        }
+
+        @DisplayName("아이디에 한글이 포함되면, SIGNUP_BAD_REQUEST 예외가 발생한다.")
+        @Test
+        fun throwsSignupBadRequest_whenLoginIdContainsKorean() {
+            // when
+            val result = assertThrows<CoreException> {
+                UserFixture.validUser(loginId = "한글포함")
+            }
+
+            // then
+            assertThat(result.errorType).isEqualTo(UserErrorType.SIGNUP_BAD_REQUEST)
+        }
+
+        @DisplayName("아이디에 공백이 포함되면, SIGNUP_BAD_REQUEST 예외가 발생한다.")
+        @Test
+        fun throwsSignupBadRequest_whenLoginIdContainsSpace() {
+            // when
+            val result = assertThrows<CoreException> {
+                UserFixture.validUser(loginId = "with space")
+            }
+
+            // then
+            assertThat(result.errorType).isEqualTo(UserErrorType.SIGNUP_BAD_REQUEST)
+        }
+
+        @DisplayName("아이디에 특수문자가 포함되면, SIGNUP_BAD_REQUEST 예외가 발생한다.")
+        @Test
+        fun throwsSignupBadRequest_whenLoginIdContainsSpecialChar() {
+            // when
+            val result = assertThrows<CoreException> {
+                UserFixture.validUser(loginId = "spec!")
+            }
+
+            // then
+            assertThat(result.errorType).isEqualTo(UserErrorType.SIGNUP_BAD_REQUEST)
+        }
+
+        @DisplayName("이름이 2자 미만이면, SIGNUP_BAD_REQUEST 예외가 발생한다.")
+        @Test
+        fun throwsSignupBadRequest_whenNameIsTooShort() {
+            // when
+            val result = assertThrows<CoreException> {
+                UserFixture.validUser(name = "김")
+            }
+
+            // then
+            assertThat(result.errorType).isEqualTo(UserErrorType.SIGNUP_BAD_REQUEST)
+        }
+
+        @DisplayName("이름이 50자를 초과하면, SIGNUP_BAD_REQUEST 예외가 발생한다.")
+        @Test
+        fun throwsSignupBadRequest_whenNameIsTooLong() {
+            // when
+            val result = assertThrows<CoreException> {
+                UserFixture.validUser(name = "a".repeat(51))
+            }
+
+            // then
+            assertThat(result.errorType).isEqualTo(UserErrorType.SIGNUP_BAD_REQUEST)
+        }
+
+        @DisplayName("이름에 숫자가 포함되면, SIGNUP_BAD_REQUEST 예외가 발생한다.")
+        @Test
+        fun throwsSignupBadRequest_whenNameContainsDigit() {
+            // when
+            val result = assertThrows<CoreException> {
+                UserFixture.validUser(name = "김수1")
+            }
+
+            // then
+            assertThat(result.errorType).isEqualTo(UserErrorType.SIGNUP_BAD_REQUEST)
+        }
+
+        @DisplayName("이름에 공백이 포함되면, SIGNUP_BAD_REQUEST 예외가 발생한다.")
+        @Test
+        fun throwsSignupBadRequest_whenNameContainsSpace() {
+            // when
+            val result = assertThrows<CoreException> {
+                UserFixture.validUser(name = "김 수")
+            }
+
+            // then
+            assertThat(result.errorType).isEqualTo(UserErrorType.SIGNUP_BAD_REQUEST)
+        }
+
+        @DisplayName("이름에 특수문자가 포함되면, SIGNUP_BAD_REQUEST 예외가 발생한다.")
+        @Test
+        fun throwsSignupBadRequest_whenNameContainsSpecialChar() {
+            // when
+            val result = assertThrows<CoreException> {
+                UserFixture.validUser(name = "김수!")
+            }
+
+            // then
+            assertThat(result.errorType).isEqualTo(UserErrorType.SIGNUP_BAD_REQUEST)
+        }
+
+        @DisplayName("만 14세 미만이면, SIGNUP_BAD_REQUEST 예외가 발생한다.")
+        @Test
+        fun throwsSignupBadRequest_whenBirthDateIsUnder14() {
+            // when
+            val result = assertThrows<CoreException> {
+                UserFixture.validUser(birthDate = LocalDate.now().minusYears(13))
+            }
+
+            // then
+            assertThat(result.errorType).isEqualTo(UserErrorType.SIGNUP_BAD_REQUEST)
+        }
+
+        @DisplayName("유효하지 않은 이메일을 입력하면, SIGNUP_BAD_REQUEST 예외가 발생한다.")
+        @Test
+        fun throwsSignupBadRequest_whenEmailIsInvalid() {
+            // when
+            val result = assertThrows<CoreException> {
+                UserFixture.validUser(email = "noatmark.com")
+            }
+
+            // then
+            assertThat(result.errorType).isEqualTo(UserErrorType.SIGNUP_BAD_REQUEST)
+        }
+
+        @DisplayName("유효하지 않은 비밀번호를 입력하면, INVALID_PASSWORD 예외가 발생한다.")
+        @Test
+        fun throwsInvalidPassword_whenPasswordIsInvalid() {
+            // when
+            val result = assertThrows<CoreException> {
+                UserFixture.validUser(password = "short1!")
+            }
+
+            // then
+            assertThat(result.errorType).isEqualTo(UserErrorType.INVALID_PASSWORD)
         }
     }
 
-    @DisplayName("회원 생성 시 invariant 가 위반되면, ")
+    @DisplayName("비밀번호를 변경할 때, ")
     @Nested
-    inner class InvariantViolation {
-        @DisplayName("loginId 형식이 잘못되면 SIGNUP_BAD_REQUEST 예외가 발생한다.")
+    inner class ChangePassword {
+        private val newPassword = "NewPw5678!"
+
+        @DisplayName("현재 비밀번호가 일치하지 않으면, UNAUTHORIZED 예외가 발생한다.")
         @Test
-        fun throwsSignupBadRequest_whenLoginIdIsInvalid() {
+        fun throwsUnauthorized_whenPrevPwMismatch() {
+            // give
+            val user = UserFixture.validUser()
+
+            // when
             val result = assertThrows<CoreException> {
-                User.signUp("한글포함", "Asdf1234!", "고려진", LocalDate.of(2001, 7, 9), "goryeojin@example.com")
+                user.changePassword(prevPwPlain = "Wrong1234!", nextPwPlain = newPassword)
             }
-            assertThat(result.errorType).isEqualTo(UserErrorType.SIGNUP_BAD_REQUEST)
+
+            // then
+            assertThat(result.errorType).isEqualTo(UserErrorType.UNAUTHORIZED)
         }
 
-        @DisplayName("name 이 2자 미만이면 SIGNUP_BAD_REQUEST 예외가 발생한다.")
+        @DisplayName("새 비밀번호가 현재 비밀번호와 동일하면, PASSWORD_CHANGE_BAD_REQUEST 예외가 발생한다.")
         @Test
-        fun throwsSignupBadRequest_whenNameIsTooShort() {
+        fun throwsPasswordChangeBadRequest_whenNewEqualsCurrent() {
+            // give
+            val user = UserFixture.validUser()
+
+            // when
             val result = assertThrows<CoreException> {
-                User.signUp("goryeojin", "Asdf1234!", "김", LocalDate.of(2001, 7, 9), "goryeojin@example.com")
+                user.changePassword(prevPwPlain = UserFixture.DEFAULT_PASSWORD, nextPwPlain = UserFixture.DEFAULT_PASSWORD)
             }
-            assertThat(result.errorType).isEqualTo(UserErrorType.SIGNUP_BAD_REQUEST)
+
+            // then
+            assertThat(result.errorType).isEqualTo(UserErrorType.PASSWORD_CHANGE_BAD_REQUEST)
         }
 
-        @DisplayName("email 형식이 잘못되면 SIGNUP_BAD_REQUEST 예외가 발생한다.")
+        @DisplayName("유효하지 않은 새 비밀번호를 입력하면, INVALID_PASSWORD 예외가 발생한다.")
         @Test
-        fun throwsSignupBadRequest_whenEmailIsInvalid() {
+        fun throwsInvalidPassword_whenNewIsInvalid() {
+            // give
+            val user = UserFixture.validUser()
+
+            // when
             val result = assertThrows<CoreException> {
-                User.signUp("goryeojin", "Asdf1234!", "고려진", LocalDate.of(2001, 7, 9), "noatmark.com")
+                user.changePassword(prevPwPlain = UserFixture.DEFAULT_PASSWORD, nextPwPlain = "short1!")
             }
-            assertThat(result.errorType).isEqualTo(UserErrorType.SIGNUP_BAD_REQUEST)
+
+            // then
+            assertThat(result.errorType).isEqualTo(UserErrorType.INVALID_PASSWORD)
         }
 
-        @DisplayName("만 14세 미만의 birthDate 면 SIGNUP_BAD_REQUEST 예외가 발생한다.")
+        @DisplayName("정상 입력으로 비밀번호를 변경하면, User.password 가 새 값으로 갱신되고 새 평문에 matches 한다.")
         @Test
-        fun throwsSignupBadRequest_whenBirthDateIsUnderAge14() {
-            val underAge = LocalDate.now().minusYears(13)
-            val result = assertThrows<CoreException> {
-                User.signUp("goryeojin", "Asdf1234!", "고려진", underAge, "goryeojin@example.com")
-            }
-            assertThat(result.errorType).isEqualTo(UserErrorType.SIGNUP_BAD_REQUEST)
-        }
+        fun updatesPassword_whenValidInput() {
+            // give
+            val user = UserFixture.validUser()
 
-        @DisplayName("미래 birthDate 면 SIGNUP_BAD_REQUEST 예외가 발생한다.")
-        @Test
-        fun throwsSignupBadRequest_whenBirthDateIsFuture() {
-            val future = LocalDate.now().plusDays(1)
-            val result = assertThrows<CoreException> {
-                User.signUp("goryeojin", "Asdf1234!", "고려진", future, "goryeojin@example.com")
-            }
-            assertThat(result.errorType).isEqualTo(UserErrorType.SIGNUP_BAD_REQUEST)
-        }
+            // when
+            user.changePassword(prevPwPlain = UserFixture.DEFAULT_PASSWORD, nextPwPlain = newPassword)
 
-        @DisplayName("비밀번호가 3 카테고리(영문/숫자/특수)를 모두 만족하지 않으면 SIGNUP_BAD_REQUEST 예외가 발생한다.")
-        @Test
-        fun throwsSignupBadRequest_whenPasswordMissingCategory() {
-            val result = assertThrows<CoreException> {
-                User.signUp("goryeojin", "asdfasdf", "고려진", LocalDate.of(2001, 7, 9), "goryeojin@example.com")
-            }
-            assertThat(result.errorType).isEqualTo(UserErrorType.SIGNUP_BAD_REQUEST)
-        }
-
-        @DisplayName("비밀번호에 생년월일(yyyyMMdd) 이 포함되면 SIGNUP_BAD_REQUEST 예외가 발생한다.")
-        @Test
-        fun throwsSignupBadRequest_whenPasswordContainsBirthDate() {
-            val result = assertThrows<CoreException> {
-                User.signUp("goryeojin", "Ab1!20010709", "고려진", LocalDate.of(2001, 7, 9), "goryeojin@example.com")
-            }
-            assertThat(result.errorType).isEqualTo(UserErrorType.SIGNUP_BAD_REQUEST)
+            // then
+            assertAll(
+                { assertThat(user.password.matches(newPassword)).isTrue() },
+                { assertThat(user.password.matches(UserFixture.DEFAULT_PASSWORD)).isFalse() },
+            )
         }
     }
 }

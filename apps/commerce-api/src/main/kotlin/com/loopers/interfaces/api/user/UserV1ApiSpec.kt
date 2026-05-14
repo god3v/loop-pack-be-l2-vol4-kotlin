@@ -10,7 +10,7 @@ interface UserV1ApiSpec {
         summary = "회원가입",
         description = "회원 정보를 입력하여 신규 회원을 등록합니다.",
     )
-    fun signup(request: UserV1Dto.SignupRequest): ApiResponse<UserV1Dto.SignupResponse>
+    fun signup(request: UserV1Dto.SignupRequest): ApiResponse<Any>
 
     @Operation(
         summary = "내 정보 조회",

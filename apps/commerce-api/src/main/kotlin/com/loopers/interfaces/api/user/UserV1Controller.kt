@@ -20,10 +20,9 @@ class UserV1Controller(
     @PostMapping
     override fun signup(
         @RequestBody request: UserV1Dto.SignupRequest,
-    ): ApiResponse<UserV1Dto.SignupResponse> {
-        return userFacade.signup(request.toCommand())
-            .let { UserV1Dto.SignupResponse.from(it) }
-            .let { ApiResponse.success(it) }
+    ): ApiResponse<Any> {
+        userFacade.signup(request.toCommand())
+        return ApiResponse.success()
     }
 
     @GetMapping("/me")
@@ -31,10 +30,8 @@ class UserV1Controller(
         @RequestHeader(name = "X-Loopers-LoginId", required = false) loginId: String?,
         @RequestHeader(name = "X-Loopers-LoginPw", required = false) password: String?,
     ): ApiResponse<UserV1Dto.MyInfoResponse> {
-        if (loginId.isNullOrBlank() || password.isNullOrBlank()) {
-            throw CoreException(UserErrorType.UNAUTHORIZED)
-        }
-        return userFacade.getMyInfo(loginId, password)
+        val (id, pw) = requireAuthHeaders(loginId, password)
+        return userFacade.getMyInfo(id, pw)
             .let { UserV1Dto.MyInfoResponse.from(it) }
             .let { ApiResponse.success(it) }
     }
@@ -45,10 +42,18 @@ class UserV1Controller(
         @RequestHeader(name = "X-Loopers-LoginPw", required = false) password: String?,
         @RequestBody request: UserV1Dto.ChangePasswordRequest,
     ): ApiResponse<Any> {
+        val (id, pw) = requireAuthHeaders(loginId, password)
+        userFacade.changePassword(request.toCommand(id, pw))
+        return ApiResponse.success()
+    }
+
+    /*
+    TODO 추후 인터셉터로 인증 책임 분리
+     */
+    private fun requireAuthHeaders(loginId: String?, password: String?): Pair<String, String> {
         if (loginId.isNullOrBlank() || password.isNullOrBlank()) {
             throw CoreException(UserErrorType.UNAUTHORIZED)
         }
-        userFacade.changePassword(request.toCommand(loginId, password))
-        return ApiResponse.success()
+        return loginId to password
     }
 }

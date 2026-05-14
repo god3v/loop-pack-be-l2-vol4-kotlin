@@ -32,9 +32,9 @@ class UserFacade(
     fun changePassword(command: ChangePasswordCommand) {
         userService.changePassword(
             loginId = command.loginId,
-            headerPassword = command.headerPassword,
-            currentPassword = command.currentPassword,
-            newPassword = command.newPassword,
+            loginPw = command.loginPw,
+            prevPw = command.prevPw,
+            nextPw = command.nextPw,
         )
     }
 }

@@ -5,7 +5,7 @@ import java.time.LocalDate
 
 data class MyInfoResult(
     val loginId: String,
-    val maskedName: String,
+    val name: String,
     val birthDate: LocalDate,
     val email: String,
 ) {
@@ -13,9 +13,9 @@ data class MyInfoResult(
         fun from(user: User): MyInfoResult {
             return MyInfoResult(
                 loginId = user.loginId,
-                maskedName = user.maskedName(),
+                name = user.name().dropLast(1) + "*",
                 birthDate = user.birthDate,
-                email = user.email,
+                email = user.email.value,
             )
         }
     }

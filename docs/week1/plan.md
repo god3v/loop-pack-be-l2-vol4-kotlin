@@ -135,7 +135,7 @@
 - [ ] `[단위]` 존재하지 않는 loginId 로 식별 시도하면 `CoreException(UNAUTHORIZED)` 가 발생한다
 - [ ] `[단위]` 존재하는 loginId 지만 비밀번호가 일치하지 않으면 `CoreException(UNAUTHORIZED)` 가 발생한다
 - [ ] `[단위]` loginId/비번이 모두 일치하면 식별된 User 가 반환된다
-- [ ] `[단위]` User.maskedName() 은 마지막 글자를 `*` 로 치환해 반환한다 (`홍길동` → `홍길*`, `김수` → `김*`)
+- [ ] `[단위]` User.name() 은 마지막 글자를 `*` 로 치환해 반환한다 (`홍길동` → `홍길*`, `김수` → `김*`)
 
 ### 2.2 Application Facade — `UserFacade.getMyInfo()` `[단위]`
 
@@ -165,7 +165,7 @@
 
 ### 3.2 Application Facade — `UserFacade.changePassword()` 하이브리드
 
-- [ ] `[단위]` 헤더 LoginPw 와 body currentPassword 가 모두 일치하면 Service.changePassword 가 호출된다
+- [ ] `[단위]` 헤더 LoginPw 와 body prevPw 가 모두 일치하면 Service.changePassword 가 호출된다
 - [ ] `[단위]` 헤더와 body 비번이 다르면 `CoreException(UNAUTHORIZED)` 가 전파된다 (이중 검증)
 - [ ] `[단위]` 도메인 예외가 그대로 전파된다
 - [ ] `[통합]` 비밀번호 변경이 한 트랜잭션으로 커밋된다 (변경 후 이전 비번으로 인증 거부)
@@ -173,8 +173,8 @@
 ### 3.3 Controller — `PATCH /api/v1/users/me/password` `[E2E]`
 
 - [ ] `[E2E]` 정상 요청 시 200 + `ApiResponse.success()` (data: null)
-- [ ] `[E2E]` 헤더 인증 실패 / body currentPassword 불일치 시 401
-- [ ] `[E2E]` newPassword RULE 위반 또는 현재 비번과 동일 시 400
+- [ ] `[E2E]` 헤더 인증 실패 / body prevPw 불일치 시 401
+- [ ] `[E2E]` nextPw RULE 위반 또는 현재 비번과 동일 시 400
 - [ ] `[E2E]` 변경 성공 후 이전 비번으로는 GET /me 가 401 (전 경로 일관성 검증)
 
 ---

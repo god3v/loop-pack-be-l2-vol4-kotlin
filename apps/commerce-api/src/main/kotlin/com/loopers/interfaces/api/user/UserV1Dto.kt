@@ -3,7 +3,6 @@ package com.loopers.interfaces.api.user
 import com.loopers.application.user.command.ChangePasswordCommand
 import com.loopers.application.user.command.SignupCommand
 import com.loopers.application.user.result.MyInfoResult
-import com.loopers.application.user.result.SignupResult
 import java.time.LocalDate
 
 class UserV1Dto {
@@ -25,20 +24,6 @@ class UserV1Dto {
         }
     }
 
-    data class SignupResponse(
-        val id: Long,
-        val loginId: String,
-    ) {
-        companion object {
-            fun from(result: SignupResult): SignupResponse {
-                return SignupResponse(
-                    id = result.id,
-                    loginId = result.loginId,
-                )
-            }
-        }
-    }
-
     data class MyInfoResponse(
         val loginId: String,
         val name: String,
@@ -49,7 +34,7 @@ class UserV1Dto {
             fun from(result: MyInfoResult): MyInfoResponse {
                 return MyInfoResponse(
                     loginId = result.loginId,
-                    name = result.maskedName,
+                    name = result.name,
                     birthDate = result.birthDate,
                     email = result.email,
                 )
@@ -58,15 +43,15 @@ class UserV1Dto {
     }
 
     data class ChangePasswordRequest(
-        val currentPassword: String,
-        val newPassword: String,
+        val prevPw: String,
+        val nextPw: String,
     ) {
-        fun toCommand(loginId: String, headerPassword: String): ChangePasswordCommand {
+        fun toCommand(loginId: String, loginPw: String): ChangePasswordCommand {
             return ChangePasswordCommand(
                 loginId = loginId,
-                headerPassword = headerPassword,
-                currentPassword = currentPassword,
-                newPassword = newPassword,
+                loginPw = loginPw,
+                prevPw = prevPw,
+                nextPw = nextPw,
             )
         }
     }
