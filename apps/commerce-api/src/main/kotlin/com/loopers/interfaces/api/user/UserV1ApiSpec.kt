@@ -8,13 +8,23 @@ import io.swagger.v3.oas.annotations.tags.Tag
 interface UserV1ApiSpec {
     @Operation(
         summary = "회원가입",
-        description = "loginId/password/name/birthDate/email 로 회원을 신규 가입한다.",
+        description = "회원 정보를 입력하여 신규 회원을 등록합니다.",
     )
     fun signup(request: UserV1Dto.SignupRequest): ApiResponse<UserV1Dto.SignupResponse>
 
     @Operation(
         summary = "내 정보 조회",
-        description = "X-Loopers-LoginId / X-Loopers-LoginPw 헤더 인증으로 본인 정보를 조회한다. name 은 마지막 글자가 마스킹된다.",
+        description = "회원의 정보를 조회합니다.",
     )
     fun getMyInfo(loginId: String?, password: String?): ApiResponse<UserV1Dto.MyInfoResponse>
+
+    @Operation(
+        summary = "비밀번호 수정",
+        description = "회원의 비밀번호를 수정합니다.",
+    )
+    fun changePassword(
+        loginId: String?,
+        password: String?,
+        request: UserV1Dto.ChangePasswordRequest,
+    ): ApiResponse<Any>
 }
