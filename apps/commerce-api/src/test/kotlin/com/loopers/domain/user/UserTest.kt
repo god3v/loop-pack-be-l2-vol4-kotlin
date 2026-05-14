@@ -16,97 +16,99 @@ class UserTest {
         @DisplayName("유효한 입력이 모두 주어지면, 회원이 정상적으로 생성된다.")
         @Test
         fun createsUser_whenAllInputsAreValid() {
-            // give
-            val loginId = "goryeojin"
-            val password = "Asdf1234!"
-            val name = "고려진"
-            val birthDate = LocalDate.of(2001, 7, 9)
-            val email = "goryeojin@example.com"
-
             // when
-            val user = User.signUp(
-                loginId = loginId,
-                password = password,
-                name = name,
-                birthDate = birthDate,
-                email = email,
-            )
+            val user = UserFixture.validUser()
 
             // then
             assertAll(
-                { assertThat(user.loginId).isEqualTo(loginId) },
-                { assertThat(user.name).isEqualTo(name) },
-                { assertThat(user.birthDate).isEqualTo(birthDate) },
-                { assertThat(user.email).isEqualTo(email) },
+                { assertThat(user.loginId).isEqualTo(UserFixture.DEFAULT_LOGIN_ID) },
+                { assertThat(user.name).isEqualTo(UserFixture.DEFAULT_NAME) },
+                { assertThat(user.birthDate).isEqualTo(UserFixture.DEFAULT_BIRTH_DATE) },
+                { assertThat(user.email).isEqualTo(UserFixture.DEFAULT_EMAIL) },
             )
         }
-    }
 
-    @DisplayName("회원 생성 시 invariant 가 위반되면, ")
-    @Nested
-    inner class InvariantViolation {
-        @DisplayName("loginId 형식이 잘못되면 SIGNUP_BAD_REQUEST 예외가 발생한다.")
+        @DisplayName("잘못된 loginId 로 회원을 생성하면, SIGNUP_BAD_REQUEST 예외가 발생한다.")
         @Test
         fun throwsSignupBadRequest_whenLoginIdIsInvalid() {
+            // when
             val result = assertThrows<CoreException> {
-                User.signUp("한글포함", "Asdf1234!", "고려진", LocalDate.of(2001, 7, 9), "goryeojin@example.com")
+                UserFixture.validUser(loginId = "한글포함")
             }
+
+            // then
             assertThat(result.errorType).isEqualTo(UserErrorType.SIGNUP_BAD_REQUEST)
         }
 
-        @DisplayName("name 이 2자 미만이면 SIGNUP_BAD_REQUEST 예외가 발생한다.")
+        @DisplayName("2자 미만의 name 으로 회원을 생성하면, SIGNUP_BAD_REQUEST 예외가 발생한다.")
         @Test
         fun throwsSignupBadRequest_whenNameIsTooShort() {
+            // when
             val result = assertThrows<CoreException> {
-                User.signUp("goryeojin", "Asdf1234!", "김", LocalDate.of(2001, 7, 9), "goryeojin@example.com")
+                UserFixture.validUser(name = "김")
             }
+
+            // then
             assertThat(result.errorType).isEqualTo(UserErrorType.SIGNUP_BAD_REQUEST)
         }
 
-        @DisplayName("email 형식이 잘못되면 SIGNUP_BAD_REQUEST 예외가 발생한다.")
+        @DisplayName("형식이 잘못된 email 로 회원을 생성하면, SIGNUP_BAD_REQUEST 예외가 발생한다.")
         @Test
         fun throwsSignupBadRequest_whenEmailIsInvalid() {
+            // when
             val result = assertThrows<CoreException> {
-                User.signUp("goryeojin", "Asdf1234!", "고려진", LocalDate.of(2001, 7, 9), "noatmark.com")
+                UserFixture.validUser(email = "noatmark.com")
             }
+
+            // then
             assertThat(result.errorType).isEqualTo(UserErrorType.SIGNUP_BAD_REQUEST)
         }
 
-        @DisplayName("만 14세 미만의 birthDate 면 SIGNUP_BAD_REQUEST 예외가 발생한다.")
+        @DisplayName("만 14세 미만의 birthDate 로 회원을 생성하면, SIGNUP_BAD_REQUEST 예외가 발생한다.")
         @Test
         fun throwsSignupBadRequest_whenBirthDateIsUnderAge14() {
-            val underAge = LocalDate.now().minusYears(13)
+            // when
             val result = assertThrows<CoreException> {
-                User.signUp("goryeojin", "Asdf1234!", "고려진", underAge, "goryeojin@example.com")
+                UserFixture.validUser(birthDate = LocalDate.now().minusYears(13))
             }
+
+            // then
             assertThat(result.errorType).isEqualTo(UserErrorType.SIGNUP_BAD_REQUEST)
         }
 
-        @DisplayName("미래 birthDate 면 SIGNUP_BAD_REQUEST 예외가 발생한다.")
+        @DisplayName("미래 birthDate 로 회원을 생성하면, SIGNUP_BAD_REQUEST 예외가 발생한다.")
         @Test
         fun throwsSignupBadRequest_whenBirthDateIsFuture() {
-            val future = LocalDate.now().plusDays(1)
+            // when
             val result = assertThrows<CoreException> {
-                User.signUp("goryeojin", "Asdf1234!", "고려진", future, "goryeojin@example.com")
+                UserFixture.validUser(birthDate = LocalDate.now().plusDays(1))
             }
+
+            // then
             assertThat(result.errorType).isEqualTo(UserErrorType.SIGNUP_BAD_REQUEST)
         }
 
-        @DisplayName("비밀번호가 3 카테고리(영문/숫자/특수)를 모두 만족하지 않으면 SIGNUP_BAD_REQUEST 예외가 발생한다.")
+        @DisplayName("영문/숫자/특수문자 3 카테고리 중 하나라도 빠진 비밀번호로 회원을 생성하면, SIGNUP_BAD_REQUEST 예외가 발생한다.")
         @Test
         fun throwsSignupBadRequest_whenPasswordMissingCategory() {
+            // when
             val result = assertThrows<CoreException> {
-                User.signUp("goryeojin", "asdfasdf", "고려진", LocalDate.of(2001, 7, 9), "goryeojin@example.com")
+                UserFixture.validUser(password = "asdfasdf")
             }
+
+            // then
             assertThat(result.errorType).isEqualTo(UserErrorType.SIGNUP_BAD_REQUEST)
         }
 
-        @DisplayName("비밀번호에 생년월일(yyyyMMdd) 이 포함되면 SIGNUP_BAD_REQUEST 예외가 발생한다.")
+        @DisplayName("생년월일(yyyyMMdd) 이 포함된 비밀번호로 회원을 생성하면, SIGNUP_BAD_REQUEST 예외가 발생한다.")
         @Test
         fun throwsSignupBadRequest_whenPasswordContainsBirthDate() {
+            // when
             val result = assertThrows<CoreException> {
-                User.signUp("goryeojin", "Ab1!20010709", "고려진", LocalDate.of(2001, 7, 9), "goryeojin@example.com")
+                UserFixture.validUser(password = "Ab1!20010709")
             }
+
+            // then
             assertThat(result.errorType).isEqualTo(UserErrorType.SIGNUP_BAD_REQUEST)
         }
     }

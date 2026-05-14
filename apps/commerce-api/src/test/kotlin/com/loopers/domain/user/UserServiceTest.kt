@@ -1,5 +1,10 @@
 package com.loopers.domain.user
 
+import com.loopers.domain.user.UserFixture.DEFAULT_BIRTH_DATE
+import com.loopers.domain.user.UserFixture.DEFAULT_EMAIL
+import com.loopers.domain.user.UserFixture.DEFAULT_LOGIN_ID
+import com.loopers.domain.user.UserFixture.DEFAULT_NAME
+import com.loopers.domain.user.UserFixture.DEFAULT_PASSWORD
 import com.loopers.support.error.CoreException
 import io.mockk.every
 import io.mockk.mockk
@@ -26,21 +31,16 @@ class UserServiceTest {
         @Test
         fun savesAndReturnsUser_whenAllInputsAreValid() {
             // give
-            val loginId = "goryeojin"
-            val password = "Asdf1234!"
-            val name = "고려진"
-            val birthDate = LocalDate.of(2001, 7, 9)
-            val email = "goryeojin@example.com"
             every { userRepository.findByLoginId(any()) } returns null
             every { userRepository.findByEmail(any()) } returns null
             every { userRepository.save(any()) } answers { firstArg() }
 
             // when
-            val saved = userService.signup(loginId, password, name, birthDate, email)
+            val saved = userService.signup(DEFAULT_LOGIN_ID, DEFAULT_PASSWORD, DEFAULT_NAME, DEFAULT_BIRTH_DATE, DEFAULT_EMAIL)
 
             // then
             assertAll(
-                { assertThat(saved.loginId).isEqualTo(loginId) },
+                { assertThat(saved.loginId).isEqualTo(DEFAULT_LOGIN_ID) },
                 { verify(exactly = 1) { userRepository.save(any()) } },
             )
         }
@@ -49,18 +49,11 @@ class UserServiceTest {
         @Test
         fun throwsDuplicateLoginIdException_whenLoginIdAlreadyExists() {
             // give
-            val loginId = "goryeojin"
-            every { userRepository.findByLoginId(loginId) } returns mockk<User>()
+            every { userRepository.findByLoginId(DEFAULT_LOGIN_ID) } returns mockk<User>()
 
             // when
             val result = assertThrows<CoreException> {
-                userService.signup(
-                    loginId = loginId,
-                    password = "Asdf1234!",
-                    name = "고려진",
-                    birthDate = LocalDate.of(2001, 7, 9),
-                    email = "goryeojin@example.com",
-                )
+                userService.signup(DEFAULT_LOGIN_ID, DEFAULT_PASSWORD, DEFAULT_NAME, DEFAULT_BIRTH_DATE, DEFAULT_EMAIL)
             }
 
             // then
@@ -71,19 +64,12 @@ class UserServiceTest {
         @Test
         fun throwsDuplicateEmailException_whenEmailAlreadyExists() {
             // give
-            val email = "goryeojin@example.com"
             every { userRepository.findByLoginId(any()) } returns null
-            every { userRepository.findByEmail(email) } returns mockk<User>()
+            every { userRepository.findByEmail(DEFAULT_EMAIL) } returns mockk<User>()
 
             // when
             val result = assertThrows<CoreException> {
-                userService.signup(
-                    loginId = "goryeojin",
-                    password = "Asdf1234!",
-                    name = "고려진",
-                    birthDate = LocalDate.of(2001, 7, 9),
-                    email = email,
-                )
+                userService.signup(DEFAULT_LOGIN_ID, DEFAULT_PASSWORD, DEFAULT_NAME, DEFAULT_BIRTH_DATE, DEFAULT_EMAIL)
             }
 
             // then
@@ -95,12 +81,11 @@ class UserServiceTest {
         @ValueSource(strings = ["abc", "abcdefghijklmnopqrstuv", "한글포함", "with space", "spec!"])
         fun throwsSignupBadRequest_whenLoginIdIsInvalid(invalidLoginId: String) {
             // give
-            every { userRepository.findByLoginId(any()) } returns null
-            every { userRepository.findByEmail(any()) } returns null
+            stubNoDuplicate()
 
             // when
             val result = assertThrows<CoreException> {
-                userService.signup(invalidLoginId, "Asdf1234!", "고려진", LocalDate.of(2001, 7, 9), "goryeojin@example.com")
+                userService.signup(invalidLoginId, DEFAULT_PASSWORD, DEFAULT_NAME, DEFAULT_BIRTH_DATE, DEFAULT_EMAIL)
             }
 
             // then
@@ -112,12 +97,11 @@ class UserServiceTest {
         @MethodSource("com.loopers.domain.user.UserServiceTest#invalidNames")
         fun throwsSignupBadRequest_whenNameIsInvalid(invalidName: String) {
             // give
-            every { userRepository.findByLoginId(any()) } returns null
-            every { userRepository.findByEmail(any()) } returns null
+            stubNoDuplicate()
 
             // when
             val result = assertThrows<CoreException> {
-                userService.signup("goryeojin", "Asdf1234!", invalidName, LocalDate.of(2001, 7, 9), "goryeojin@example.com")
+                userService.signup(DEFAULT_LOGIN_ID, DEFAULT_PASSWORD, invalidName, DEFAULT_BIRTH_DATE, DEFAULT_EMAIL)
             }
 
             // then
@@ -129,12 +113,11 @@ class UserServiceTest {
         @MethodSource("com.loopers.domain.user.UserServiceTest#invalidEmails")
         fun throwsSignupBadRequest_whenEmailIsInvalid(invalidEmail: String) {
             // give
-            every { userRepository.findByLoginId(any()) } returns null
-            every { userRepository.findByEmail(any()) } returns null
+            stubNoDuplicate()
 
             // when
             val result = assertThrows<CoreException> {
-                userService.signup("goryeojin", "Asdf1234!", "고려진", LocalDate.of(2001, 7, 9), invalidEmail)
+                userService.signup(DEFAULT_LOGIN_ID, DEFAULT_PASSWORD, DEFAULT_NAME, DEFAULT_BIRTH_DATE, invalidEmail)
             }
 
             // then
@@ -146,12 +129,11 @@ class UserServiceTest {
         @MethodSource("com.loopers.domain.user.UserServiceTest#invalidBirthDates")
         fun throwsSignupBadRequest_whenBirthDateIsInvalid(invalidBirthDate: LocalDate) {
             // give
-            every { userRepository.findByLoginId(any()) } returns null
-            every { userRepository.findByEmail(any()) } returns null
+            stubNoDuplicate()
 
             // when
             val result = assertThrows<CoreException> {
-                userService.signup("goryeojin", "Asdf1234!", "고려진", invalidBirthDate, "goryeojin@example.com")
+                userService.signup(DEFAULT_LOGIN_ID, DEFAULT_PASSWORD, DEFAULT_NAME, invalidBirthDate, DEFAULT_EMAIL)
             }
 
             // then
@@ -163,12 +145,11 @@ class UserServiceTest {
         @ValueSource(strings = ["Ab1!", "Ab1!Ab1", "Ab1!Ab1!Ab1!Ab1!A", "Ab1!Ab1!Ab1!Ab1!Ab1!"])
         fun throwsSignupBadRequest_whenPasswordLengthIsInvalid(invalidPassword: String) {
             // give
-            every { userRepository.findByLoginId(any()) } returns null
-            every { userRepository.findByEmail(any()) } returns null
+            stubNoDuplicate()
 
             // when
             val result = assertThrows<CoreException> {
-                userService.signup("goryeojin", invalidPassword, "고려진", LocalDate.of(2001, 7, 9), "goryeojin@example.com")
+                userService.signup(DEFAULT_LOGIN_ID, invalidPassword, DEFAULT_NAME, DEFAULT_BIRTH_DATE, DEFAULT_EMAIL)
             }
 
             // then
@@ -180,12 +161,11 @@ class UserServiceTest {
         @ValueSource(strings = ["Asdf1234한", "Asdf 1234!", "한a1!@#\$%"])
         fun throwsSignupBadRequest_whenPasswordContainsDisallowedChar(invalidPassword: String) {
             // give
-            every { userRepository.findByLoginId(any()) } returns null
-            every { userRepository.findByEmail(any()) } returns null
+            stubNoDuplicate()
 
             // when
             val result = assertThrows<CoreException> {
-                userService.signup("goryeojin", invalidPassword, "고려진", LocalDate.of(2001, 7, 9), "goryeojin@example.com")
+                userService.signup(DEFAULT_LOGIN_ID, invalidPassword, DEFAULT_NAME, DEFAULT_BIRTH_DATE, DEFAULT_EMAIL)
             }
 
             // then
@@ -206,12 +186,11 @@ class UserServiceTest {
         )
         fun throwsSignupBadRequest_whenPasswordMissingCategory(invalidPassword: String) {
             // give
-            every { userRepository.findByLoginId(any()) } returns null
-            every { userRepository.findByEmail(any()) } returns null
+            stubNoDuplicate()
 
             // when
             val result = assertThrows<CoreException> {
-                userService.signup("goryeojin", invalidPassword, "고려진", LocalDate.of(2001, 7, 9), "goryeojin@example.com")
+                userService.signup(DEFAULT_LOGIN_ID, invalidPassword, DEFAULT_NAME, DEFAULT_BIRTH_DATE, DEFAULT_EMAIL)
             }
 
             // then
@@ -223,16 +202,71 @@ class UserServiceTest {
         @ValueSource(strings = ["Ab1!20010709", "20010709Ab!", "Ab!010709AB1"])
         fun throwsSignupBadRequest_whenPasswordContainsBirthDate(invalidPassword: String) {
             // give
-            every { userRepository.findByLoginId(any()) } returns null
-            every { userRepository.findByEmail(any()) } returns null
+            stubNoDuplicate()
 
             // when
             val result = assertThrows<CoreException> {
-                userService.signup("goryeojin", invalidPassword, "고려진", LocalDate.of(2001, 7, 9), "goryeojin@example.com")
+                userService.signup(DEFAULT_LOGIN_ID, invalidPassword, DEFAULT_NAME, DEFAULT_BIRTH_DATE, DEFAULT_EMAIL)
             }
 
             // then
             assertThat(result.errorType).isEqualTo(UserErrorType.SIGNUP_BAD_REQUEST)
+        }
+
+        private fun stubNoDuplicate() {
+            every { userRepository.findByLoginId(any()) } returns null
+            every { userRepository.findByEmail(any()) } returns null
+        }
+    }
+
+    @DisplayName("로그인할 때, ")
+    @Nested
+    inner class Authenticate {
+        @DisplayName("존재하지 않는 loginId 로 인증을 시도하면, UNAUTHORIZED 예외가 발생한다.")
+        @Test
+        fun throwsUnauthorized_whenLoginIdNotFound() {
+            // give
+            every { userRepository.findByLoginId(DEFAULT_LOGIN_ID) } returns null
+
+            // when
+            val result = assertThrows<CoreException> {
+                userService.authenticate(DEFAULT_LOGIN_ID, DEFAULT_PASSWORD)
+            }
+
+            // then
+            assertThat(result.errorType).isEqualTo(UserErrorType.UNAUTHORIZED)
+        }
+
+        @DisplayName("loginId 는 존재하지만 비밀번호가 일치하지 않으면, UNAUTHORIZED 예외가 발생한다.")
+        @Test
+        fun throwsUnauthorized_whenPasswordMismatch() {
+            // give
+            every { userRepository.findByLoginId(DEFAULT_LOGIN_ID) } returns UserFixture.validUser()
+
+            // when
+            val result = assertThrows<CoreException> {
+                userService.authenticate(DEFAULT_LOGIN_ID, "Wrong1234!")
+            }
+
+            // then
+            assertThat(result.errorType).isEqualTo(UserErrorType.UNAUTHORIZED)
+        }
+
+        @DisplayName("loginId 와 비밀번호가 모두 일치하면, 식별된 User 가 반환된다.")
+        @Test
+        fun returnsUser_whenCredentialsMatch() {
+            // give
+            val savedUser = UserFixture.validUser()
+            every { userRepository.findByLoginId(DEFAULT_LOGIN_ID) } returns savedUser
+
+            // when
+            val authenticated = userService.authenticate(DEFAULT_LOGIN_ID, DEFAULT_PASSWORD)
+
+            // then
+            assertAll(
+                { assertThat(authenticated).isSameAs(savedUser) },
+                { assertThat(authenticated.loginId).isEqualTo(DEFAULT_LOGIN_ID) },
+            )
         }
     }
 
