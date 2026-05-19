@@ -9,7 +9,7 @@ class CoreExceptionTest {
     @Test
     fun messageShouldBeErrorTypeMessage_whenCustomMessageIsNull() {
         // arrange
-        val errorTypes = ErrorType.entries
+        val errorTypes = CommonErrorType.entries
 
         // act
         errorTypes.forEach { errorType ->
@@ -27,7 +27,7 @@ class CoreExceptionTest {
         val customMessage = "custom message"
 
         // act
-        val exception = CoreException(ErrorType.INTERNAL_ERROR, customMessage)
+        val exception = CoreException(CommonErrorType.INTERNAL_ERROR, customMessage)
 
         // assert
         assertThat(exception.message).isEqualTo(customMessage)
