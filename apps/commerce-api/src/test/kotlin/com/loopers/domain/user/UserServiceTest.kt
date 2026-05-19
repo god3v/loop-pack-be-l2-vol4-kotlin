@@ -22,7 +22,8 @@ import java.time.LocalDate
 
 class UserServiceTest {
     private val userRepository: UserRepository = mockk()
-    private val userService = UserService(userRepository)
+    private val passwordEncoder: PasswordEncoder = UserFixture.DEFAULT_PASSWORD_ENCODER
+    private val userService = UserService(userRepository, passwordEncoder)
 
     @DisplayName("회원가입을 할 때, ")
     @Nested
@@ -275,17 +276,16 @@ class UserServiceTest {
     inner class ChangePassword {
         private val nextPw = "NewPw5678!"
 
-        @DisplayName("헤더 비밀번호가 일치하지 않으면, UNAUTHORIZED 예외가 발생한다.")
+        @DisplayName("loginId 에 해당하는 User 가 존재하지 않으면, UNAUTHORIZED 예외가 발생한다.")
         @Test
-        fun throwsUnauthorized_whenloginPwMismatch() {
+        fun throwsUnauthorized_whenUserNotFound() {
             // give
-            every { userRepository.findByLoginId(DEFAULT_LOGIN_ID) } returns UserFixture.validUser()
+            every { userRepository.findByLoginId(DEFAULT_LOGIN_ID) } returns null
 
             // when
             val result = assertThrows<CoreException> {
                 userService.changePassword(
                     loginId = DEFAULT_LOGIN_ID,
-                    loginPw = "Wrong1234!",
                     prevPw = DEFAULT_PASSWORD,
                     nextPw = nextPw,
                 )
@@ -295,7 +295,7 @@ class UserServiceTest {
             assertThat(result.errorType).isEqualTo(UserErrorType.UNAUTHORIZED)
         }
 
-        @DisplayName("헤더 비밀번호는 일치하지만 body 의 prevPw 가 일치하지 않으면, UNAUTHORIZED 예외가 발생한다.")
+        @DisplayName("body 의 prevPw 가 현재 비밀번호와 일치하지 않으면, UNAUTHORIZED 예외가 발생한다.")
         @Test
         fun throwsUnauthorized_whenBodyprevPwMismatch() {
             // give
@@ -305,7 +305,6 @@ class UserServiceTest {
             val result = assertThrows<CoreException> {
                 userService.changePassword(
                     loginId = DEFAULT_LOGIN_ID,
-                    loginPw = DEFAULT_PASSWORD,
                     prevPw = "Wrong1234!",
                     nextPw = nextPw,
                 )
@@ -325,7 +324,6 @@ class UserServiceTest {
             val result = assertThrows<CoreException> {
                 userService.changePassword(
                     loginId = DEFAULT_LOGIN_ID,
-                    loginPw = DEFAULT_PASSWORD,
                     prevPw = DEFAULT_PASSWORD,
                     nextPw = DEFAULT_PASSWORD,
                 )
@@ -346,7 +344,6 @@ class UserServiceTest {
             val result = assertThrows<CoreException> {
                 userService.changePassword(
                     loginId = DEFAULT_LOGIN_ID,
-                    loginPw = DEFAULT_PASSWORD,
                     prevPw = DEFAULT_PASSWORD,
                     nextPw = invalidnextPw,
                 )
@@ -356,27 +353,59 @@ class UserServiceTest {
             assertThat(result.errorType).isEqualTo(UserErrorType.INVALID_PASSWORD)
         }
 
-        @DisplayName("이중 인증과 RULE 을 모두 통과한 새 비밀번호로 변경하면, 비밀번호가 갱신된 User 가 save 를 거쳐 반환된다.")
+        @DisplayName("prevPw 와 RULE 을 모두 통과한 새 비밀번호로 변경하면, 비밀번호가 갱신된 User 가 update 를 거쳐 반환된다.")
         @Test
         fun savesAndReturnsUserWithnextPw_whenAllValidationsPass() {
             // give
             val savedUser = UserFixture.validUser()
             every { userRepository.findByLoginId(DEFAULT_LOGIN_ID) } returns savedUser
-            every { userRepository.save(any()) } answers { firstArg() }
+            every { userRepository.update(any()) } answers { firstArg() }
 
             // when
             val result = userService.changePassword(
                 loginId = DEFAULT_LOGIN_ID,
-                loginPw = DEFAULT_PASSWORD,
                 prevPw = DEFAULT_PASSWORD,
                 nextPw = nextPw,
             )
 
             // then
             assertAll(
-                { assertThat(result.password.matches(nextPw)).isTrue() },
-                { verify(exactly = 1) { userRepository.save(savedUser) } },
+                { assertThat(passwordEncoder.matches(nextPw, result.password.value)).isTrue() },
+                { verify(exactly = 1) { userRepository.update(savedUser) } },
             )
+        }
+    }
+
+    @DisplayName("getByLoginId 를 호출할 때, ")
+    @Nested
+    inner class GetByLoginId {
+        @DisplayName("존재하는 loginId 면, 해당 User 가 반환된다.")
+        @Test
+        fun returnsUser_whenLoginIdExists() {
+            // give
+            val saved = UserFixture.validUser()
+            every { userRepository.findByLoginId(DEFAULT_LOGIN_ID) } returns saved
+
+            // when
+            val result = userService.getByLoginId(DEFAULT_LOGIN_ID)
+
+            // then
+            assertThat(result).isSameAs(saved)
+        }
+
+        @DisplayName("존재하지 않는 loginId 면, UNAUTHORIZED 예외가 발생한다.")
+        @Test
+        fun throwsUnauthorized_whenLoginIdNotFound() {
+            // give
+            every { userRepository.findByLoginId(DEFAULT_LOGIN_ID) } returns null
+
+            // when
+            val result = assertThrows<CoreException> {
+                userService.getByLoginId(DEFAULT_LOGIN_ID)
+            }
+
+            // then
+            assertThat(result.errorType).isEqualTo(UserErrorType.UNAUTHORIZED)
         }
     }
 

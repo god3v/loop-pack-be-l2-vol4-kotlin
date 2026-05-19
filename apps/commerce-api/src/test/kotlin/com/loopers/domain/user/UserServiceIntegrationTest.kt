@@ -95,7 +95,6 @@ class UserServiceIntegrationTest @Autowired constructor(
             // when
             userService.changePassword(
                 loginId = DEFAULT_LOGIN_ID,
-                loginPw = DEFAULT_PASSWORD,
                 prevPw = DEFAULT_PASSWORD,
                 nextPw = newPassword,
             )
@@ -104,7 +103,8 @@ class UserServiceIntegrationTest @Autowired constructor(
             val reloaded = userJpaRepository.findByLoginId(DEFAULT_LOGIN_ID)!!
             val reAuthenticated = userService.authenticate(DEFAULT_LOGIN_ID, newPassword)
             assertAll(
-                { assertThat(reloaded.password).isEqualTo(newPassword) },
+                { assertThat(reloaded.password).isNotEqualTo(newPassword) },
+                { assertThat(UserFixture.DEFAULT_PASSWORD_ENCODER.matches(newPassword, reloaded.password)).isTrue() },
                 { assertThat(reAuthenticated.loginId).isEqualTo(DEFAULT_LOGIN_ID) },
                 {
                     assertThrows<CoreException> {
