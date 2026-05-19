@@ -22,8 +22,7 @@ import java.time.LocalDate
 
 class UserServiceTest {
     private val userRepository: UserRepository = mockk()
-    private val passwordEncoder: PasswordEncoder = UserFixture.DEFAULT_PASSWORD_ENCODER
-    private val userService = UserService(userRepository, passwordEncoder)
+    private val userService = UserService(userRepository)
 
     @DisplayName("회원가입을 할 때, ")
     @Nested
@@ -370,7 +369,7 @@ class UserServiceTest {
 
             // then
             assertAll(
-                { assertThat(passwordEncoder.matches(nextPw, result.password.value)).isTrue() },
+                { assertThat(result.password.matches(nextPw)).isTrue() },
                 { verify(exactly = 1) { userRepository.update(savedUser) } },
             )
         }

@@ -2,6 +2,7 @@ package com.loopers.infrastructure.user
 
 import com.loopers.config.jpa.DataSourceConfig
 import com.loopers.domain.user.Password
+import com.loopers.domain.user.PasswordEncryptionUtil
 import com.loopers.domain.user.User
 import com.loopers.domain.user.UserFixture
 import com.loopers.domain.user.UserRepository
@@ -46,11 +47,7 @@ class UserRepositoryImplIntegrationTest @Autowired constructor(
                 { assertThat(saved.id).isPositive() },
                 { assertThat(reloaded.loginId).isEqualTo(UserFixture.DEFAULT_LOGIN_ID) },
                 { assertThat(reloaded.password).isNotEqualTo(UserFixture.DEFAULT_PASSWORD) },
-                {
-                    assertThat(
-                        UserFixture.DEFAULT_PASSWORD_ENCODER.matches(UserFixture.DEFAULT_PASSWORD, reloaded.password),
-                    ).isTrue()
-                },
+                { assertThat(reloaded.password).isEqualTo(PasswordEncryptionUtil.encode(UserFixture.DEFAULT_PASSWORD)) },
                 { assertThat(reloaded.email).isEqualTo(UserFixture.DEFAULT_EMAIL) },
                 { assertThat(reloaded.name).isEqualTo(UserFixture.DEFAULT_NAME) },
                 { assertThat(reloaded.birthDate).isEqualTo(UserFixture.DEFAULT_BIRTH_DATE) },
@@ -69,7 +66,7 @@ class UserRepositoryImplIntegrationTest @Autowired constructor(
             val saved = userRepository.save(UserFixture.validUser())
             testEntityManager.flush()
             testEntityManager.clear()
-            saved.changePassword(Password(UserFixture.DEFAULT_PASSWORD_ENCODER.encode(newPassword)))
+            saved.changePassword(Password.create(newPassword, saved.birthDate))
 
             // when
             userRepository.update(saved)
@@ -80,11 +77,7 @@ class UserRepositoryImplIntegrationTest @Autowired constructor(
             val reloaded = userJpaRepository.findById(saved.id).orElseThrow()
             assertAll(
                 { assertThat(reloaded.password).isNotEqualTo(newPassword) },
-                {
-                    assertThat(
-                        UserFixture.DEFAULT_PASSWORD_ENCODER.matches(newPassword, reloaded.password),
-                    ).isTrue()
-                },
+                { assertThat(reloaded.password).isEqualTo(PasswordEncryptionUtil.encode(newPassword)) },
                 { assertThat(reloaded.loginId).isEqualTo(UserFixture.DEFAULT_LOGIN_ID) },
                 { assertThat(reloaded.email).isEqualTo(UserFixture.DEFAULT_EMAIL) },
                 { assertThat(reloaded.name).isEqualTo(UserFixture.DEFAULT_NAME) },
@@ -134,11 +127,7 @@ class UserRepositoryImplIntegrationTest @Autowired constructor(
                 { assertThat(found!!.id).isEqualTo(saved.id) },
                 { assertThat(found!!.loginId).isEqualTo(UserFixture.DEFAULT_LOGIN_ID) },
                 { assertThat(found!!.email.value).isEqualTo(UserFixture.DEFAULT_EMAIL) },
-                {
-                    assertThat(
-                        UserFixture.DEFAULT_PASSWORD_ENCODER.matches(UserFixture.DEFAULT_PASSWORD, found!!.password.value),
-                    ).isTrue()
-                },
+                { assertThat(found!!.password.matches(UserFixture.DEFAULT_PASSWORD)).isTrue() },
             )
         }
 

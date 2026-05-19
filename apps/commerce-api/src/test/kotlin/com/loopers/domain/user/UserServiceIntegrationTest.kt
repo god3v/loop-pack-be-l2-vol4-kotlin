@@ -104,7 +104,7 @@ class UserServiceIntegrationTest @Autowired constructor(
             val reAuthenticated = userService.authenticate(DEFAULT_LOGIN_ID, newPassword)
             assertAll(
                 { assertThat(reloaded.password).isNotEqualTo(newPassword) },
-                { assertThat(UserFixture.DEFAULT_PASSWORD_ENCODER.matches(newPassword, reloaded.password)).isTrue() },
+                { assertThat(reloaded.password).isEqualTo(PasswordEncryptionUtil.encode(newPassword)) },
                 { assertThat(reAuthenticated.loginId).isEqualTo(DEFAULT_LOGIN_ID) },
                 {
                     assertThrows<CoreException> {

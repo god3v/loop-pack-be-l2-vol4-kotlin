@@ -2,8 +2,8 @@ package com.loopers.application.user
 
 import com.loopers.application.user.command.ChangePasswordCommand
 import com.loopers.application.user.command.SignupCommand
+import com.loopers.domain.user.PasswordEncryptionUtil
 import com.loopers.domain.user.UserErrorType
-import com.loopers.domain.user.UserFixture
 import com.loopers.domain.user.UserFixture.DEFAULT_BIRTH_DATE
 import com.loopers.domain.user.UserFixture.DEFAULT_EMAIL
 import com.loopers.domain.user.UserFixture.DEFAULT_LOGIN_ID
@@ -153,7 +153,7 @@ class UserFacadeIntegrationTest @Autowired constructor(
             val reloaded = userJpaRepository.findByLoginId(DEFAULT_LOGIN_ID)!!
             assertAll(
                 { assertThat(reloaded.password).isNotEqualTo(newPassword) },
-                { assertThat(UserFixture.DEFAULT_PASSWORD_ENCODER.matches(newPassword, reloaded.password)).isTrue() },
+                { assertThat(reloaded.password).isEqualTo(PasswordEncryptionUtil.encode(newPassword)) },
             )
         }
 
@@ -178,7 +178,7 @@ class UserFacadeIntegrationTest @Autowired constructor(
             val reloaded = userJpaRepository.findByLoginId(DEFAULT_LOGIN_ID)!!
             assertAll(
                 { assertThat(reloaded.password).isNotEqualTo(DEFAULT_PASSWORD) },
-                { assertThat(UserFixture.DEFAULT_PASSWORD_ENCODER.matches(DEFAULT_PASSWORD, reloaded.password)).isTrue() },
+                { assertThat(reloaded.password).isEqualTo(PasswordEncryptionUtil.encode(DEFAULT_PASSWORD)) },
             )
         }
 
@@ -204,7 +204,7 @@ class UserFacadeIntegrationTest @Autowired constructor(
             assertAll(
                 { assertThat(result.errorType).isEqualTo(UserErrorType.UNAUTHORIZED) },
                 { assertThat(reloaded.password).isNotEqualTo(DEFAULT_PASSWORD) },
-                { assertThat(UserFixture.DEFAULT_PASSWORD_ENCODER.matches(DEFAULT_PASSWORD, reloaded.password)).isTrue() },
+                { assertThat(reloaded.password).isEqualTo(PasswordEncryptionUtil.encode(DEFAULT_PASSWORD)) },
             )
         }
     }
