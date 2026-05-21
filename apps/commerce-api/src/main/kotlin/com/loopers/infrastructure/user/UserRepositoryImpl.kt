@@ -8,12 +8,13 @@ import org.springframework.stereotype.Component
 class UserRepositoryImpl(
     private val userJpaRepository: UserJpaRepository,
 ) : UserRepository {
-    override fun save(user: User): User {
-        val entity = if (user.id == 0L) {
-            UserEntity.from(user)
-        } else {
-            userJpaRepository.findById(user.id).orElseThrow().apply { syncFrom(user) }
-        }
+    override fun save(user: User): User =
+        userJpaRepository.save(UserEntity.from(user)).toDomain()
+
+    override fun update(user: User): User {
+        val entity = userJpaRepository.findById(user.id)
+            .orElseThrow { IllegalStateException("user with id=${user.id} not found while updating") }
+            .apply { syncFrom(user) }
         return userJpaRepository.save(entity).toDomain()
     }
 

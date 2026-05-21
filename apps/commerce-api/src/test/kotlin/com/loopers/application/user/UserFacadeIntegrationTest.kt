@@ -2,6 +2,7 @@ package com.loopers.application.user
 
 import com.loopers.application.user.command.ChangePasswordCommand
 import com.loopers.application.user.command.SignupCommand
+import com.loopers.domain.user.PasswordEncryptionUtil
 import com.loopers.domain.user.UserErrorType
 import com.loopers.domain.user.UserFixture.DEFAULT_BIRTH_DATE
 import com.loopers.domain.user.UserFixture.DEFAULT_EMAIL
@@ -97,14 +98,14 @@ class UserFacadeIntegrationTest @Autowired constructor(
     @DisplayName("UserFacade.getMyInfo 를 호출할 때, ")
     @Nested
     inner class GetMyInfo {
-        @DisplayName("정상 인증 후 호출하면, 마스킹된 name 을 포함한 MyInfoResult 가 반환된다.")
+        @DisplayName("가입된 loginId 로 호출하면, 마스킹된 name 을 포함한 MyInfoResult 가 반환된다.")
         @Test
-        fun returnsMaskedMyInfo_whenAuthenticated() {
+        fun returnsMaskedMyInfo_whenUserExists() {
             // give
             userFacade.signup(validSignupCommand())
 
             // when
-            val result = userFacade.getMyInfo(DEFAULT_LOGIN_ID, DEFAULT_PASSWORD)
+            val result = userFacade.getMyInfo(DEFAULT_LOGIN_ID)
 
             // then
             assertAll(
@@ -115,15 +116,12 @@ class UserFacadeIntegrationTest @Autowired constructor(
             )
         }
 
-        @DisplayName("잘못된 비밀번호로 호출하면, UNAUTHORIZED 예외가 발생한다.")
+        @DisplayName("존재하지 않는 loginId 로 호출하면, UNAUTHORIZED 예외가 발생한다.")
         @Test
-        fun throwsUnauthorized_whenPasswordMismatch() {
-            // give
-            userFacade.signup(validSignupCommand())
-
+        fun throwsUnauthorized_whenUserNotFound() {
             // when
             val result = assertThrows<CoreException> {
-                userFacade.getMyInfo(DEFAULT_LOGIN_ID, "Wrong1234!")
+                userFacade.getMyInfo("notexists")
             }
 
             // then
@@ -146,7 +144,6 @@ class UserFacadeIntegrationTest @Autowired constructor(
             userFacade.changePassword(
                 ChangePasswordCommand(
                     loginId = DEFAULT_LOGIN_ID,
-                    loginPw = DEFAULT_PASSWORD,
                     prevPw = DEFAULT_PASSWORD,
                     nextPw = newPassword,
                 ),
@@ -154,7 +151,10 @@ class UserFacadeIntegrationTest @Autowired constructor(
 
             // then
             val reloaded = userJpaRepository.findByLoginId(DEFAULT_LOGIN_ID)!!
-            assertThat(reloaded.password).isEqualTo(newPassword)
+            assertAll(
+                { assertThat(reloaded.password).isNotEqualTo(newPassword) },
+                { assertThat(reloaded.password).isEqualTo(PasswordEncryptionUtil.encode(newPassword)) },
+            )
         }
 
         @DisplayName("RULE 위반 예외가 던져지면, 트랜잭션이 롤백되어 DB 의 password 가 변경되지 않는다.")
@@ -168,8 +168,7 @@ class UserFacadeIntegrationTest @Autowired constructor(
                 userFacade.changePassword(
                     ChangePasswordCommand(
                         loginId = DEFAULT_LOGIN_ID,
-                        loginPw = DEFAULT_PASSWORD,
-                        prevPw = DEFAULT_PASSWORD,
+                            prevPw = DEFAULT_PASSWORD,
                         nextPw = "short1!",
                     ),
                 )
@@ -177,7 +176,10 @@ class UserFacadeIntegrationTest @Autowired constructor(
 
             // then
             val reloaded = userJpaRepository.findByLoginId(DEFAULT_LOGIN_ID)!!
-            assertThat(reloaded.password).isEqualTo(DEFAULT_PASSWORD)
+            assertAll(
+                { assertThat(reloaded.password).isNotEqualTo(DEFAULT_PASSWORD) },
+                { assertThat(reloaded.password).isEqualTo(PasswordEncryptionUtil.encode(DEFAULT_PASSWORD)) },
+            )
         }
 
         @DisplayName("body 의 prevPw 가 일치하지 않으면, UNAUTHORIZED 예외가 발생하고 password 가 변경되지 않는다.")
@@ -191,8 +193,7 @@ class UserFacadeIntegrationTest @Autowired constructor(
                 userFacade.changePassword(
                     ChangePasswordCommand(
                         loginId = DEFAULT_LOGIN_ID,
-                        loginPw = DEFAULT_PASSWORD,
-                        prevPw = "Wrong1234!",
+                            prevPw = "Wrong1234!",
                         nextPw = newPassword,
                     ),
                 )
@@ -202,7 +203,8 @@ class UserFacadeIntegrationTest @Autowired constructor(
             val reloaded = userJpaRepository.findByLoginId(DEFAULT_LOGIN_ID)!!
             assertAll(
                 { assertThat(result.errorType).isEqualTo(UserErrorType.UNAUTHORIZED) },
-                { assertThat(reloaded.password).isEqualTo(DEFAULT_PASSWORD) },
+                { assertThat(reloaded.password).isNotEqualTo(DEFAULT_PASSWORD) },
+                { assertThat(reloaded.password).isEqualTo(PasswordEncryptionUtil.encode(DEFAULT_PASSWORD)) },
             )
         }
     }
