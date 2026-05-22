@@ -24,15 +24,14 @@ class UserFacade(
     }
 
     @Transactional(readOnly = true)
-    fun getMyInfo(loginId: String, plainPassword: String): MyInfoResult {
-        return MyInfoResult.from(userService.authenticate(loginId, plainPassword))
+    fun getMyInfo(loginId: String): MyInfoResult {
+        return MyInfoResult.from(userService.getByLoginId(loginId))
     }
 
     @Transactional
     fun changePassword(command: ChangePasswordCommand) {
         userService.changePassword(
             loginId = command.loginId,
-            loginPw = command.loginPw,
             prevPw = command.prevPw,
             nextPw = command.nextPw,
         )

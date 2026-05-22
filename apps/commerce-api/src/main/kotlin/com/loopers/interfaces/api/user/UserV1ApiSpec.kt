@@ -14,17 +14,13 @@ interface UserV1ApiSpec {
 
     @Operation(
         summary = "내 정보 조회",
-        description = "회원의 정보를 조회합니다.",
+        description = "인증된 회원의 정보를 조회합니다.",
     )
-    fun getMyInfo(loginId: String?, password: String?): ApiResponse<UserV1Dto.MyInfoResponse>
+    fun getMyInfo(loginId: String): ApiResponse<UserV1Dto.MyInfoResponse>
 
     @Operation(
         summary = "비밀번호 수정",
-        description = "회원의 비밀번호를 수정합니다.",
+        description = "인증된 회원의 비밀번호를 수정합니다.",
     )
-    fun changePassword(
-        loginId: String?,
-        password: String?,
-        request: UserV1Dto.ChangePasswordRequest,
-    ): ApiResponse<Any>
+    fun changePassword(loginId: String, request: UserV1Dto.ChangePasswordRequest): ApiResponse<Any>
 }

@@ -1,6 +1,6 @@
 # plan.md — TDD 진척 체크리스트 (Template)
 
-> 이 문서는 [docs/tdd-guideline.md](./tdd-guideline.md) 의 "go" 명령어가 참조하는 **테스트 체크리스트** 템플릿이다.
+> 이 문서는 [docs/guideline/tdd-guideline.md](./tdd-guideline.md) 의 "go" 명령어가 참조하는 **테스트 체크리스트** 템플릿이다.
 > 실제 작업용 plan.md 는 `docs/<주차 또는 도메인>/plan.md` 경로에 복사해 사용한다.
 
 ---
@@ -32,7 +32,7 @@
 ## 회원 도메인 — Phase 골격 (예시 스켈레톤)
 
 > 아래는 본 프로젝트의 4계층 구조(`domain → application → infrastructure → interfaces`)에 맞춘 일반적인 진행 순서다.
-> 실제 테스트 케이스는 `docs/week1/requirements.md` 같은 요구사항 명세를 기반으로 채워 넣는다.
+> 실제 테스트 케이스는 `docs/domain/<도메인>/requirements.md` 같은 요구사항 명세를 기반으로 채워 넣는다.
 
 ### Phase 1 — 도메인 모델 (`com.loopers.domain.member`)
 > 값 객체, 엔티티, 도메인 규칙. 스프링/JPA 의존 없이 순수 Kotlin 로 작성.

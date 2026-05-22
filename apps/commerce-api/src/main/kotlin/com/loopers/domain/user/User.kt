@@ -30,14 +30,8 @@ class User internal constructor(
 
     fun name(): String = name.dropLast(1) + "*"
 
-    fun changePassword(prevPwPlain: String, nextPwPlain: String) {
-        if (!this.password.matches(prevPwPlain)) {
-            throw CoreException(UserErrorType.UNAUTHORIZED)
-        }
-        if (this.password.matches(nextPwPlain)) {
-            throw CoreException(UserErrorType.PASSWORD_CHANGE_BAD_REQUEST, "현재 비밀번호와 동일합니다.")
-        }
-        this.password = Password.of(nextPwPlain, birthDate)
+    fun changePassword(newPassword: Password) {
+        this.password = newPassword
     }
 
     companion object {
@@ -46,13 +40,13 @@ class User internal constructor(
 
         fun signUp(
             loginId: String,
-            password: String,
+            password: Password,
             name: String,
             birthDate: LocalDate,
             email: String,
         ): User = User(
             loginId = loginId,
-            password = Password.of(password, birthDate),
+            password = password,
             name = name,
             birthDate = birthDate,
             email = Email.of(email),
