@@ -1,7 +1,7 @@
 # Week 1 — User 도메인 TDD 플랜
 
 > **입력 명세**: [requirements.md (v1.1)](./requirements.md)
-> **방법론**: [Kent Beck TDD & Tidy First](../tdd-guideline.md)
+> **방법론**: [Kent Beck TDD & Tidy First](../../guideline/tdd-guideline.md)
 > **시작일**: 2026-05-10
 
 ---

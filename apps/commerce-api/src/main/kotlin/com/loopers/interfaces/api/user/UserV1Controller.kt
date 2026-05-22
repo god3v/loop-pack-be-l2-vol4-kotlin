@@ -1,14 +1,13 @@
 package com.loopers.interfaces.api.user
 
 import com.loopers.application.user.UserFacade
-import com.loopers.domain.user.UserErrorType
 import com.loopers.interfaces.api.ApiResponse
-import com.loopers.support.error.CoreException
+import com.loopers.interfaces.api.auth.LoginUser
+import com.loopers.interfaces.api.auth.RequireAuth
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PatchMapping
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
-import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController
 
@@ -26,34 +25,22 @@ class UserV1Controller(
     }
 
     @GetMapping("/me")
+    @RequireAuth
     override fun getMyInfo(
-        @RequestHeader(name = "X-Loopers-LoginId", required = false) loginId: String?,
-        @RequestHeader(name = "X-Loopers-LoginPw", required = false) password: String?,
+        @LoginUser loginId: String,
     ): ApiResponse<UserV1Dto.MyInfoResponse> {
-        val (id, pw) = requireAuthHeaders(loginId, password)
-        return userFacade.getMyInfo(id, pw)
+        return userFacade.getMyInfo(loginId)
             .let { UserV1Dto.MyInfoResponse.from(it) }
             .let { ApiResponse.success(it) }
     }
 
     @PatchMapping("/me/password")
+    @RequireAuth
     override fun changePassword(
-        @RequestHeader(name = "X-Loopers-LoginId", required = false) loginId: String?,
-        @RequestHeader(name = "X-Loopers-LoginPw", required = false) password: String?,
+        @LoginUser loginId: String,
         @RequestBody request: UserV1Dto.ChangePasswordRequest,
     ): ApiResponse<Any> {
-        val (id, pw) = requireAuthHeaders(loginId, password)
-        userFacade.changePassword(request.toCommand(id, pw))
+        userFacade.changePassword(request.toCommand(loginId))
         return ApiResponse.success()
-    }
-
-    /*
-    TODO 추후 인터셉터로 인증 책임 분리
-     */
-    private fun requireAuthHeaders(loginId: String?, password: String?): Pair<String, String> {
-        if (loginId.isNullOrBlank() || password.isNullOrBlank()) {
-            throw CoreException(UserErrorType.UNAUTHORIZED)
-        }
-        return loginId to password
     }
 }

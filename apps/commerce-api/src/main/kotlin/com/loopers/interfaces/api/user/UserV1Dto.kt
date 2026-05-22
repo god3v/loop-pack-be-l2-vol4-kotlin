@@ -46,10 +46,9 @@ class UserV1Dto {
         val prevPw: String,
         val nextPw: String,
     ) {
-        fun toCommand(loginId: String, loginPw: String): ChangePasswordCommand {
+        fun toCommand(loginId: String): ChangePasswordCommand {
             return ChangePasswordCommand(
                 loginId = loginId,
-                loginPw = loginPw,
                 prevPw = prevPw,
                 nextPw = nextPw,
             )
