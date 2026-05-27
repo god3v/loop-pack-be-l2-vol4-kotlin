@@ -1,7 +1,7 @@
 package com.loopers.interfaces.api.auth
 
+import com.loopers.application.user.UserFacade
 import com.loopers.domain.user.UserErrorType
-import com.loopers.domain.user.UserService
 import com.loopers.support.error.CoreException
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
@@ -11,7 +11,7 @@ import org.springframework.web.servlet.HandlerInterceptor
 
 @Component
 class AuthInterceptor(
-    private val userService: UserService,
+    private val userFacade: UserFacade,
 ) : HandlerInterceptor {
     override fun preHandle(request: HttpServletRequest, response: HttpServletResponse, handler: Any): Boolean {
         if (handler !is HandlerMethod) return true
@@ -22,7 +22,7 @@ class AuthInterceptor(
         if (loginId.isNullOrBlank() || loginPw.isNullOrBlank()) {
             throw CoreException(UserErrorType.UNAUTHORIZED)
         }
-        userService.authenticate(loginId, loginPw)
+        userFacade.authenticate(loginId, loginPw)
         request.setAttribute(ATTRIBUTE_LOGIN_ID, loginId)
         return true
     }

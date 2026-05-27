@@ -1,7 +1,7 @@
 package com.loopers.infrastructure.user
 
+import com.loopers.application.user.port.UserRepository
 import com.loopers.domain.user.User
-import com.loopers.domain.user.UserRepository
 import org.springframework.stereotype.Component
 
 @Component
