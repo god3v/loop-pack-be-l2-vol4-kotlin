@@ -2,10 +2,10 @@ package com.loopers.interfaces.api.auth
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
+import com.loopers.application.user.UserFacade
 import com.loopers.domain.user.User
 import com.loopers.domain.user.UserErrorType
 import com.loopers.domain.user.UserFixture
-import com.loopers.domain.user.UserService
 import com.loopers.interfaces.api.ApiControllerAdvice
 import com.loopers.support.error.CoreException
 import io.mockk.every
@@ -26,8 +26,8 @@ import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.RestController
 
 class AuthInterceptorTest {
-    private val userService: UserService = mockk()
-    private val interceptor = AuthInterceptor(userService)
+    private val userFacade: UserFacade = mockk()
+    private val interceptor = AuthInterceptor(userFacade)
     private val argumentResolver = LoginUserArgumentResolver()
     private val objectMapper: ObjectMapper = jacksonObjectMapper()
 
@@ -59,7 +59,7 @@ class AuthInterceptorTest {
                 .andExpect(status().isOk)
                 .andExpect(content().string("\"public\""))
 
-            verify(exactly = 0) { userService.authenticate(any(), any()) }
+            verify(exactly = 0) { userFacade.authenticate(any(), any()) }
         }
     }
 
@@ -77,7 +77,7 @@ class AuthInterceptorTest {
                 .andExpect(status().isUnauthorized)
                 .andExpect(jsonPath("$.meta.errorCode", equalTo("UNAUTHORIZED")))
 
-            verify(exactly = 0) { userService.authenticate(any(), any()) }
+            verify(exactly = 0) { userFacade.authenticate(any(), any()) }
         }
 
         @DisplayName("loginPw 헤더가 누락되면, 401 UNAUTHORIZED 응답이 반환되고 인증은 호출되지 않는다.")
@@ -91,7 +91,7 @@ class AuthInterceptorTest {
                 .andExpect(status().isUnauthorized)
                 .andExpect(jsonPath("$.meta.errorCode", equalTo("UNAUTHORIZED")))
 
-            verify(exactly = 0) { userService.authenticate(any(), any()) }
+            verify(exactly = 0) { userFacade.authenticate(any(), any()) }
         }
 
         @DisplayName("loginId 헤더가 공백 문자열이면, 401 UNAUTHORIZED 응답이 반환된다.")
@@ -106,15 +106,15 @@ class AuthInterceptorTest {
                 .andExpect(status().isUnauthorized)
                 .andExpect(jsonPath("$.meta.errorCode", equalTo("UNAUTHORIZED")))
 
-            verify(exactly = 0) { userService.authenticate(any(), any()) }
+            verify(exactly = 0) { userFacade.authenticate(any(), any()) }
         }
 
-        @DisplayName("UserService.authenticate 가 UNAUTHORIZED 를 던지면, 401 응답이 반환된다.")
+        @DisplayName("UserFacade.authenticate 가 UNAUTHORIZED 를 던지면, 401 응답이 반환된다.")
         @Test
         fun returnsUnauthorized_whenAuthenticationFails() {
             // give
             every {
-                userService.authenticate(UserFixture.DEFAULT_LOGIN_ID, "Wrong1234!")
+                userFacade.authenticate(UserFixture.DEFAULT_LOGIN_ID, "Wrong1234!")
             } throws CoreException(UserErrorType.UNAUTHORIZED)
 
             // when / then
@@ -132,7 +132,7 @@ class AuthInterceptorTest {
         fun passesThroughAndInjectsLoginId_whenAuthenticationSucceeds() {
             // give
             every {
-                userService.authenticate(UserFixture.DEFAULT_LOGIN_ID, UserFixture.DEFAULT_PASSWORD)
+                userFacade.authenticate(UserFixture.DEFAULT_LOGIN_ID, UserFixture.DEFAULT_PASSWORD)
             } returns mockk<User>()
 
             // when / then
@@ -145,7 +145,7 @@ class AuthInterceptorTest {
                 .andExpect(content().string("\"ok:${UserFixture.DEFAULT_LOGIN_ID}\""))
 
             verify(exactly = 1) {
-                userService.authenticate(UserFixture.DEFAULT_LOGIN_ID, UserFixture.DEFAULT_PASSWORD)
+                userFacade.authenticate(UserFixture.DEFAULT_LOGIN_ID, UserFixture.DEFAULT_PASSWORD)
             }
         }
     }

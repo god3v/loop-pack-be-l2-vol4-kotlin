@@ -1,11 +1,11 @@
 package com.loopers.infrastructure.user
 
+import com.loopers.application.user.port.UserRepository
 import com.loopers.config.jpa.DataSourceConfig
 import com.loopers.domain.user.Password
 import com.loopers.domain.user.PasswordEncryptionUtil
 import com.loopers.domain.user.User
 import com.loopers.domain.user.UserFixture
-import com.loopers.domain.user.UserRepository
 import com.loopers.testcontainers.MySqlTestContainersConfig
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.DisplayName
