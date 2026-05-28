@@ -60,6 +60,7 @@ class ProductEntity private constructor(
         this.name = product.name.value
         this.price = product.price.value
         this.stock = product.stock.value
+        this.likeCount = product.likeCount
         this.salesStatus = product.salesStatus
         if (product.isDeleted() && this.deletedAt == null) {
             this.delete()

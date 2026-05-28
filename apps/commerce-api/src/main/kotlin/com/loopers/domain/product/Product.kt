@@ -8,7 +8,7 @@ class Product internal constructor(
     name: ProductName,
     price: ProductPrice,
     stock: Stock,
-    val likeCount: Long,
+    likeCount: Long,
     val brandId: Long,
     salesStatus: SalesStatus = SalesStatus.ON_SALE,
 ) {
@@ -19,6 +19,9 @@ class Product internal constructor(
         private set
 
     var stock: Stock = stock
+        private set
+
+    var likeCount: Long = likeCount
         private set
 
     var salesStatus: SalesStatus = salesStatus
@@ -35,6 +38,16 @@ class Product internal constructor(
 
     fun deductStock(quantity: Int) {
         stock = stock.deduct(quantity)
+    }
+
+    fun increaseLikeCount() {
+        likeCount += 1L
+    }
+
+    fun decreaseLikeCount() {
+        if (likeCount > 0L) {
+            likeCount -= 1L
+        }
     }
 
     fun softDelete() {

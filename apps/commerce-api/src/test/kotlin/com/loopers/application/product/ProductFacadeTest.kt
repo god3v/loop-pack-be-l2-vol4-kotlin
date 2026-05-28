@@ -1,6 +1,7 @@
 package com.loopers.application.product
 
 import com.loopers.application.brand.port.BrandRepository
+import com.loopers.application.like.port.LikeRepository
 import com.loopers.application.product.command.RegisterProductCommand
 import com.loopers.application.product.command.UpdateProductCommand
 import com.loopers.application.product.port.ProductRepository
@@ -26,7 +27,8 @@ import org.junit.jupiter.api.assertThrows
 class ProductFacadeTest {
     private val productRepository: ProductRepository = mockk()
     private val brandRepository: BrandRepository = mockk()
-    private val productFacade = ProductFacade(productRepository, brandRepository)
+    private val likeRepository: LikeRepository = mockk()
+    private val productFacade = ProductFacade(productRepository, brandRepository, likeRepository)
 
     @Nested
     @DisplayName("getProducts — UC-1 회원 카탈로그 목록")
@@ -110,19 +112,18 @@ class ProductFacadeTest {
     @DisplayName("getProductDetail — UC-2 회원 상세")
     inner class GetProductDetail {
         @Test
-        @DisplayName("존재하는 productId 로 호출하면 ProductDetailResult 가 반환된다 (비회원: likedByMe=false)")
+        @DisplayName("존재하는 productId 로 호출하면 ProductDetailResult 가 반환된다")
         fun returnsProductDetailWithBrand() {
             val product = ProductFixture.validProduct()
             val brand = BrandFixture.validBrand()
             every { productRepository.findById(1L) } returns product
             every { brandRepository.findById(product.brandId) } returns brand
 
-            val result = productFacade.getProductDetail(productId = 1L, loginId = null)
+            val result = productFacade.getProductDetail(productId = 1L, userId = null)
 
             assertThat(result.name).isEqualTo(product.name.value)
             assertThat(result.price).isEqualTo(product.price.value)
             assertThat(result.brandName).isEqualTo(brand.name)
-            assertThat(result.likedByMe).isFalse()
         }
 
         @Test
@@ -131,7 +132,7 @@ class ProductFacadeTest {
             every { productRepository.findById(99L) } returns null
 
             val ex = assertThrows<CoreException> {
-                productFacade.getProductDetail(productId = 99L, loginId = null)
+                productFacade.getProductDetail(productId = 99L, userId = null)
             }
             assertThat(ex.errorType).isEqualTo(ProductErrorType.PRODUCT_NOT_FOUND)
         }
@@ -144,9 +145,37 @@ class ProductFacadeTest {
             every { brandRepository.findById(product.brandId) } returns null
 
             val ex = assertThrows<CoreException> {
-                productFacade.getProductDetail(productId = 1L, loginId = null)
+                productFacade.getProductDetail(productId = 1L, userId = null)
             }
             assertThat(ex.errorType).isEqualTo(BrandErrorType.BRAND_NOT_FOUND)
+        }
+
+        @Test
+        @DisplayName("userId 가 null 이면 likedByMe=false 로 응답한다 (LikeRepository 호출 없음)")
+        fun likedByMeFalseWhenAnonymous() {
+            val product = ProductFixture.validProduct()
+            val brand = BrandFixture.validBrand()
+            every { productRepository.findById(1L) } returns product
+            every { brandRepository.findById(product.brandId) } returns brand
+
+            val result = productFacade.getProductDetail(productId = 1L, userId = null)
+
+            assertThat(result.likedByMe).isFalse()
+            verify(exactly = 0) { likeRepository.existsByUserIdAndProductId(any(), any()) }
+        }
+
+        @Test
+        @DisplayName("userId 가 주어지면 LikeRepository 결과를 likedByMe 로 응답한다")
+        fun likedByMeFromLikeRepository() {
+            val product = ProductFixture.validProduct()
+            val brand = BrandFixture.validBrand()
+            every { productRepository.findById(1L) } returns product
+            every { brandRepository.findById(product.brandId) } returns brand
+            every { likeRepository.existsByUserIdAndProductId(7L, 1L) } returns true
+
+            val result = productFacade.getProductDetail(productId = 1L, userId = 7L)
+
+            assertThat(result.likedByMe).isTrue()
         }
     }
 

@@ -1,6 +1,7 @@
 package com.loopers.application.product
 
 import com.loopers.application.brand.port.BrandRepository
+import com.loopers.application.like.port.LikeRepository
 import com.loopers.application.product.command.RegisterProductCommand
 import com.loopers.application.product.command.UpdateProductCommand
 import com.loopers.application.product.port.ProductRepository
@@ -20,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional
 class ProductFacade(
     private val productRepository: ProductRepository,
     private val brandRepository: BrandRepository,
+    private val likeRepository: LikeRepository,
 ) {
     @Transactional(readOnly = true)
     fun getProducts(
@@ -35,12 +37,13 @@ class ProductFacade(
     }
 
     @Transactional(readOnly = true)
-    fun getProductDetail(productId: Long, loginId: String?): ProductDetailResult {
+    fun getProductDetail(productId: Long, userId: Long?): ProductDetailResult {
         val product = productRepository.findById(productId)
             ?: throw CoreException(ProductErrorType.PRODUCT_NOT_FOUND)
         val brand = brandRepository.findById(product.brandId)
             ?: throw CoreException(BrandErrorType.BRAND_NOT_FOUND)
-        return ProductDetailResult.of(product, brand, likedByMe = false)
+        val likedByMe = userId != null && likeRepository.existsByUserIdAndProductId(userId, productId)
+        return ProductDetailResult.of(product, brand, likedByMe = likedByMe)
     }
 
     @Transactional(readOnly = true)

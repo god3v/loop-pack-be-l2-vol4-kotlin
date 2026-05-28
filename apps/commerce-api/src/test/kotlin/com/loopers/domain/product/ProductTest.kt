@@ -303,4 +303,38 @@ class ProductTest {
             assertThat(product.brandId).isEqualTo(originalBrandId)
         }
     }
+
+    @DisplayName("likeCount 토글")
+    @Nested
+    inner class LikeCountToggle {
+        @DisplayName("increaseLikeCount() 호출 시 likeCount 가 1 증가한다.")
+        @Test
+        fun increaseLikeCountByOne() {
+            val product = Product.create(name = "T", price = 1000, stock = 10, likeCount = 5L, brandId = 1L)
+
+            product.increaseLikeCount()
+
+            assertThat(product.likeCount).isEqualTo(6L)
+        }
+
+        @DisplayName("decreaseLikeCount() 호출 시 likeCount 가 1 감소한다.")
+        @Test
+        fun decreaseLikeCountByOne() {
+            val product = Product.create(name = "T", price = 1000, stock = 10, likeCount = 5L, brandId = 1L)
+
+            product.decreaseLikeCount()
+
+            assertThat(product.likeCount).isEqualTo(4L)
+        }
+
+        @DisplayName("likeCount 가 0 일 때 decreaseLikeCount() 는 0 을 유지한다 (음수 방지 멱등).")
+        @Test
+        fun decreaseLikeCountDoesNotGoBelowZero() {
+            val product = Product.create(name = "T", price = 1000, stock = 10, likeCount = 0L, brandId = 1L)
+
+            product.decreaseLikeCount()
+
+            assertThat(product.likeCount).isEqualTo(0L)
+        }
+    }
 }
