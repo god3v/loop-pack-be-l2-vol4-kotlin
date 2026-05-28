@@ -11,7 +11,7 @@ class Order internal constructor(
     val orderedAt: LocalDateTime,
     val idempotencyKey: String,
     val couponId: Long? = null,
-    status: OrderStatus = OrderStatus.PAYMENT_FAILED,
+    status: OrderStatus = OrderStatus.PAYMENT_PENDING,
     paymentTransactionId: String? = null,
     paymentResultCode: String? = null,
 ) {

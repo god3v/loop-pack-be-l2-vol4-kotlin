@@ -56,7 +56,7 @@
 
 ## 2. Phase 2 — Application port
 
-### 2.1 `application.order.port.OrderRepository`
+### 2.1 `OrderRepository`
 - `save(order: Order): Order`
 - `findById(id: Long): Order?`
 - `findByUserIdAndIdempotencyKey(userId, idempotencyKey): Order?` — UC-1 멱등 수렴
@@ -66,7 +66,7 @@
 ### 2.2 `application.order.port.PaymentGateway`
 - `charge(orderId: Long, amount: Int): PaymentResult` — `PaymentResult(transactionId: String?, resultCode: String?, success: Boolean)`
 
-### 2.3 `application.user.port.UserRepository`
+### 2.3 `UserRepository`
 - `findById(id: Long): User?` 추가
 
 ---

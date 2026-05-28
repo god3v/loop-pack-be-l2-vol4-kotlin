@@ -1,6 +1,6 @@
 package com.loopers.infrastructure.order
 
-import com.loopers.application.order.port.OrderRepository
+import com.loopers.domain.order.OrderRepository
 import com.loopers.config.jpa.DataSourceConfig
 import com.loopers.domain.order.Order
 import com.loopers.domain.order.OrderLine

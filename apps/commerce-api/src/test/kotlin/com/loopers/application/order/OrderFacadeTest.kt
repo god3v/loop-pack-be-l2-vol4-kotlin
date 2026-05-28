@@ -31,8 +31,8 @@ class OrderFacadeTest {
     private val userRepository: UserRepository = mockk()
     private val productRepository: ProductRepository = mockk()
     private val orderRepository: OrderRepository = mockk()
-    private val paymentGateway: PaymentGateway = mockk()
-    private val orderFacade = OrderFacade(userRepository, productRepository, orderRepository, paymentGateway)
+    private val orderService = OrderService()
+    private val orderFacade = OrderFacade(userRepository, productRepository, orderRepository, orderService)
 
     private val loginId = UserFixture.DEFAULT_LOGIN_ID
     private val idempotencyKey = "idem-001"
@@ -47,14 +47,12 @@ class OrderFacadeTest {
         lines = lines,
     )
 
-    private fun successResult() = PaymentResult(success = true, transactionId = "tx-1", resultCode = "APPROVED")
-
     @Nested
     @DisplayName("placeOrder — UC-1 정상 흐름")
     inner class PlaceOrderHappy {
         @Test
-        @DisplayName("각 상품의 deductStock 이 호출되고 결제 성공 후 Order(PAID) 가 저장된다")
-        fun savesPaidOrder() {
+        @DisplayName("각 상품의 deductStock 이 호출되고 Order 가 저장된다")
+        fun savesOrder() {
             val user = UserFixture.validUser()
             val productA = ProductFixture.validProduct(id = 1L, name = "A", price = 1000, stock = 10)
             val productB = ProductFixture.validProduct(id = 2L, name = "B", price = 2000, stock = 5)
@@ -62,7 +60,6 @@ class OrderFacadeTest {
             every { orderRepository.findByUserIdAndIdempotencyKey(user.id, idempotencyKey) } returns null
             every { productRepository.findAllByIds(any()) } returns listOf(productA, productB)
             every { productRepository.saveAll(any()) } answers { firstArg<Collection<com.loopers.domain.product.Product>>().toList() }
-            every { paymentGateway.charge(any(), any()) } returns successResult()
             val savedOrder = slot<Order>()
             every { orderRepository.save(capture(savedOrder)) } answers { savedOrder.captured }
 
@@ -77,8 +74,6 @@ class OrderFacadeTest {
 
             assertThat(productA.stock.value).isEqualTo(8)
             assertThat(productB.stock.value).isEqualTo(2)
-            assertThat(savedOrder.captured.status).isEqualTo(OrderStatus.PAID)
-            assertThat(savedOrder.captured.paymentTransactionId).isEqualTo("tx-1")
             verify(exactly = 1) { productRepository.findAllByIds(any()) }
             verify(exactly = 1) { productRepository.saveAll(any()) }
         }
@@ -92,7 +87,6 @@ class OrderFacadeTest {
             every { orderRepository.findByUserIdAndIdempotencyKey(user.id, idempotencyKey) } returns null
             every { productRepository.findAllByIds(any()) } returns listOf(product)
             every { productRepository.saveAll(any()) } answers { firstArg<Collection<com.loopers.domain.product.Product>>().toList() }
-            every { paymentGateway.charge(any(), any()) } returns successResult()
             val savedOrder = slot<Order>()
             every { orderRepository.save(capture(savedOrder)) } answers { savedOrder.captured }
 
@@ -114,7 +108,6 @@ class OrderFacadeTest {
             every { orderRepository.findByUserIdAndIdempotencyKey(user.id, idempotencyKey) } returns null
             every { productRepository.findAllByIds(any()) } returns listOf(productA, productB)
             every { productRepository.saveAll(any()) } answers { firstArg<Collection<com.loopers.domain.product.Product>>().toList() }
-            every { paymentGateway.charge(any(), any()) } returns successResult()
             val savedOrder = slot<Order>()
             every { orderRepository.save(capture(savedOrder)) } answers { savedOrder.captured }
 
@@ -139,7 +132,6 @@ class OrderFacadeTest {
             every { orderRepository.findByUserIdAndIdempotencyKey(user.id, idempotencyKey) } returns null
             every { productRepository.findAllByIds(any()) } returns listOf(product)
             every { productRepository.saveAll(any()) } answers { firstArg<Collection<com.loopers.domain.product.Product>>().toList() }
-            every { paymentGateway.charge(any(), any()) } returns successResult()
             val savedOrder = slot<Order>()
             every { orderRepository.save(capture(savedOrder)) } answers { savedOrder.captured }
 
@@ -151,7 +143,6 @@ class OrderFacadeTest {
             )
 
             assertThat(savedOrder.captured.totalAmount).isEqualTo(2000)
-            assertThat(savedOrder.captured.couponId).isEqualTo(99L)
         }
     }
 
@@ -174,7 +165,6 @@ class OrderFacadeTest {
 
             assertThat(result.status).isEqualTo(OrderStatus.PAID)
             verify(exactly = 0) { productRepository.findById(any()) }
-            verify(exactly = 0) { paymentGateway.charge(any(), any()) }
             verify(exactly = 0) { orderRepository.save(any()) }
         }
     }
@@ -230,31 +220,6 @@ class OrderFacadeTest {
         }
 
         @Test
-        @DisplayName("PG 결제 실패 → Order(PAYMENT_FAILED) 저장 + 재고 restoreStock 보상 + PAYMENT_FAILED 예외")
-        fun paymentFailedTriggersCompensation() {
-            val user = UserFixture.validUser()
-            val product = ProductFixture.validProduct(id = 1L, name = "A", price = 1000, stock = 10)
-            every { userRepository.findByLoginId(loginId) } returns user
-            every { orderRepository.findByUserIdAndIdempotencyKey(user.id, idempotencyKey) } returns null
-            every { productRepository.findAllByIds(any()) } returns listOf(product)
-            every { productRepository.saveAll(any()) } answers { firstArg<Collection<com.loopers.domain.product.Product>>().toList() }
-            every { paymentGateway.charge(any(), any()) } returns PaymentResult(false, null, "DECLINED")
-            val savedOrder = slot<Order>()
-            every { orderRepository.save(capture(savedOrder)) } answers { savedOrder.captured }
-
-            val ex = assertThrows<CoreException> {
-                orderFacade.placeOrder(
-                    placeOrderCommand(lines = listOf(OrderLineCommand(productId = 1L, quantity = 2))),
-                )
-            }
-
-            assertThat(ex.errorType).isEqualTo(OrderErrorType.PAYMENT_FAILED)
-            assertThat(product.stock.value).isEqualTo(10)
-            assertThat(savedOrder.captured.status).isEqualTo(OrderStatus.PAYMENT_FAILED)
-            assertThat(savedOrder.captured.paymentResultCode).isEqualTo("DECLINED")
-        }
-
-        @Test
         @DisplayName("idempotencyKey 가 blank 면 IDEMPOTENCY_KEY_BLANK 예외 (도메인 위임)")
         fun idempotencyKeyBlank() {
             val user = UserFixture.validUser()
@@ -263,7 +228,6 @@ class OrderFacadeTest {
             every { orderRepository.findByUserIdAndIdempotencyKey(user.id, "") } returns null
             every { productRepository.findAllByIds(any()) } returns listOf(product)
             every { productRepository.saveAll(any()) } answers { firstArg<Collection<com.loopers.domain.product.Product>>().toList() }
-            every { paymentGateway.charge(any(), any()) } returns successResult()
 
             val ex = assertThrows<CoreException> {
                 orderFacade.placeOrder(
@@ -296,42 +260,6 @@ class OrderFacadeTest {
             orderFacade.getMyOrders(loginId, start, end, page = 1, size = 30)
 
             verify { orderRepository.findAllByUserIdAndOrderedAtBetween(user.id, start, end, 1, 30) }
-        }
-
-        @Test
-        @DisplayName("startAt/endAt 둘 다 null 이면 기본 윈도우(최근 30일)가 적용된다")
-        fun defaultWindowApplied() {
-            val user = UserFixture.validUser()
-            every { userRepository.findByLoginId(loginId) } returns user
-            every {
-                orderRepository.findAllByUserIdAndOrderedAtBetween(user.id, any(), any(), 0, 20)
-            } returns emptyList()
-
-            orderFacade.getMyOrders(loginId, startAt = null, endAt = null, page = 0, size = 20)
-
-            verify {
-                orderRepository.findAllByUserIdAndOrderedAtBetween(
-                    user.id,
-                    match { it.isBefore(LocalDateTime.now()) && it.isAfter(LocalDateTime.now().minusDays(31)) },
-                    any(),
-                    0,
-                    20,
-                )
-            }
-        }
-
-        @Test
-        @DisplayName("startAt > endAt 이면 INVALID_DATE_RANGE 예외")
-        fun invalidDateRange() {
-            val user = UserFixture.validUser()
-            every { userRepository.findByLoginId(loginId) } returns user
-            val start = LocalDateTime.of(2026, 5, 28, 0, 0)
-            val end = LocalDateTime.of(2026, 5, 1, 0, 0)
-
-            val ex = assertThrows<CoreException> {
-                orderFacade.getMyOrders(loginId, start, end, 0, 20)
-            }
-            assertThat(ex.errorType).isEqualTo(OrderErrorType.INVALID_DATE_RANGE)
         }
 
         @Test

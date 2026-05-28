@@ -72,12 +72,12 @@ class OrderTest {
             assertThat(order.orderedAt).isBetween(before, after)
         }
 
-        @DisplayName("초기 status 는 PAYMENT_FAILED 다 (markPaid/markPaymentFailed 호출 전).")
+        @DisplayName("초기 status 는 PAYMENT_PENDING 이다 (markPaid/markPaymentFailed 호출 전).")
         @Test
-        fun initialStatusIsPaymentFailed() {
+        fun initialStatusIsPaymentPending() {
             val order = Order.create(userId = 42L, lines = listOf(line()), idempotencyKey = "abc")
 
-            assertThat(order.status).isEqualTo(OrderStatus.PAYMENT_FAILED)
+            assertThat(order.status).isEqualTo(OrderStatus.PAYMENT_PENDING)
         }
     }
 
