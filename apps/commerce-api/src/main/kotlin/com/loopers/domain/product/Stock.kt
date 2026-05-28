@@ -14,6 +14,13 @@ value class Stock private constructor(val value: Int) {
         return Stock(value - quantity)
     }
 
+    fun restore(quantity: Int): Stock {
+        if (quantity <= 0) {
+            throw CoreException(ProductErrorType.PRODUCT_BAD_REQUEST, "복원 수량은 양수여야 한다.")
+        }
+        return Stock(value + quantity)
+    }
+
     companion object {
         fun of(value: Int): Stock {
             if (value < 0) {

@@ -8,15 +8,17 @@ object ProductFixture {
     const val DEFAULT_BRAND_ID = 1L
 
     fun validProduct(
+        id: Long = 0L,
         name: String = DEFAULT_NAME,
         price: Int = DEFAULT_PRICE,
         stock: Int = DEFAULT_STOCK,
         likeCount: Long = DEFAULT_LIKE_COUNT,
         brandId: Long = DEFAULT_BRAND_ID,
-    ): Product = Product.create(
-        name = name,
-        price = price,
-        stock = stock,
+    ): Product = Product(
+        id = id,
+        name = ProductName.of(name),
+        price = ProductPrice.of(price),
+        stock = Stock.of(stock),
         likeCount = likeCount,
         brandId = brandId,
     )

@@ -40,6 +40,10 @@ class Product internal constructor(
         stock = stock.deduct(quantity)
     }
 
+    fun restoreStock(quantity: Int) {
+        stock = stock.restore(quantity)
+    }
+
     fun increaseLikeCount() {
         likeCount += 1L
     }

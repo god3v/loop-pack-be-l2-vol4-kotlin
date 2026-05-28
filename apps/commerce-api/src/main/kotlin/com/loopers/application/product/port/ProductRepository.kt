@@ -5,7 +5,9 @@ import com.loopers.domain.product.ProductSortType
 
 interface ProductRepository {
     fun save(product: Product): Product
+    fun saveAll(products: Collection<Product>): List<Product>
     fun findById(id: Long): Product?
+    fun findAllByIds(ids: Collection<Long>): List<Product>
     fun findAll(
         sort: ProductSortType,
         brandId: Long?,

@@ -26,7 +26,9 @@ com.loopers
 ```
 - 의존 방향: `interfaces → application ← infrastructure`, 그리고 `application → domain` (단방향).
 - `domain` 은 스프링/인프라/Repository 를 모른다. 순수 모델과 규칙만 보유.
-- `Repository` 인터페이스는 `application.<usecase>.port` 에 위치하는 **outbound port** 이며, `infrastructure` 가 이를 구현하는 **outbound adapter** 다.
+- `Repository` 인터페이스는 `application.<usecase>.port` 에 위치하는 **outbound port** 이며, `infrastructure` 가 이를 구현하는 **outbound adapter** 다. `application.<usecase>.port` 에는 **outbound 만** 들어간다 — 향후 외부 게이트웨이(`PaymentGateway` 등) 가 추가되어도 같은 패키지에 둔다.
+- **inbound port (usecase interface) 는 본 프로젝트에서 채택하지 않는다.** `interfaces.api` 의 Controller 가 `application.Facade` 를 구상 의존으로 직접 호출한다. "outbound 만 헥사고날, inbound 는 단순 호출" 은 의도된 비대칭이다 — usecase 가 사실상 1:1 매핑이라 inbound 인터페이스의 표면적 이득(어댑터 교체·mocking) 보다 코드량 비용이 크다고 판단했다.
+- application 진입점은 **`*Facade`** 로 명명한다 — `*Service` 는 도메인 어휘(무상태 도메인 헬퍼) 와 혼동되므로 피한다.
 - Repository 등 I/O 에 의존하는 Domain Service 는 두지 않는다 — 그런 조율/협력 로직은 `application.Facade` 가 트랜잭션 경계와 함께 단일 소유한다.
 - 단, **무상태 순수 도메인 헬퍼** (`PasswordPolicy` · `OrderPriceCalculator` 같은 정책/계산기/스펙) 는 `domain` 에 둘 수 있다. 인자만 받아 계산/검증하며, Repository/Spring 의존은 금지.
 - `interfaces.api` 는 검증 + 응답 조립만.

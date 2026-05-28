@@ -337,4 +337,27 @@ class ProductTest {
             assertThat(product.likeCount).isEqualTo(0L)
         }
     }
+
+    @DisplayName("restoreStock")
+    @Nested
+    inner class RestoreStock {
+        @DisplayName("양수 quantity 로 호출하면 stock 이 그만큼 증가한다.")
+        @Test
+        fun restoresStockByPositiveQuantity() {
+            val product = Product.create(name = "T", price = 1000, stock = 5, likeCount = 0L, brandId = 1L)
+
+            product.restoreStock(3)
+
+            assertThat(product.stock.value).isEqualTo(8)
+        }
+
+        @DisplayName("0 이하의 quantity 는 PRODUCT_BAD_REQUEST 예외가 발생한다.")
+        @Test
+        fun throwsWhenQuantityNonPositive() {
+            val product = Product.create(name = "T", price = 1000, stock = 5, likeCount = 0L, brandId = 1L)
+
+            val ex = assertThrows<CoreException> { product.restoreStock(0) }
+            assertThat(ex.errorType).isEqualTo(ProductErrorType.PRODUCT_BAD_REQUEST)
+        }
+    }
 }

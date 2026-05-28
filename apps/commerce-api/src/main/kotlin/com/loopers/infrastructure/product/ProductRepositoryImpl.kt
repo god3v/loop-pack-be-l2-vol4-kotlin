@@ -22,8 +22,13 @@ class ProductRepositoryImpl(
         return productJpaRepository.save(entity).toDomain()
     }
 
+    override fun saveAll(products: Collection<Product>): List<Product> = products.map { save(it) }
+
     override fun findById(id: Long): Product? =
         productJpaRepository.findById(id).orElse(null)?.toDomain()
+
+    override fun findAllByIds(ids: Collection<Long>): List<Product> =
+        if (ids.isEmpty()) emptyList() else productJpaRepository.findAllById(ids).map { it.toDomain() }
 
     override fun findAll(
         sort: ProductSortType,

@@ -18,6 +18,9 @@ class UserRepositoryImpl(
         return userJpaRepository.save(entity).toDomain()
     }
 
+    override fun findById(id: Long): User? =
+        userJpaRepository.findById(id).orElse(null)?.toDomain()
+
     override fun findByLoginId(loginId: String): User? =
         userJpaRepository.findByLoginId(loginId)?.toDomain()
 
