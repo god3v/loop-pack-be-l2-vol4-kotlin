@@ -1,13 +1,12 @@
 package com.loopers.application.order
 
 import com.loopers.application.order.command.PlaceOrderCommand
-import com.loopers.application.order.port.OrderRepository
-import com.loopers.application.order.port.PaymentGateway
+import com.loopers.domain.order.OrderRepository
+import com.loopers.domain.order.OrderService
 import com.loopers.application.order.result.AdminOrderResult
 import com.loopers.application.order.result.OrderResult
-import com.loopers.application.product.port.ProductRepository
-import com.loopers.application.user.port.UserRepository
-import com.loopers.domain.order.Order
+import com.loopers.domain.product.ProductRepository
+import com.loopers.domain.user.UserRepository
 import com.loopers.domain.order.OrderErrorType
 import com.loopers.domain.order.OrderLine
 import com.loopers.domain.product.ProductErrorType

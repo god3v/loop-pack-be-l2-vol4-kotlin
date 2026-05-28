@@ -1,6 +1,6 @@
 package com.loopers.infrastructure.order
 
-import com.loopers.application.order.port.OrderRepository
+import com.loopers.domain.order.OrderRepository
 import com.loopers.domain.order.Order
 import org.springframework.data.domain.PageRequest
 import org.springframework.data.domain.Sort

@@ -1,7 +1,4 @@
-package com.loopers.application.product.port
-
-import com.loopers.domain.product.Product
-import com.loopers.domain.product.ProductSortType
+package com.loopers.domain.product
 
 interface ProductRepository {
     fun save(product: Product): Product

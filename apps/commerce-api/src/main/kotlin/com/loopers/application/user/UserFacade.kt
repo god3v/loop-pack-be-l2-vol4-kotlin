@@ -2,7 +2,7 @@ package com.loopers.application.user
 
 import com.loopers.application.user.command.ChangePasswordCommand
 import com.loopers.application.user.command.SignupCommand
-import com.loopers.application.user.port.UserRepository
+import com.loopers.domain.user.UserRepository
 import com.loopers.application.user.result.MyInfoResult
 import com.loopers.application.user.result.SignupResult
 import com.loopers.domain.user.Password

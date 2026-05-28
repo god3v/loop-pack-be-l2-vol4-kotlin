@@ -2,10 +2,10 @@ package com.loopers.application.brand
 
 import com.loopers.application.brand.command.RegisterBrandCommand
 import com.loopers.application.brand.command.UpdateBrandCommand
-import com.loopers.application.brand.port.BrandRepository
+import com.loopers.domain.brand.BrandRepository
 import com.loopers.application.brand.result.AdminBrandResult
 import com.loopers.application.brand.result.BrandResult
-import com.loopers.application.product.port.ProductRepository
+import com.loopers.domain.product.ProductRepository
 import com.loopers.domain.brand.Brand
 import com.loopers.domain.brand.BrandErrorType
 import com.loopers.support.error.CoreException

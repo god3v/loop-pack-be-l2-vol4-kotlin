@@ -1,6 +1,5 @@
-package com.loopers.application.order.port
+package com.loopers.domain.order
 
-import com.loopers.domain.order.Order
 import java.time.LocalDateTime
 
 interface OrderRepository {

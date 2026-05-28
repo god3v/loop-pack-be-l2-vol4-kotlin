@@ -1,6 +1,6 @@
 package com.loopers.infrastructure.product
 
-import com.loopers.application.product.port.ProductRepository
+import com.loopers.domain.product.ProductRepository
 import com.loopers.config.jpa.DataSourceConfig
 import com.loopers.domain.product.Product
 import com.loopers.domain.product.ProductFixture

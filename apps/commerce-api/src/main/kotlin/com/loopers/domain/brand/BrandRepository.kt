@@ -1,6 +1,4 @@
-package com.loopers.application.brand.port
-
-import com.loopers.domain.brand.Brand
+package com.loopers.domain.brand
 
 interface BrandRepository {
     fun save(brand: Brand): Brand

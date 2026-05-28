@@ -1,6 +1,4 @@
-package com.loopers.application.user.port
-
-import com.loopers.domain.user.User
+package com.loopers.domain.user
 
 interface UserRepository {
     fun save(user: User): User
