@@ -85,6 +85,22 @@ class ProductTest {
             // then
             assertThat(result.errorType).isEqualTo(ProductErrorType.PRODUCT_BAD_REQUEST)
         }
+
+        @DisplayName("Product.create() 결과의 salesStatus 는 ON_SALE 이 기본이다.")
+        @Test
+        fun salesStatusDefaultsToOnSale() {
+            // when
+            val product = Product.create(
+                name = "T-shirt",
+                price = 1000,
+                stock = 10,
+                likeCount = 0L,
+                brandId = 1L,
+            )
+
+            // then
+            assertThat(product.salesStatus).isEqualTo(SalesStatus.ON_SALE)
+        }
     }
 
     @DisplayName("재고를 차감할 때, ")
@@ -169,6 +185,122 @@ class ProductTest {
 
             // then
             assertThat(result.errorType).isEqualTo(ProductErrorType.PRODUCT_BAD_REQUEST)
+        }
+    }
+
+    @DisplayName("Product 를 soft delete 할 때, ")
+    @Nested
+    inner class SoftDelete {
+        @DisplayName("softDelete() 호출 시 deletedAt 이 설정된다.")
+        @Test
+        fun setsDeletedAt_whenSoftDeleteIsCalled() {
+            // given
+            val product = Product.create(
+                name = "T-shirt",
+                price = 1000,
+                stock = 10,
+                likeCount = 0L,
+                brandId = 1L,
+            )
+
+            // when
+            product.softDelete()
+
+            // then
+            assertThat(product.deletedAt).isNotNull()
+        }
+
+        @DisplayName("softDelete() 된 Product 는 isDeleted() 가 true 다.")
+        @Test
+        fun isDeletedReturnsTrue_afterSoftDelete() {
+            // given
+            val product = Product.create(
+                name = "T-shirt",
+                price = 1000,
+                stock = 10,
+                likeCount = 0L,
+                brandId = 1L,
+            )
+
+            // when
+            product.softDelete()
+
+            // then
+            assertThat(product.isDeleted()).isTrue()
+        }
+
+        @DisplayName("이미 삭제된 Product 의 softDelete() 재호출은 멱등이다 — deletedAt 이 변하지 않는다.")
+        @Test
+        fun isIdempotent_whenAlreadyDeleted() {
+            // given
+            val product = Product.create(
+                name = "T-shirt",
+                price = 1000,
+                stock = 10,
+                likeCount = 0L,
+                brandId = 1L,
+            )
+            product.softDelete()
+            val firstDeletedAt = product.deletedAt
+
+            // when
+            product.softDelete()
+
+            // then
+            assertThat(product.deletedAt).isEqualTo(firstDeletedAt)
+        }
+    }
+
+    @DisplayName("Product 를 update 할 때, ")
+    @Nested
+    inner class Update {
+        @DisplayName("name · price · salesStatus 가 갱신된다.")
+        @Test
+        fun updatesFields() {
+            // given
+            val product = Product.create(
+                name = "T-shirt",
+                price = 1000,
+                stock = 10,
+                likeCount = 0L,
+                brandId = 1L,
+            )
+
+            // when
+            product.update(
+                name = "New Name",
+                price = 2000,
+                salesStatus = SalesStatus.OFF_SALE,
+            )
+
+            // then
+            assertThat(product.name.value).isEqualTo("New Name")
+            assertThat(product.price.value).isEqualTo(2000)
+            assertThat(product.salesStatus).isEqualTo(SalesStatus.OFF_SALE)
+        }
+
+        @DisplayName("update 는 brandId 를 변경하지 않는다 (등록 이후 불변).")
+        @Test
+        fun doesNotChangeBrandId() {
+            // given
+            val originalBrandId = 99L
+            val product = Product.create(
+                name = "T-shirt",
+                price = 1000,
+                stock = 10,
+                likeCount = 0L,
+                brandId = originalBrandId,
+            )
+
+            // when
+            product.update(
+                name = "New Name",
+                price = 2000,
+                salesStatus = SalesStatus.OFF_SALE,
+            )
+
+            // then
+            assertThat(product.brandId).isEqualTo(originalBrandId)
         }
     }
 }
