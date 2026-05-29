@@ -1,10 +1,10 @@
 package com.loopers.application.product
 
-import com.loopers.application.brand.port.BrandRepository
-import com.loopers.application.like.port.LikeRepository
+import com.loopers.domain.brand.BrandRepository
+import com.loopers.domain.like.LikeRepository
 import com.loopers.application.product.command.RegisterProductCommand
 import com.loopers.application.product.command.UpdateProductCommand
-import com.loopers.application.product.port.ProductRepository
+import com.loopers.domain.product.ProductRepository
 import com.loopers.application.product.result.AdminProductDetailResult
 import com.loopers.application.product.result.AdminProductSummaryResult
 import com.loopers.application.product.result.ProductDetailResult

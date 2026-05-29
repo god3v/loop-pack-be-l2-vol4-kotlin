@@ -1,6 +1,6 @@
 package com.loopers.infrastructure.product
 
-import com.loopers.application.product.port.ProductRepository
+import com.loopers.domain.product.ProductRepository
 import com.loopers.domain.product.Product
 import com.loopers.domain.product.ProductSortType
 import org.springframework.data.domain.PageRequest
@@ -22,8 +22,13 @@ class ProductRepositoryImpl(
         return productJpaRepository.save(entity).toDomain()
     }
 
+    override fun saveAll(products: Collection<Product>): List<Product> = products.map { save(it) }
+
     override fun findById(id: Long): Product? =
         productJpaRepository.findById(id).orElse(null)?.toDomain()
+
+    override fun findAllByIds(ids: Collection<Long>): List<Product> =
+        if (ids.isEmpty()) emptyList() else productJpaRepository.findAllById(ids).map { it.toDomain() }
 
     override fun findAll(
         sort: ProductSortType,

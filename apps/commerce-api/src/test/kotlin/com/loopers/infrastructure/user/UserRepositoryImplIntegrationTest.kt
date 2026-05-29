@@ -1,6 +1,6 @@
 package com.loopers.infrastructure.user
 
-import com.loopers.application.user.port.UserRepository
+import com.loopers.domain.user.UserRepository
 import com.loopers.config.jpa.DataSourceConfig
 import com.loopers.domain.user.Password
 import com.loopers.domain.user.PasswordEncryptionUtil

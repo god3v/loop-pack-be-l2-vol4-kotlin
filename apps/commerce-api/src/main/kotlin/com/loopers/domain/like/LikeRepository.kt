@@ -1,6 +1,4 @@
-package com.loopers.application.like.port
-
-import com.loopers.domain.like.Like
+package com.loopers.domain.like
 
 interface LikeRepository {
     fun save(like: Like): Like

@@ -1,6 +1,6 @@
 package com.loopers.infrastructure.brand
 
-import com.loopers.application.brand.port.BrandRepository
+import com.loopers.domain.brand.BrandRepository
 import com.loopers.config.jpa.DataSourceConfig
 import com.loopers.domain.brand.Brand
 import com.loopers.domain.brand.BrandFixture

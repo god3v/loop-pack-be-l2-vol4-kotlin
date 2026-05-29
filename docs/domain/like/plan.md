@@ -16,7 +16,7 @@
 - `Like(id, userId, productId, likedAt)` — surrogate id + `(userId, productId)` unique 제약.
 - `likedAt` 은 도메인 객체의 필드 (`LocalDateTime`). infra 측 `BaseEntity.createdAt` 으로 매핑.
 - 정렬 기준은 `likedAt desc`. 외부 응답에는 시각 노출 안 함.
-- application 의존: `application.like` → `application.product.port` (Product 검증 + likeCount 갱신).
+- application 의존: `application.like` → `ProductRepository` (Product 검증 + likeCount 갱신).
 
 ---
 
@@ -41,7 +41,7 @@
 
 ## 2. Phase 2 — Application port
 
-`application.like.port.LikeRepository`
+`LikeRepository`
 - `save(like): Like`
 - `findByUserIdAndProductId(userId, productId): Like?`
 - `existsByUserIdAndProductId(userId, productId): Boolean`

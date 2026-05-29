@@ -1,8 +1,8 @@
 package com.loopers.application.like
 
-import com.loopers.application.like.port.LikeRepository
+import com.loopers.domain.like.LikeRepository
 import com.loopers.application.like.result.LikedProductResult
-import com.loopers.application.product.port.ProductRepository
+import com.loopers.domain.product.ProductRepository
 import com.loopers.domain.like.Like
 import com.loopers.domain.like.LikeErrorType
 import com.loopers.domain.product.ProductErrorType

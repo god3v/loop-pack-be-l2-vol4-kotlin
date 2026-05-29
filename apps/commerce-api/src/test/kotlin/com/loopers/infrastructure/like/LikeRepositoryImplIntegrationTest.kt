@@ -1,6 +1,6 @@
 package com.loopers.infrastructure.like
 
-import com.loopers.application.like.port.LikeRepository
+import com.loopers.domain.like.LikeRepository
 import com.loopers.config.jpa.DataSourceConfig
 import com.loopers.domain.like.Like
 import com.loopers.testcontainers.MySqlTestContainersConfig

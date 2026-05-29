@@ -71,7 +71,7 @@
 
 인터페이스만 정의. 테스트 없음 (port impl 은 Phase 4 가 검증).
 
-### 2.1 `application.product.port.ProductRepository`
+### 2.1 `ProductRepository`
 - `save(product): Product`
 - `findById(id): Product?` — soft-deleted 제외
 - `findAll(sort, brandId?, page, size): List<Product>` — soft-deleted 제외
@@ -79,7 +79,7 @@
 - `existsByBrandIdAndName(brandId, name): Boolean` — soft-deleted 제외 (유일성 검증)
 - `findAllByBrandId(brandId): List<Product>` — UC-8 카스케이드용
 
-### 2.2 `application.brand.port.BrandRepository`
+### 2.2 `BrandRepository`
 - `save(brand): Brand`
 - `findById(id): Brand?` — soft-deleted 제외
 - `findAll(page, size): List<Brand>` — soft-deleted 제외, 최신순 고정

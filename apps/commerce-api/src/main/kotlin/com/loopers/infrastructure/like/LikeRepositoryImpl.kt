@@ -1,6 +1,6 @@
 package com.loopers.infrastructure.like
 
-import com.loopers.application.like.port.LikeRepository
+import com.loopers.domain.like.LikeRepository
 import com.loopers.domain.like.Like
 import org.springframework.data.domain.PageRequest
 import org.springframework.data.domain.Sort

@@ -46,8 +46,8 @@ commerce-streamer ─ modules:kafka  ── Kafka
 ```
 com.loopers
 ├── interfaces.api.<resource>    Controller · ApiSpec · Dto
-├── application.<usecase>        Facade · Command · Result · port.Repository(I)   ← outbound port
-├── domain.<aggregate>           Model · 값객체 · 도메인예외 (순수 Kotlin)
+├── application.<usecase>        Facade · Command · Result · port   ← outbound port
+├── domain.<aggregate>           Model · 값객체 · Service · Repository (I)
 ├── infrastructure.<aggregate>   Entity · JpaRepository · RepositoryImpl          ← outbound adapter
 └── support.error                CoreException · ErrorType
 ```
@@ -62,18 +62,12 @@ interfaces ──▶ application ──▶ domain
               infrastructure
 ```
 
-- `domain` 은 가장 안쪽 순수 모델. 스프링/JPA/Repository 그 어느 것도 모른다. 도메인 규칙은 애그리거트(`User`) 메서드와 값객체(`Email`, `Password`, `PasswordPolicy`) 에 캡슐화한다.
-- `application` 이 헥사고날의 inner core 외곽. `port` 서브패키지에 outbound port 인 `Repository` 인터페이스를 정의하고, `Facade` 가 그 port 를 호출해 유스케이스를 조율한다.
-- `infrastructure` 는 outbound adapter. `application.port.Repository` 를 구현해 JPA / Redis / 외부 시스템으로 위임한다.
+- `domain` 은 가장 안쪽 순수 모델. 도메인 규칙은 애그리거트(`User`) 메서드와 값객체(`Email`, `Password`, `PasswordPolicy`) 에 캡슐화한다.
+- `application` `Facade` 가 유스케이스를 조율한다.
+- `infrastructure` 는 outbound adapter. JPA / Redis / 외부 시스템으로 위임한다.
 - `interfaces` 는 요청 검증 + 응답 조립만 담당, 비즈니스 로직 금지.
-- `application.Facade` 가 유스케이스 진입점이며 `@Transactional` 경계와 Repository 호출 책임을 단일하게 소유한다 — Repository/I/O 에 의존하는 Domain Service 는 두지 않는다.
+- `application.Facade` 가 유스케이스 진입점이며 `@Transactional` 경계와 Repository 호출 책임을 단일하게 소유한다.
 - 무상태 순수 도메인 헬퍼(`PasswordPolicy` · `OrderPriceCalculator` 같은 정책/계산기/스펙) 는 `domain` 에 둔다. 인자만 받아 계산·검증하고 Repository/Spring 어노테이션을 직접 참조하지 않는다.
-
-## 현재 도메인
-
-| 도메인 | 위치 | 비고 |
-|--------|------|------|
-| user | `domain.user` · `application.user`(+ `port`) · `infrastructure.user` · `interfaces.api.user` | `Email` · `Password` 값객체, 회원가입 / 인증 / 내정보 / 비밀번호 변경 — Facade 가 `port.UserRepository` 를 호출 |
 
 ## 프로필
 `local` (기본) · `test` (테스트 강제) · `dev` · `qa` · `prd`.
