@@ -24,25 +24,28 @@ class ProductEntity private constructor(
     brandId: Long,
     salesStatus: SalesStatus,
 ) : BaseEntity() {
+    @Column(nullable = false)
     var name: String = name
         protected set
 
+    @Column(nullable = false)
     var price: Int = price
         protected set
 
+    @Column(nullable = false)
     var stock: Int = stock
         protected set
 
-    @Column(name = "like_count")
+    @Column(name = "like_count", nullable = false)
     var likeCount: Long = likeCount
         protected set
 
-    @Column(name = "brand_id")
+    @Column(name = "brand_id", nullable = false)
     var brandId: Long = brandId
         protected set
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "sales_status")
+    @Column(name = "sales_status", nullable = false)
     var salesStatus: SalesStatus = salesStatus
         protected set
 

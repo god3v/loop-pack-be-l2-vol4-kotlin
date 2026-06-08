@@ -3,6 +3,7 @@ package com.loopers.infrastructure.brand
 import com.loopers.domain.BaseEntity
 import com.loopers.domain.brand.Brand
 import com.loopers.domain.brand.BrandName
+import jakarta.persistence.Column
 import jakarta.persistence.Entity
 import jakarta.persistence.Table
 import org.hibernate.annotations.SQLRestriction
@@ -13,6 +14,7 @@ import org.hibernate.annotations.SQLRestriction
 class BrandEntity private constructor(
     name: String,
 ) : BaseEntity() {
+    @Column(nullable = false)
     var name: String = name
         protected set
 

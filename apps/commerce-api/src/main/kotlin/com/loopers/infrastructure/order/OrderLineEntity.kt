@@ -18,18 +18,19 @@ class OrderLineEntity private constructor(
     quantity: Int,
     order: OrderEntity,
 ) : BaseEntity() {
-    @Column(name = "product_id")
+    @Column(name = "product_id", nullable = false)
     var productId: Long = productId
         protected set
 
-    @Column(name = "product_name")
+    @Column(name = "product_name", nullable = false)
     var productName: String = productName
         protected set
 
-    @Column(name = "unit_price")
+    @Column(name = "unit_price", nullable = false)
     var unitPrice: Int = unitPrice
         protected set
 
+    @Column(name = "quantity", nullable = false)
     var quantity: Int = quantity
         protected set
 
