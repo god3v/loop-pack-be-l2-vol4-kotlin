@@ -119,13 +119,12 @@ class LikeFacadeTest {
         @Test
         @DisplayName("본인 식별자로 호출하면 좋아요한 상품 요약 목록이 반환된다")
         fun returnsLikedProducts() {
-            val product1 = ProductFixture.validProduct(name = "A")
-            val product2 = ProductFixture.validProduct(name = "B")
+            val product1 = ProductFixture.validProduct(id = 1L, name = "A")
+            val product2 = ProductFixture.validProduct(id = 2L, name = "B")
             val like1 = Like.create(userId = 7L, productId = 1L)
             val like2 = Like.create(userId = 7L, productId = 2L)
             every { likeRepository.findAllByUserId(7L, 0, 20) } returns listOf(like1, like2)
-            every { productRepository.findById(1L) } returns product1
-            every { productRepository.findById(2L) } returns product2
+            every { productRepository.findAllByIds(listOf(1L, 2L)) } returns listOf(product1, product2)
 
             val result = likeFacade.getMyLikes(authedUserId = 7L, requestedUserId = 7L, page = 0, size = 20)
 
@@ -136,6 +135,7 @@ class LikeFacadeTest {
         @DisplayName("좋아요한 상품이 없으면 빈 목록이 반환된다")
         fun returnsEmptyWhenNoLikes() {
             every { likeRepository.findAllByUserId(7L, 0, 20) } returns emptyList()
+            every { productRepository.findAllByIds(emptyList()) } returns emptyList()
 
             val result = likeFacade.getMyLikes(authedUserId = 7L, requestedUserId = 7L, page = 0, size = 20)
 
@@ -156,10 +156,36 @@ class LikeFacadeTest {
         @DisplayName("page / size 가 Repository 에 전달된다")
         fun delegatesPaging() {
             every { likeRepository.findAllByUserId(7L, 3, 50) } returns emptyList()
+            every { productRepository.findAllByIds(emptyList()) } returns emptyList()
 
             likeFacade.getMyLikes(authedUserId = 7L, requestedUserId = 7L, page = 3, size = 50)
 
             verify { likeRepository.findAllByUserId(7L, 3, 50) }
+        }
+
+        @DisplayName("페이지 크기 50 에서도 상품 조회는 findAllByIds 1회로 끝나고 findById N+1 이 없다")
+        @Test
+        fun batchLoadsProductsForPageSize50() = assertProductLookupIsConstant(size = 50)
+
+        @DisplayName("페이지 크기 100 에서도 상품 조회는 findAllByIds 1회로 끝나고 findById N+1 이 없다")
+        @Test
+        fun batchLoadsProductsForPageSize100() = assertProductLookupIsConstant(size = 100)
+
+        /**
+         * 페이지 크기와 무관하게 상품 조회가 상수(1회 일괄 조회)로 유지되는지 검증한다.
+         * 회귀 방지: 좋아요 N 건마다 findById 를 호출하던 N+1 패턴으로 되돌아가면 실패한다.
+         */
+        private fun assertProductLookupIsConstant(size: Int) {
+            val likes = (1L..size.toLong()).map { Like.create(userId = 7L, productId = it) }
+            val products = (1L..size.toLong()).map { ProductFixture.validProduct(id = it, name = "P$it") }
+            every { likeRepository.findAllByUserId(7L, 0, size) } returns likes
+            every { productRepository.findAllByIds(any()) } returns products
+
+            val result = likeFacade.getMyLikes(authedUserId = 7L, requestedUserId = 7L, page = 0, size = size)
+
+            assertThat(result).hasSize(size)
+            verify(exactly = 1) { productRepository.findAllByIds(any()) }
+            verify(exactly = 0) { productRepository.findById(any()) }
         }
     }
 }
