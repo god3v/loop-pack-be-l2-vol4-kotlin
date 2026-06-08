@@ -20,7 +20,7 @@ data class ProductDetailResult(
                 price = product.price.value,
                 likeCount = product.likeCount,
                 brandId = brand.id,
-                brandName = brand.name,
+                brandName = brand.name.value,
                 likedByMe = likedByMe,
             )
     }

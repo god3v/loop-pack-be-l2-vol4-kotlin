@@ -21,7 +21,7 @@ data class AdminProductDetailResult(
                 price = product.price.value,
                 likeCount = product.likeCount,
                 brandId = brand.id,
-                brandName = brand.name,
+                brandName = brand.name.value,
                 salesStatus = product.salesStatus,
             )
     }

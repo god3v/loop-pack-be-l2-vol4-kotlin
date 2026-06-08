@@ -2,6 +2,7 @@ package com.loopers.infrastructure.brand
 
 import com.loopers.domain.BaseEntity
 import com.loopers.domain.brand.Brand
+import com.loopers.domain.brand.BrandName
 import jakarta.persistence.Entity
 import jakarta.persistence.Table
 import org.hibernate.annotations.SQLRestriction
@@ -15,16 +16,16 @@ class BrandEntity private constructor(
     var name: String = name
         protected set
 
-    fun toDomain(): Brand = Brand(id = this.id, name = this.name)
+    fun toDomain(): Brand = Brand(id = this.id, name = BrandName.of(this.name))
 
     fun syncFrom(brand: Brand) {
-        this.name = brand.name
+        this.name = brand.name.value
         if (brand.isDeleted() && this.deletedAt == null) {
             this.delete()
         }
     }
 
     companion object {
-        fun from(brand: Brand): BrandEntity = BrandEntity(name = brand.name)
+        fun from(brand: Brand): BrandEntity = BrandEntity(name = brand.name.value)
     }
 }

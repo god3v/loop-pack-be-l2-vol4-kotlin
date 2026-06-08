@@ -123,7 +123,7 @@ class ProductFacadeTest {
 
             assertThat(result.name).isEqualTo(product.name.value)
             assertThat(result.price).isEqualTo(product.price.value)
-            assertThat(result.brandName).isEqualTo(brand.name)
+            assertThat(result.brandName).isEqualTo(brand.name.value)
         }
 
         @Test
@@ -228,7 +228,7 @@ class ProductFacadeTest {
 
             val result = productFacade.getProductForAdmin(productId = 1L)
 
-            assertThat(result.brandName).isEqualTo(brand.name)
+            assertThat(result.brandName).isEqualTo(brand.name.value)
             assertThat(result.salesStatus).isEqualTo(SalesStatus.ON_SALE)
         }
 

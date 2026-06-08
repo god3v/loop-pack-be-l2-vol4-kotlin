@@ -36,7 +36,7 @@ class BrandFacadeTest {
 
             val result = brandFacade.getBrand(1L)
 
-            assertThat(result.name).isEqualTo(brand.name)
+            assertThat(result.name).isEqualTo(brand.name.value)
         }
 
         @Test
@@ -95,7 +95,7 @@ class BrandFacadeTest {
 
             val result = brandFacade.getBrandForAdmin(1L)
 
-            assertThat(result.name).isEqualTo(brand.name)
+            assertThat(result.name).isEqualTo(brand.name.value)
         }
 
         @Test
@@ -122,7 +122,7 @@ class BrandFacadeTest {
 
             brandFacade.registerBrand(command)
 
-            assertThat(saved.captured.name).isEqualTo(command.name)
+            assertThat(saved.captured.name.value).isEqualTo(command.name)
             verify { brandRepository.save(any()) }
         }
 
@@ -151,7 +151,7 @@ class BrandFacadeTest {
 
             brandFacade.updateBrand(1L, command)
 
-            assertThat(brand.name).isEqualTo(command.name)
+            assertThat(brand.name.value).isEqualTo(command.name)
         }
 
         @Test
@@ -181,7 +181,7 @@ class BrandFacadeTest {
         @DisplayName("이름이 동일하면 (자기 자신) 중복 검사를 호출하지 않는다")
         fun skipsDuplicateCheckWhenSameName() {
             val brand = BrandFixture.validBrand()
-            val command = UpdateBrandCommand(name = brand.name)
+            val command = UpdateBrandCommand(name = brand.name.value)
             every { brandRepository.findById(1L) } returns brand
             every { brandRepository.save(brand) } returns brand
 

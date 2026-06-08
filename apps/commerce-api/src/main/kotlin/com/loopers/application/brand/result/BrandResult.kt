@@ -7,6 +7,6 @@ data class BrandResult(
     val name: String,
 ) {
     companion object {
-        fun from(brand: Brand): BrandResult = BrandResult(id = brand.id, name = brand.name)
+        fun from(brand: Brand): BrandResult = BrandResult(id = brand.id, name = brand.name.value)
     }
 }

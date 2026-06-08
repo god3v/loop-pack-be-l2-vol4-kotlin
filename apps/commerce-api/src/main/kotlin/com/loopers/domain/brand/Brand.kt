@@ -1,23 +1,16 @@
 package com.loopers.domain.brand
 
-import com.loopers.support.error.CoreException
 import java.time.LocalDateTime
 
 class Brand internal constructor(
     val id: Long = 0L,
-    name: String,
+    name: BrandName,
 ) {
-    var name: String = name
+    var name: BrandName = name
         private set
 
     var deletedAt: LocalDateTime? = null
         private set
-
-    init {
-        if (name.isBlank()) {
-            throw CoreException(BrandErrorType.BRAND_BAD_REQUEST, "name 은 비어 있을 수 없다.")
-        }
-    }
 
     fun softDelete() {
         if (deletedAt == null) {
@@ -28,10 +21,10 @@ class Brand internal constructor(
     fun isDeleted(): Boolean = deletedAt != null
 
     fun update(name: String) {
-        this.name = name
+        this.name = BrandName.of(name)
     }
 
     companion object {
-        fun create(name: String): Brand = Brand(name = name)
+        fun create(name: String): Brand = Brand(name = BrandName.of(name))
     }
 }

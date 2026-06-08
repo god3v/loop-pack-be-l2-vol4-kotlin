@@ -2,7 +2,6 @@ package com.loopers.infrastructure.brand
 
 import com.loopers.domain.brand.BrandRepository
 import com.loopers.config.jpa.DataSourceConfig
-import com.loopers.domain.brand.Brand
 import com.loopers.domain.brand.BrandFixture
 import com.loopers.testcontainers.MySqlTestContainersConfig
 import org.assertj.core.api.Assertions.assertThat
@@ -36,7 +35,7 @@ class BrandRepositoryImplIntegrationTest @Autowired constructor(
             val found = brandRepository.findById(saved.id)
 
             assertThat(found).isNotNull()
-            assertThat(found!!.name).isEqualTo("애플")
+            assertThat(found!!.name.value).isEqualTo("애플")
         }
 
         @DisplayName("findById 는 soft-deleted Brand 를 null 로 반환한다.")
@@ -75,9 +74,9 @@ class BrandRepositoryImplIntegrationTest @Autowired constructor(
             val page0 = brandRepository.findAll(page = 0, size = 1)
             val page1 = brandRepository.findAll(page = 1, size = 1)
 
-            assertThat(page0).extracting<String>(Brand::name).containsExactly("B")
-            assertThat(page1).extracting<String>(Brand::name).containsExactly("A")
-            assertThat(brandRepository.findAll(0, 10).map { it.name })
+            assertThat(page0.map { it.name.value }).containsExactly("B")
+            assertThat(page1.map { it.name.value }).containsExactly("A")
+            assertThat(brandRepository.findAll(0, 10).map { it.name.value })
                 .doesNotContain("C")
         }
     }
