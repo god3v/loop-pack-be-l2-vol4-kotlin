@@ -38,7 +38,9 @@ class BrandRepositoryImplIntegrationTest @Autowired constructor(
             val found = brandRepository.findById(saved.id)
 
             assertThat(found).isNotNull()
-            assertThat(found!!.name.value).isEqualTo("애플")
+            val nonNullFound = requireNotNull(found)
+            assertThat(nonNullFound.id).isEqualTo(saved.id)
+            assertThat(nonNullFound.name.value).isEqualTo("애플")
         }
 
         @DisplayName("findById 는 soft-deleted Brand 를 null 로 반환한다.")
@@ -70,13 +72,11 @@ class BrandRepositoryImplIntegrationTest @Autowired constructor(
     @DisplayName("findAll(page, size)")
     @Nested
     inner class FindAll {
-        @DisplayName("createdAt desc 정렬 + soft-deleted 제외 + 페이징이 적용된다.")
+        @DisplayName("createdAt DESC, id DESC 정렬 + soft-deleted 제외 + 페이징이 적용된다.")
         @Test
         fun findAllOrdersAndExcludesAndPagesIn() {
-            val first = brandRepository.save(BrandFixture.validBrand("A"))
-            Thread.sleep(10)
-            val second = brandRepository.save(BrandFixture.validBrand("B"))
-            Thread.sleep(10)
+            brandRepository.save(BrandFixture.validBrand("A"))
+            brandRepository.save(BrandFixture.validBrand("B"))
             val third = brandRepository.save(BrandFixture.validBrand("C"))
             testEntityManager.flush()
             third.softDelete()
@@ -91,6 +91,29 @@ class BrandRepositoryImplIntegrationTest @Autowired constructor(
             assertThat(page1.map { it.name.value }).containsExactly("A")
             assertThat(brandRepository.findAll(0, 10).map { it.name.value })
                 .doesNotContain("C")
+        }
+
+        @DisplayName("sleep 없이 동일 시점 다건을 저장해도 페이지 순서가 항상 동일하다 (tie-breaker 안정성).")
+        @Test
+        fun stableOrderAcrossPages_withoutSleep() {
+            val names = listOf("A", "B", "C", "D", "E")
+            names.forEach { brandRepository.save(BrandFixture.validBrand(it)) }
+            testEntityManager.flush()
+            testEntityManager.clear()
+
+            // 나중에 저장될수록 큰 id → createdAt DESC, id DESC 로 역순 정렬이 결정적이다.
+            val expected = names.reversed()
+
+            fun fullOrderPagedBy(size: Int): List<String> =
+                names.indices.flatMap { page ->
+                    brandRepository.findAll(page = page, size = size).map { it.name.value }
+                }
+
+            // 페이지 크기를 달리해도(1, 2) 합친 순서가 전체 순서와 동일 → 중복/누락 없음.
+            assertThat(brandRepository.findAll(0, names.size).map { it.name.value })
+                .containsExactlyElementsOf(expected)
+            assertThat(fullOrderPagedBy(size = 1)).containsExactlyElementsOf(expected)
+            assertThat(fullOrderPagedBy(size = 2)).containsExactlyElementsOf(expected)
         }
     }
 

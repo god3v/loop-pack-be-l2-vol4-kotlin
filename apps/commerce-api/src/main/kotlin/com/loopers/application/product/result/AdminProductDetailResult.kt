@@ -7,7 +7,7 @@ import com.loopers.domain.product.SalesStatus
 data class AdminProductDetailResult(
     val id: Long,
     val name: String,
-    val price: Int,
+    val price: Long,
     val likeCount: Long,
     val brandId: Long,
     val brandName: String,

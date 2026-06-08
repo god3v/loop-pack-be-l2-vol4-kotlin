@@ -9,7 +9,7 @@ data class OrderResult(
     val orderId: Long,
     val userId: Long,
     val orderedAt: LocalDateTime,
-    val totalAmount: Int,
+    val totalAmount: Long,
     val status: OrderStatus,
     val lines: List<OrderLineResult>,
 ) {
@@ -28,9 +28,9 @@ data class OrderResult(
 data class OrderLineResult(
     val productId: Long,
     val productName: String,
-    val unitPrice: Int,
+    val unitPrice: Long,
     val quantity: Int,
-    val subtotal: Int,
+    val subtotal: Long,
 ) {
     companion object {
         fun from(line: OrderLine): OrderLineResult = OrderLineResult(

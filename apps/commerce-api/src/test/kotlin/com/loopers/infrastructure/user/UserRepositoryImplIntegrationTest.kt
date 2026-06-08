@@ -125,12 +125,13 @@ class UserRepositoryImplIntegrationTest @Autowired constructor(
             val found = userRepository.findByLoginId(UserFixture.DEFAULT_LOGIN_ID)
 
             // then
+            assertThat(found).isNotNull()
+            val verifiedFound = requireNotNull(found) { "expected User but was null after save" }
             assertAll(
-                { assertThat(found).isNotNull() },
-                { assertThat(found!!.id).isEqualTo(saved.id) },
-                { assertThat(found!!.loginId).isEqualTo(UserFixture.DEFAULT_LOGIN_ID) },
-                { assertThat(found!!.email.value).isEqualTo(UserFixture.DEFAULT_EMAIL) },
-                { assertThat(found!!.password.matches(UserFixture.DEFAULT_PASSWORD)).isTrue() },
+                { assertThat(verifiedFound.id).isEqualTo(saved.id) },
+                { assertThat(verifiedFound.loginId).isEqualTo(UserFixture.DEFAULT_LOGIN_ID) },
+                { assertThat(verifiedFound.email.value).isEqualTo(UserFixture.DEFAULT_EMAIL) },
+                { assertThat(verifiedFound.password.matches(UserFixture.DEFAULT_PASSWORD)).isTrue() },
             )
         }
 
@@ -160,10 +161,11 @@ class UserRepositoryImplIntegrationTest @Autowired constructor(
             val found = userRepository.findByEmail(UserFixture.DEFAULT_EMAIL)
 
             // then
+            assertThat(found).isNotNull()
+            val verifiedFound = requireNotNull(found) { "expected User but was null after save" }
             assertAll(
-                { assertThat(found).isNotNull() },
-                { assertThat(found!!.id).isEqualTo(saved.id) },
-                { assertThat(found!!.email.value).isEqualTo(UserFixture.DEFAULT_EMAIL) },
+                { assertThat(verifiedFound.id).isEqualTo(saved.id) },
+                { assertThat(verifiedFound.email.value).isEqualTo(UserFixture.DEFAULT_EMAIL) },
             )
         }
 

@@ -6,7 +6,7 @@ import com.loopers.domain.product.Product
 data class ProductDetailResult(
     val id: Long,
     val name: String,
-    val price: Int,
+    val price: Long,
     val likeCount: Long,
     val brandId: Long,
     val brandName: String,

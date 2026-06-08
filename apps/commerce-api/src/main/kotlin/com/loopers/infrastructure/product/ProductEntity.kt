@@ -18,7 +18,7 @@ import org.hibernate.annotations.SQLRestriction
 @SQLRestriction("deleted_at IS NULL")
 class ProductEntity private constructor(
     name: String,
-    price: Int,
+    price: Long,
     stock: Int,
     likeCount: Long,
     brandId: Long,
@@ -29,7 +29,7 @@ class ProductEntity private constructor(
         protected set
 
     @Column(nullable = false)
-    var price: Int = price
+    var price: Long = price
         protected set
 
     @Column(nullable = false)

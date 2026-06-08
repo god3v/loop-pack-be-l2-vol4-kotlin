@@ -5,16 +5,16 @@ import com.loopers.support.error.CoreException
 class OrderLine internal constructor(
     val productId: Long,
     val productName: String,
-    val unitPrice: Int,
+    val unitPrice: Long,
     val quantity: Quantity,
 ) {
-    val subtotal: Int get() = unitPrice * quantity.value
+    val subtotal: Long get() = unitPrice * quantity.value
 
     init {
         if (productName.isBlank()) {
             throw CoreException(OrderErrorType.LINE_BAD_REQUEST, "productName 은 blank 일 수 없다.")
         }
-        if (unitPrice < 0) {
+        if (unitPrice < 0L) {
             throw CoreException(OrderErrorType.LINE_BAD_REQUEST, "unitPrice 는 음수가 될 수 없다.")
         }
     }
@@ -23,7 +23,7 @@ class OrderLine internal constructor(
         fun create(
             productId: Long,
             productName: String,
-            unitPrice: Int,
+            unitPrice: Long,
             quantity: Int,
         ): OrderLine = OrderLine(
             productId = productId,

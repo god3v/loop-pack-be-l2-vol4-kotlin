@@ -28,7 +28,7 @@ class ProductRepositoryImplIntegrationTest @Autowired constructor(
 ) {
     private fun persist(
         name: String = "P",
-        price: Int = 1000,
+        price: Long = 1000L,
         likeCount: Long = 0L,
         brandId: Long = 1L,
     ): Product {
@@ -51,8 +51,9 @@ class ProductRepositoryImplIntegrationTest @Autowired constructor(
             val found = productRepository.findById(saved.id)
 
             assertThat(found).isNotNull()
-            assertThat(found!!.name.value).isEqualTo("M1")
-            assertThat(found.price.value).isEqualTo(1_000_000)
+            val verifiedFound = requireNotNull(found) { "expected Product but was null (id=${saved.id})" }
+            assertThat(verifiedFound.name.value).isEqualTo("M1")
+            assertThat(verifiedFound.price.value).isEqualTo(1_000_000)
         }
 
         @DisplayName("findById 는 soft-deleted Product 를 null 로 반환한다.")

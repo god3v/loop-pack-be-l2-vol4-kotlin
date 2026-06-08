@@ -33,10 +33,11 @@ class LikeRepositoryImplIntegrationTest @Autowired constructor(
             testEntityManager.flush()
             testEntityManager.clear()
 
-            val found = likeRepository.findByUserIdAndProductId(1L, 10L)
+            val found = requireNotNull(likeRepository.findByUserIdAndProductId(1L, 10L)) {
+                "Like should exist after save"
+            }
 
-            assertThat(found).isNotNull()
-            assertThat(found!!.userId).isEqualTo(1L)
+            assertThat(found.userId).isEqualTo(1L)
             assertThat(found.productId).isEqualTo(10L)
         }
 

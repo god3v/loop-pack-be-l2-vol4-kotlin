@@ -28,7 +28,8 @@ class BrandRepositoryImpl(
 
     override fun findAll(page: Int, size: Int): List<Brand> =
         brandJpaRepository.findAllBy(
-            PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt")),
+            // createdAt 동률 시 페이지 간 중복/누락을 막기 위해 고유 tie-breaker(id)까지 정렬에 고정한다.
+            PageRequest.of(page, size, Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"))),
         ).map { it.toDomain() }
 
     override fun existsByName(name: String): Boolean =

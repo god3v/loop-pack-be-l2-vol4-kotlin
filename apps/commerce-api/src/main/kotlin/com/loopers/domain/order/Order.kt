@@ -15,7 +15,7 @@ class Order internal constructor(
     paymentTransactionId: String? = null,
     paymentResultCode: String? = null,
 ) {
-    val totalAmount: Int get() = lines.sumOf { it.subtotal }
+    val totalAmount: Long get() = lines.sumOf { it.subtotal }
 
     var status: OrderStatus = status
         private set

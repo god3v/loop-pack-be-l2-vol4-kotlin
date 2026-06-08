@@ -4,6 +4,6 @@ import com.loopers.domain.product.SalesStatus
 
 data class UpdateProductCommand(
     val name: String,
-    val price: Int,
+    val price: Long,
     val salesStatus: SalesStatus,
 )
