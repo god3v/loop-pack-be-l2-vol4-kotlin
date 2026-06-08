@@ -333,7 +333,7 @@ class OrderFacadeTest {
                 idempotencyKey = "k",
             ).also { it.markPaid("tx-9", "APPROVED") }
             every { orderRepository.findAllForAdmin(0, 20) } returns listOf(order)
-            every { userRepository.findById(user.id) } returns user
+            every { userRepository.findAllByIds(any()) } returns listOf(user)
 
             val result = orderFacade.getOrdersForAdmin(0, 20)
 
@@ -353,13 +353,45 @@ class OrderFacadeTest {
                 idempotencyKey = "k",
             ).also { it.markPaymentFailed(null, null) }
             every { orderRepository.findAllForAdmin(0, 20) } returns listOf(failed)
-            every { userRepository.findById(user.id) } returns user
+            every { userRepository.findAllByIds(any()) } returns listOf(user)
 
             val result = orderFacade.getOrdersForAdmin(0, 20)
 
             assertThat(result[0].status).isEqualTo(OrderStatus.PAYMENT_FAILED)
             assertThat(result[0].paymentTransactionId).isNull()
             assertThat(result[0].paymentResultCode).isNull()
+        }
+
+        @Test
+        @DisplayName("페이지 50건이어도 회원 조회는 findAllByIds 1회로 끝나고 findById N+1 이 없다")
+        fun batchLoadsUsersForPageSize50() = assertUserLookupIsConstant(size = 50)
+
+        @Test
+        @DisplayName("페이지 100건이어도 회원 조회는 findAllByIds 1회로 끝나고 findById N+1 이 없다")
+        fun batchLoadsUsersForPageSize100() = assertUserLookupIsConstant(size = 100)
+
+        /**
+         * 페이지 크기와 무관하게 회원 조회가 상수(1회 일괄 조회)로 유지되는지 검증한다.
+         * 회귀 방지: 주문 N 건마다 findById 를 호출하던 N+1 패턴으로 되돌아가면 실패한다.
+         */
+        private fun assertUserLookupIsConstant(size: Int) {
+            val ids = (1L..size.toLong())
+            val users = ids.map { UserFixture.validUser(loginId = "user$it", id = it) }
+            val orders = ids.map { uid ->
+                Order.create(
+                    userId = uid,
+                    lines = listOf(OrderLine.create(1L, "P", 1000, 1)),
+                    idempotencyKey = "k-$uid",
+                )
+            }
+            every { orderRepository.findAllForAdmin(0, size) } returns orders
+            every { userRepository.findAllByIds(any()) } returns users
+
+            val result = orderFacade.getOrdersForAdmin(0, size)
+
+            assertThat(result).hasSize(size)
+            verify(exactly = 1) { userRepository.findAllByIds(any()) }
+            verify(exactly = 0) { userRepository.findById(any()) }
         }
     }
 

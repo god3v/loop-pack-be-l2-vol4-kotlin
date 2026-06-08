@@ -264,7 +264,9 @@ class UserFacadeIntegrationTest @Autowired constructor(
             )
 
             // then
-            val reloaded = userJpaRepository.findByLoginId(DEFAULT_LOGIN_ID)!!
+            val reloaded = requireNotNull(userJpaRepository.findByLoginId(DEFAULT_LOGIN_ID)) {
+                "user should exist after signup"
+            }
             assertAll(
                 { assertThat(reloaded.password).isNotEqualTo(newPassword) },
                 { assertThat(reloaded.password).isEqualTo(PasswordEncryptionUtil.encode(newPassword)) },
@@ -289,7 +291,9 @@ class UserFacadeIntegrationTest @Autowired constructor(
             }
 
             // then
-            val reloaded = userJpaRepository.findByLoginId(DEFAULT_LOGIN_ID)!!
+            val reloaded = requireNotNull(userJpaRepository.findByLoginId(DEFAULT_LOGIN_ID)) {
+                "user should exist after signup"
+            }
             assertAll(
                 { assertThat(reloaded.password).isNotEqualTo(DEFAULT_PASSWORD) },
                 { assertThat(reloaded.password).isEqualTo(PasswordEncryptionUtil.encode(DEFAULT_PASSWORD)) },
@@ -353,7 +357,9 @@ class UserFacadeIntegrationTest @Autowired constructor(
             }
 
             // then
-            val reloaded = userJpaRepository.findByLoginId(DEFAULT_LOGIN_ID)!!
+            val reloaded = requireNotNull(userJpaRepository.findByLoginId(DEFAULT_LOGIN_ID)) {
+                "user should exist after signup"
+            }
             assertAll(
                 { assertThat(result.errorType).isEqualTo(UserErrorType.UNAUTHORIZED) },
                 { assertThat(reloaded.password).isNotEqualTo(DEFAULT_PASSWORD) },

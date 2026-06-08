@@ -77,12 +77,15 @@ class OrderFacade(
     }
 
     @Transactional(readOnly = true)
-    fun getOrdersForAdmin(page: Int, size: Int): List<AdminOrderResult> =
-        orderRepository.findAllForAdmin(page, size).map { order ->
-            val user = userRepository.findById(order.userId)
+    fun getOrdersForAdmin(page: Int, size: Int): List<AdminOrderResult> {
+        val orders = orderRepository.findAllForAdmin(page, size)
+        val usersById = userRepository.findAllByIds(orders.map { it.userId }).associateBy { it.id }
+        return orders.map { order ->
+            val user = usersById[order.userId]
                 ?: throw CoreException(UserErrorType.UNAUTHORIZED)
             AdminOrderResult.of(order, user)
         }
+    }
 
     @Transactional(readOnly = true)
     fun getOrderForAdmin(orderId: Long): AdminOrderResult {
