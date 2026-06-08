@@ -1,7 +1,7 @@
 package com.loopers.infrastructure.user
 
-import com.loopers.domain.user.User
 import com.loopers.domain.user.UserRepository
+import com.loopers.domain.user.User
 import org.springframework.stereotype.Component
 
 @Component
@@ -17,6 +17,9 @@ class UserRepositoryImpl(
             .apply { syncFrom(user) }
         return userJpaRepository.save(entity).toDomain()
     }
+
+    override fun findById(id: Long): User? =
+        userJpaRepository.findById(id).orElse(null)?.toDomain()
 
     override fun findByLoginId(loginId: String): User? =
         userJpaRepository.findByLoginId(loginId)?.toDomain()

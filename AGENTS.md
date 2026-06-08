@@ -15,8 +15,9 @@
 
 ## 작업 원칙
 - **TDD + Tidy First**: Red → Green → Refactor. 구조 변경과 행위 변경을 같은 커밋에 섞지 않는다.
-- **계층 경계**: `interfaces → application → domain ← infrastructure`. `domain` 은 스프링/JPA 어노테이션을 직접 참조하지 않는다.
-- **트랜잭션 경계**: `application.Facade` 에서 잡는다.
+- **계층 경계**: `interfaces → application ← infrastructure`, `application → domain`. `domain` 은 스프링/JPA 를 모른다.
+- **트랜잭션 경계 & 조율**: `application.Facade` 가 Repository 호출과 `@Transactional` 을 단일 소유.
+- **순수 도메인 헬퍼는 허용**: 정책/계산기/스펙(예: `PasswordPolicy`, `OrderPriceCalculator`) 은 무상태·인자 기반이면 `domain` 에 둔다.
 - **null-safety 최우선**. `!!` 는 근거 코멘트와 함께만.
 - **라이브러리 버전**은 `gradle.properties` 단일 출처.
 
@@ -33,13 +34,17 @@
 - 민감정보(`.env`, 자격증명, `application*.yml` 내 비밀)는 절대 커밋하지 않는다.
 
 ## 자주 쓰는 패턴
-- 신규 도메인 추가: `domain → application → infrastructure → interfaces` 4계층을 그대로 추가.
+- 신규 도메인 추가: 4계층을 추가한다.
+  - `domain.<aggregate>` — 순수 모델/값객체/도메인 규칙, domainService, domainRepository (I)
+  - `application.<usecase>` — `Facade`, `command/`, `result/`
+  - `infrastructure.<aggregate>` — `Entity`, `JpaRepository`, `RepositoryImpl`
+  - `interfaces.api.<resource>` — `Controller`, `ApiSpec`, `Dto`
 - 신규 모듈 추가: `settings.gradle.kts` 의 `include(...)` 등록 + `apps`/`modules`/`supports` 중 적절한 위치.
 - 컨테이너 프로젝트(`apps`, `modules`, `supports`) 자체에는 task 가 실행되지 않는다 — 하위 모듈을 명시한다.
 
 ## 절대 금지
 - `apps/*` 끼리의 직접 의존.
-- `domain` 에서 스프링/JPA 어노테이션 직접 사용.
+- `domain` 에서 스프링/JPA 어노테이션 참조.
 - `build.gradle.kts` 안에 라이브러리 버전 하드코딩.
 - 테스트마다 새 Testcontainer 즉흥 기동 (testFixtures 재사용).
 - 운영 영향 설정(타임아웃, 커넥션 풀, 로깅 레벨) 변경을 PR 본문에 근거 없이 포함.

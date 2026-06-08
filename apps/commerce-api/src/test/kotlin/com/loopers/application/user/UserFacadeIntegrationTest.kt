@@ -93,6 +93,68 @@ class UserFacadeIntegrationTest @Autowired constructor(
                 { assertThat(userJpaRepository.count()).isEqualTo(1L) },
             )
         }
+
+        @DisplayName("이미 가입된 email 로 호출하면, DUPLICATE_EMAIL 예외가 발생하고 두 번째 row 는 영속되지 않는다.")
+        @Test
+        fun rollsBackOnDuplicateEmail() {
+            // give
+            userFacade.signup(validSignupCommand())
+
+            // when
+            val result = assertThrows<CoreException> {
+                userFacade.signup(validSignupCommand(loginId = "another"))
+            }
+
+            // then
+            assertAll(
+                { assertThat(result.errorType).isEqualTo(UserErrorType.DUPLICATE_EMAIL) },
+                { assertThat(userJpaRepository.count()).isEqualTo(1L) },
+            )
+        }
+    }
+
+    @DisplayName("UserFacade.authenticate 를 호출할 때, ")
+    @Nested
+    inner class Authenticate {
+        @DisplayName("loginId 와 비밀번호가 모두 일치하면, 식별된 User 가 반환된다.")
+        @Test
+        fun returnsUser_whenCredentialsMatch() {
+            // give
+            userFacade.signup(validSignupCommand())
+
+            // when
+            val authenticated = userFacade.authenticate(DEFAULT_LOGIN_ID, DEFAULT_PASSWORD)
+
+            // then
+            assertThat(authenticated.loginId).isEqualTo(DEFAULT_LOGIN_ID)
+        }
+
+        @DisplayName("존재하지 않는 loginId 로 인증을 시도하면, UNAUTHORIZED 예외가 발생한다.")
+        @Test
+        fun throwsUnauthorized_whenLoginIdNotFound() {
+            // when
+            val result = assertThrows<CoreException> {
+                userFacade.authenticate(DEFAULT_LOGIN_ID, DEFAULT_PASSWORD)
+            }
+
+            // then
+            assertThat(result.errorType).isEqualTo(UserErrorType.UNAUTHORIZED)
+        }
+
+        @DisplayName("loginId 는 존재하지만 비밀번호가 일치하지 않으면, UNAUTHORIZED 예외가 발생한다.")
+        @Test
+        fun throwsUnauthorized_whenPasswordMismatch() {
+            // give
+            userFacade.signup(validSignupCommand())
+
+            // when
+            val result = assertThrows<CoreException> {
+                userFacade.authenticate(DEFAULT_LOGIN_ID, "Wrong1234!")
+            }
+
+            // then
+            assertThat(result.errorType).isEqualTo(UserErrorType.UNAUTHORIZED)
+        }
     }
 
     @DisplayName("UserFacade.getMyInfo 를 호출할 때, ")
@@ -180,6 +242,45 @@ class UserFacadeIntegrationTest @Autowired constructor(
                 { assertThat(reloaded.password).isNotEqualTo(DEFAULT_PASSWORD) },
                 { assertThat(reloaded.password).isEqualTo(PasswordEncryptionUtil.encode(DEFAULT_PASSWORD)) },
             )
+        }
+
+        @DisplayName("loginId 에 해당하는 User 가 존재하지 않으면, UNAUTHORIZED 예외가 발생한다.")
+        @Test
+        fun throwsUnauthorized_whenUserNotFound() {
+            // when
+            val result = assertThrows<CoreException> {
+                userFacade.changePassword(
+                    ChangePasswordCommand(
+                        loginId = "notexists",
+                        prevPw = DEFAULT_PASSWORD,
+                        nextPw = newPassword,
+                    ),
+                )
+            }
+
+            // then
+            assertThat(result.errorType).isEqualTo(UserErrorType.UNAUTHORIZED)
+        }
+
+        @DisplayName("새 비밀번호가 현재 비밀번호와 동일하면, PASSWORD_CHANGE_BAD_REQUEST 예외가 발생한다.")
+        @Test
+        fun throwsPasswordChangeBadRequest_whenNextPwEqualsPrev() {
+            // give
+            userFacade.signup(validSignupCommand())
+
+            // when
+            val result = assertThrows<CoreException> {
+                userFacade.changePassword(
+                    ChangePasswordCommand(
+                        loginId = DEFAULT_LOGIN_ID,
+                        prevPw = DEFAULT_PASSWORD,
+                        nextPw = DEFAULT_PASSWORD,
+                    ),
+                )
+            }
+
+            // then
+            assertThat(result.errorType).isEqualTo(UserErrorType.PASSWORD_CHANGE_BAD_REQUEST)
         }
 
         @DisplayName("body 의 prevPw 가 일치하지 않으면, UNAUTHORIZED 예외가 발생하고 password 가 변경되지 않는다.")
