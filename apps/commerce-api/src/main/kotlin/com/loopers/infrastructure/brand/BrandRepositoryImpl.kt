@@ -2,6 +2,8 @@ package com.loopers.infrastructure.brand
 
 import com.loopers.domain.brand.BrandRepository
 import com.loopers.domain.brand.Brand
+import com.loopers.domain.brand.BrandErrorType
+import com.loopers.support.error.CoreException
 import org.springframework.data.domain.PageRequest
 import org.springframework.data.domain.Sort
 import org.springframework.stereotype.Component
@@ -15,7 +17,7 @@ class BrandRepositoryImpl(
             BrandEntity.from(brand)
         } else {
             brandJpaRepository.findById(brand.id)
-                .orElseThrow { IllegalStateException("brand with id=${brand.id} not found while updating") }
+                .orElseThrow { CoreException(BrandErrorType.BRAND_NOT_FOUND) }
                 .apply { syncFrom(brand) }
         }
         return brandJpaRepository.save(entity).toDomain()

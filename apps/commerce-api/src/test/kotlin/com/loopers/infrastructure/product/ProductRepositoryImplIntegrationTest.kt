@@ -3,13 +3,16 @@ package com.loopers.infrastructure.product
 import com.loopers.domain.product.ProductRepository
 import com.loopers.config.jpa.DataSourceConfig
 import com.loopers.domain.product.Product
+import com.loopers.domain.product.ProductErrorType
 import com.loopers.domain.product.ProductFixture
 import com.loopers.domain.product.ProductSortType
+import com.loopers.support.error.CoreException
 import com.loopers.testcontainers.MySqlTestContainersConfig
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest
@@ -64,6 +67,16 @@ class ProductRepositoryImplIntegrationTest @Autowired constructor(
             val found = productRepository.findById(saved.id)
 
             assertThat(found).isNull()
+        }
+
+        @DisplayName("DB 에 존재하지 않는 id 로 save(update) 하면, PRODUCT_NOT_FOUND 예외가 발생한다.")
+        @Test
+        fun throwsProductNotFound_whenUpdatingNonExistentId() {
+            val ghost = ProductFixture.validProduct(id = 999L)
+
+            val ex = assertThrows<CoreException> { productRepository.save(ghost) }
+
+            assertThat(ex.errorType).isEqualTo(ProductErrorType.PRODUCT_NOT_FOUND)
         }
     }
 

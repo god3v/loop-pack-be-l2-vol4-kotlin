@@ -5,7 +5,9 @@ import com.loopers.config.jpa.DataSourceConfig
 import com.loopers.domain.user.Password
 import com.loopers.domain.user.PasswordEncryptionUtil
 import com.loopers.domain.user.User
+import com.loopers.domain.user.UserErrorType
 import com.loopers.domain.user.UserFixture
+import com.loopers.support.error.CoreException
 import com.loopers.testcontainers.MySqlTestContainersConfig
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.DisplayName
@@ -86,9 +88,9 @@ class UserRepositoryImplIntegrationTest @Autowired constructor(
             )
         }
 
-        @DisplayName("DB 에 존재하지 않는 id 로 update 하면, IllegalStateException 이 발생한다.")
+        @DisplayName("DB 에 존재하지 않는 id 로 update 하면, UNAUTHORIZED 예외가 발생한다.")
         @Test
-        fun throwsIllegalState_whenUpdatingNonExistentId() {
+        fun throwsUnauthorized_whenUpdatingNonExistentId() {
             // give
             val template = UserFixture.validUser()
             val ghost = User(
@@ -101,9 +103,10 @@ class UserRepositoryImplIntegrationTest @Autowired constructor(
             )
 
             // when / then
-            assertThrows<IllegalStateException> {
+            val ex = assertThrows<CoreException> {
                 userRepository.update(ghost)
             }
+            assertThat(ex.errorType).isEqualTo(UserErrorType.UNAUTHORIZED)
         }
     }
 

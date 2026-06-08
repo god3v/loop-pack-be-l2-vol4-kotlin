@@ -3,13 +3,16 @@ package com.loopers.infrastructure.order
 import com.loopers.domain.order.OrderRepository
 import com.loopers.config.jpa.DataSourceConfig
 import com.loopers.domain.order.Order
+import com.loopers.domain.order.OrderErrorType
 import com.loopers.domain.order.OrderLine
 import com.loopers.domain.order.OrderStatus
+import com.loopers.support.error.CoreException
 import com.loopers.testcontainers.MySqlTestContainersConfig
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest
@@ -63,6 +66,22 @@ class OrderRepositoryImplIntegrationTest @Autowired constructor(
             assertThat(found.totalAmount).isEqualTo(1000 * 2 + 2000 * 3)
             assertThat(found.lines).hasSize(2)
             assertThat(found.lines.map { it.productName }).containsExactlyInAnyOrder("P-1", "P-2")
+        }
+
+        @DisplayName("DB 에 존재하지 않는 id 로 save(update) 하면, ORDER_NOT_FOUND 예외가 발생한다.")
+        @Test
+        fun throwsOrderNotFound_whenUpdatingNonExistentId() {
+            val ghost = Order(
+                id = 999L,
+                userId = 1L,
+                lines = listOf(line()),
+                orderedAt = LocalDateTime.now(),
+                idempotencyKey = "ghost",
+            )
+
+            val ex = assertThrows<CoreException> { orderRepository.save(ghost) }
+
+            assertThat(ex.errorType).isEqualTo(OrderErrorType.ORDER_NOT_FOUND)
         }
     }
 
