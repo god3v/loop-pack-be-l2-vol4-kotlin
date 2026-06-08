@@ -14,22 +14,23 @@ import jakarta.persistence.Table
 class OrderLineEntity private constructor(
     productId: Long,
     productName: String,
-    unitPrice: Int,
+    unitPrice: Long,
     quantity: Int,
     order: OrderEntity,
 ) : BaseEntity() {
-    @Column(name = "product_id")
+    @Column(name = "product_id", nullable = false)
     var productId: Long = productId
         protected set
 
-    @Column(name = "product_name")
+    @Column(name = "product_name", nullable = false)
     var productName: String = productName
         protected set
 
-    @Column(name = "unit_price")
-    var unitPrice: Int = unitPrice
+    @Column(name = "unit_price", nullable = false)
+    var unitPrice: Long = unitPrice
         protected set
 
+    @Column(name = "quantity", nullable = false)
     var quantity: Int = quantity
         protected set
 

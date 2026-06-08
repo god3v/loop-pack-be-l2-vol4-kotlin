@@ -5,6 +5,7 @@ import com.loopers.config.jpa.DataSourceConfig
 import com.loopers.domain.like.Like
 import com.loopers.testcontainers.MySqlTestContainersConfig
 import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatNoException
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Nested
@@ -32,10 +33,11 @@ class LikeRepositoryImplIntegrationTest @Autowired constructor(
             testEntityManager.flush()
             testEntityManager.clear()
 
-            val found = likeRepository.findByUserIdAndProductId(1L, 10L)
+            val found = requireNotNull(likeRepository.findByUserIdAndProductId(1L, 10L)) {
+                "Like should exist after save"
+            }
 
-            assertThat(found).isNotNull()
-            assertThat(found!!.userId).isEqualTo(1L)
+            assertThat(found.userId).isEqualTo(1L)
             assertThat(found.productId).isEqualTo(10L)
         }
 
@@ -80,6 +82,23 @@ class LikeRepositoryImplIntegrationTest @Autowired constructor(
             testEntityManager.flush()
             testEntityManager.clear()
 
+            assertThat(likeRepository.findByUserIdAndProductId(1L, 10L)).isNull()
+        }
+
+        @DisplayName("이미 삭제됐거나 존재하지 않는 좋아요를 delete 해도 예외 없이 no-op 으로 끝난다.")
+        @Test
+        fun deleteIsNoOp_whenRowAbsent() {
+            val saved = likeRepository.save(Like.create(userId = 1L, productId = 10L))
+            testEntityManager.flush()
+            likeRepository.delete(saved)
+            testEntityManager.flush()
+            testEntityManager.clear()
+
+            // 동일 취소를 한 번 더 (동시/순차 중복) — 행이 이미 없어도 예외가 나지 않아야 한다.
+            assertThatNoException().isThrownBy {
+                likeRepository.delete(saved)
+                testEntityManager.flush()
+            }
             assertThat(likeRepository.findByUserIdAndProductId(1L, 10L)).isNull()
         }
     }

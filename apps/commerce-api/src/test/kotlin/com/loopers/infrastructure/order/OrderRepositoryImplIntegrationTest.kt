@@ -3,13 +3,16 @@ package com.loopers.infrastructure.order
 import com.loopers.domain.order.OrderRepository
 import com.loopers.config.jpa.DataSourceConfig
 import com.loopers.domain.order.Order
+import com.loopers.domain.order.OrderErrorType
 import com.loopers.domain.order.OrderLine
 import com.loopers.domain.order.OrderStatus
+import com.loopers.support.error.CoreException
 import com.loopers.testcontainers.MySqlTestContainersConfig
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest
@@ -24,7 +27,7 @@ class OrderRepositoryImplIntegrationTest @Autowired constructor(
     private val orderRepository: OrderRepository,
     private val testEntityManager: TestEntityManager,
 ) {
-    private fun line(productId: Long = 1L, price: Int = 1000, qty: Int = 1) =
+    private fun line(productId: Long = 1L, price: Long = 1000L, qty: Int = 1) =
         OrderLine.create(productId = productId, productName = "P-$productId", unitPrice = price, quantity = qty)
 
     private fun persistPaid(
@@ -57,12 +60,29 @@ class OrderRepositoryImplIntegrationTest @Autowired constructor(
             val found = orderRepository.findById(saved.id)
 
             assertThat(found).isNotNull()
-            assertThat(found!!.status).isEqualTo(OrderStatus.PAID)
-            assertThat(found.paymentTransactionId).isEqualTo("tx-1")
-            assertThat(found.paymentResultCode).isEqualTo("APPROVED")
-            assertThat(found.totalAmount).isEqualTo(1000 * 2 + 2000 * 3)
-            assertThat(found.lines).hasSize(2)
-            assertThat(found.lines.map { it.productName }).containsExactlyInAnyOrder("P-1", "P-2")
+            val verifiedFound = requireNotNull(found) { "expected Order but was null (id=${saved.id})" }
+            assertThat(verifiedFound.status).isEqualTo(OrderStatus.PAID)
+            assertThat(verifiedFound.paymentTransactionId).isEqualTo("tx-1")
+            assertThat(verifiedFound.paymentResultCode).isEqualTo("APPROVED")
+            assertThat(verifiedFound.totalAmount).isEqualTo(1000 * 2 + 2000 * 3)
+            assertThat(verifiedFound.lines).hasSize(2)
+            assertThat(verifiedFound.lines.map { it.productName }).containsExactlyInAnyOrder("P-1", "P-2")
+        }
+
+        @DisplayName("DB 에 존재하지 않는 id 로 save(update) 하면, ORDER_NOT_FOUND 예외가 발생한다.")
+        @Test
+        fun throwsOrderNotFound_whenUpdatingNonExistentId() {
+            val ghost = Order(
+                id = 999L,
+                userId = 1L,
+                lines = listOf(line()),
+                orderedAt = LocalDateTime.now(),
+                idempotencyKey = "ghost",
+            )
+
+            val ex = assertThrows<CoreException> { orderRepository.save(ghost) }
+
+            assertThat(ex.errorType).isEqualTo(OrderErrorType.ORDER_NOT_FOUND)
         }
     }
 

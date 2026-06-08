@@ -67,6 +67,24 @@ class ProductTest {
             assertThat(result.errorType).isEqualTo(ProductErrorType.PRODUCT_BAD_REQUEST)
         }
 
+        @DisplayName("brandId 가 음수면 예외가 발생한다.")
+        @Test
+        fun throwsException_whenBrandIdIsNegative() {
+            // when
+            val result = assertThrows<CoreException> {
+                Product.create(
+                    name = "T-shirt",
+                    price = 1000,
+                    stock = 10,
+                    likeCount = 0L,
+                    brandId = -1L,
+                )
+            }
+
+            // then
+            assertThat(result.errorType).isEqualTo(ProductErrorType.PRODUCT_BAD_REQUEST)
+        }
+
         @DisplayName("name 이 blank 면 예외가 발생한다.")
         @ParameterizedTest
         @ValueSource(strings = ["", " ", "   "])

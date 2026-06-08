@@ -2,6 +2,8 @@ package com.loopers.infrastructure.order
 
 import com.loopers.domain.order.OrderRepository
 import com.loopers.domain.order.Order
+import com.loopers.domain.order.OrderErrorType
+import com.loopers.support.error.CoreException
 import org.springframework.data.domain.PageRequest
 import org.springframework.data.domain.Sort
 import org.springframework.stereotype.Component
@@ -16,7 +18,7 @@ class OrderRepositoryImpl(
             OrderEntity.from(order)
         } else {
             orderJpaRepository.findById(order.id)
-                .orElseThrow { IllegalStateException("order with id=${order.id} not found while updating") }
+                .orElseThrow { CoreException(OrderErrorType.ORDER_NOT_FOUND) }
                 .apply { syncFrom(order) }
         }
         return orderJpaRepository.save(entity).toDomain()

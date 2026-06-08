@@ -2,7 +2,9 @@ package com.loopers.infrastructure.product
 
 import com.loopers.domain.product.ProductRepository
 import com.loopers.domain.product.Product
+import com.loopers.domain.product.ProductErrorType
 import com.loopers.domain.product.ProductSortType
+import com.loopers.support.error.CoreException
 import org.springframework.data.domain.PageRequest
 import org.springframework.data.domain.Sort
 import org.springframework.stereotype.Component
@@ -16,7 +18,7 @@ class ProductRepositoryImpl(
             ProductEntity.from(product)
         } else {
             productJpaRepository.findById(product.id)
-                .orElseThrow { IllegalStateException("product with id=${product.id} not found while updating") }
+                .orElseThrow { CoreException(ProductErrorType.PRODUCT_NOT_FOUND) }
                 .apply { syncFrom(product) }
         }
         return productJpaRepository.save(entity).toDomain()

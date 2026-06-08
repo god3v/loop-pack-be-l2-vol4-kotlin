@@ -48,7 +48,7 @@ class BrandFacade(
     fun updateBrand(brandId: Long, command: UpdateBrandCommand): AdminBrandResult {
         val brand = brandRepository.findById(brandId)
             ?: throw CoreException(BrandErrorType.BRAND_NOT_FOUND)
-        if (brand.name != command.name && brandRepository.existsByName(command.name)) {
+        if (brand.name.value != command.name && brandRepository.existsByName(command.name)) {
             throw CoreException(BrandErrorType.DUPLICATE_BRAND_NAME)
         }
         brand.update(command.name)

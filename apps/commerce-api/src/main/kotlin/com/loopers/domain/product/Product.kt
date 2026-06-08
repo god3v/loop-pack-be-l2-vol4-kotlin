@@ -34,6 +34,9 @@ class Product internal constructor(
         if (likeCount < 0L) {
             throw CoreException(ProductErrorType.PRODUCT_BAD_REQUEST, "likeCount 는 음수가 될 수 없다.")
         }
+        if (brandId < 0L) {
+            throw CoreException(ProductErrorType.PRODUCT_BAD_REQUEST, "brandId 는 음수가 될 수 없다.")
+        }
     }
 
     fun deductStock(quantity: Int) {
@@ -62,7 +65,7 @@ class Product internal constructor(
 
     fun isDeleted(): Boolean = deletedAt != null
 
-    fun update(name: String, price: Int, salesStatus: SalesStatus) {
+    fun update(name: String, price: Long, salesStatus: SalesStatus) {
         this.name = ProductName.of(name)
         this.price = ProductPrice.of(price)
         this.salesStatus = salesStatus
@@ -71,7 +74,7 @@ class Product internal constructor(
     companion object {
         fun create(
             name: String,
-            price: Int,
+            price: Long,
             stock: Int,
             likeCount: Long,
             brandId: Long,

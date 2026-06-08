@@ -47,8 +47,10 @@ class LikeFacade(
         if (authedUserId != requestedUserId) {
             throw CoreException(LikeErrorType.LIKE_FORBIDDEN)
         }
-        return likeRepository.findAllByUserId(requestedUserId, page, size)
-            .mapNotNull { productRepository.findById(it.productId) }
+        val likes = likeRepository.findAllByUserId(requestedUserId, page, size)
+        val products = productRepository.findAllByIds(likes.map { it.productId })
+            .associateBy { it.id }
+        return likes.mapNotNull { products[it.productId] }
             .map { LikedProductResult.from(it) }
     }
 }

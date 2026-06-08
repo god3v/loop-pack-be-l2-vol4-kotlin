@@ -19,7 +19,6 @@ class OrderFacade(
     private val userRepository: UserRepository,
     private val productRepository: ProductRepository,
     private val orderRepository: OrderRepository,
-    private val orderService: OrderService,
 ) {
     @Transactional
     fun placeOrder(command: PlaceOrderCommand): OrderResult {
@@ -33,7 +32,7 @@ class OrderFacade(
         val productIds = command.lines.map { it.productId }.distinct()
         val products = productRepository.findAllByIds(productIds).associateBy { it.id }
         val quantities = command.lines.associate { it.productId to it.quantity }
-        val order = orderService.createOrder(
+        val order = OrderService.createOrder(
             userId = user.id,
             products = products,
             quantities = quantities,
@@ -78,12 +77,15 @@ class OrderFacade(
     }
 
     @Transactional(readOnly = true)
-    fun getOrdersForAdmin(page: Int, size: Int): List<AdminOrderResult> =
-        orderRepository.findAllForAdmin(page, size).map { order ->
-            val user = userRepository.findById(order.userId)
+    fun getOrdersForAdmin(page: Int, size: Int): List<AdminOrderResult> {
+        val orders = orderRepository.findAllForAdmin(page, size)
+        val usersById = userRepository.findAllByIds(orders.map { it.userId }).associateBy { it.id }
+        return orders.map { order ->
+            val user = usersById[order.userId]
                 ?: throw CoreException(UserErrorType.UNAUTHORIZED)
             AdminOrderResult.of(order, user)
         }
+    }
 
     @Transactional(readOnly = true)
     fun getOrderForAdmin(orderId: Long): AdminOrderResult {

@@ -10,8 +10,6 @@ import org.junit.jupiter.api.assertThrows
 
 @DisplayName("OrderService")
 class OrderServiceTest {
-    private val orderService = OrderService()
-
     @Test
     @DisplayName("createOrder 는 라인 스냅샷이 박힌 Order 를 반환하고 각 product 의 deductStock 을 호출한다.")
     fun returnsOrderWithSnapshotAndDeductsStock() {
@@ -22,7 +20,7 @@ class OrderServiceTest {
         val quantities = mapOf(1L to 2, 2L to 3)
 
         // when
-        val order = orderService.createOrder(
+        val order = OrderService.createOrder(
             userId = 42L,
             products = products,
             quantities = quantities,
@@ -52,7 +50,7 @@ class OrderServiceTest {
 
         // when
         val ex = assertThrows<CoreException> {
-            orderService.createOrder(
+            OrderService.createOrder(
                 userId = 42L,
                 products = products,
                 quantities = quantities,
