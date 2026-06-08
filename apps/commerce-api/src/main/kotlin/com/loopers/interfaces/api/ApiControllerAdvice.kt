@@ -123,6 +123,6 @@ class ApiControllerAdvice {
     private fun failureResponse(errorType: ErrorType, errorMessage: String? = null): ResponseEntity<ApiResponse<*>> =
         ResponseEntity(
             ApiResponse.fail(errorCode = errorType.code, errorMessage = errorMessage ?: errorType.message),
-            errorType.status,
+            errorType.status.toHttpStatus(),
         )
 }

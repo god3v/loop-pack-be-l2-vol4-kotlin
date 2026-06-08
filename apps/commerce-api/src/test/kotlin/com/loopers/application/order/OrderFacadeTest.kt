@@ -3,7 +3,6 @@ package com.loopers.application.order
 import com.loopers.application.order.command.OrderLineCommand
 import com.loopers.application.order.command.PlaceOrderCommand
 import com.loopers.domain.order.OrderRepository
-import com.loopers.domain.order.OrderService
 import com.loopers.domain.product.ProductRepository
 import com.loopers.domain.user.UserRepository
 import com.loopers.domain.order.Order
@@ -31,8 +30,7 @@ class OrderFacadeTest {
     private val userRepository: UserRepository = mockk()
     private val productRepository: ProductRepository = mockk()
     private val orderRepository: OrderRepository = mockk()
-    private val orderService = OrderService()
-    private val orderFacade = OrderFacade(userRepository, productRepository, orderRepository, orderService)
+    private val orderFacade = OrderFacade(userRepository, productRepository, orderRepository)
 
     private val loginId = UserFixture.DEFAULT_LOGIN_ID
     private val idempotencyKey = "idem-001"

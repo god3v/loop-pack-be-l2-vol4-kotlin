@@ -3,10 +3,8 @@ package com.loopers.domain.order
 import com.loopers.domain.product.Product
 import com.loopers.domain.product.ProductErrorType
 import com.loopers.support.error.CoreException
-import org.springframework.stereotype.Component
 
-@Component
-class OrderService {
+object OrderService {
     fun createOrder(
         userId: Long,
         products: Map<Long, Product>,

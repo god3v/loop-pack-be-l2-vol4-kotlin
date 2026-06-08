@@ -11,6 +11,7 @@ import com.loopers.domain.user.UserFixture.DEFAULT_NAME
 import com.loopers.domain.user.UserFixture.DEFAULT_PASSWORD
 import com.loopers.infrastructure.user.UserJpaRepository
 import com.loopers.support.error.CoreException
+import com.loopers.support.error.ErrorStatus
 import com.loopers.utils.DatabaseCleanUp
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
@@ -27,7 +28,6 @@ import org.junit.jupiter.api.assertThrows
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.dao.DataIntegrityViolationException
-import org.springframework.http.HttpStatus
 
 @SpringBootTest
 class UserFacadeIntegrationTest @Autowired constructor(
@@ -142,7 +142,7 @@ class UserFacadeIntegrationTest @Autowired constructor(
                         userFacade.signup(validSignupCommand())
                         successes.incrementAndGet()
                     } catch (e: CoreException) {
-                        if (e.errorType.status == HttpStatus.CONFLICT) rejections.incrementAndGet() else unexpected.add(e)
+                        if (e.errorType.status == ErrorStatus.CONFLICT) rejections.incrementAndGet() else unexpected.add(e)
                     } catch (e: DataIntegrityViolationException) {
                         rejections.incrementAndGet()
                     } catch (e: Throwable) {

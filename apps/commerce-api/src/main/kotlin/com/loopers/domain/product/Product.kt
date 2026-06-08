@@ -34,6 +34,9 @@ class Product internal constructor(
         if (likeCount < 0L) {
             throw CoreException(ProductErrorType.PRODUCT_BAD_REQUEST, "likeCount 는 음수가 될 수 없다.")
         }
+        if (brandId < 0L) {
+            throw CoreException(ProductErrorType.PRODUCT_BAD_REQUEST, "brandId 는 음수가 될 수 없다.")
+        }
     }
 
     fun deductStock(quantity: Int) {

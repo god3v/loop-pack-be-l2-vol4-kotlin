@@ -19,7 +19,6 @@ class OrderFacade(
     private val userRepository: UserRepository,
     private val productRepository: ProductRepository,
     private val orderRepository: OrderRepository,
-    private val orderService: OrderService,
 ) {
     @Transactional
     fun placeOrder(command: PlaceOrderCommand): OrderResult {
@@ -33,7 +32,7 @@ class OrderFacade(
         val productIds = command.lines.map { it.productId }.distinct()
         val products = productRepository.findAllByIds(productIds).associateBy { it.id }
         val quantities = command.lines.associate { it.productId to it.quantity }
-        val order = orderService.createOrder(
+        val order = OrderService.createOrder(
             userId = user.id,
             products = products,
             quantities = quantities,
