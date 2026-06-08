@@ -6,10 +6,17 @@ import com.loopers.domain.user.Password
 import com.loopers.domain.user.User
 import jakarta.persistence.Entity
 import jakarta.persistence.Table
+import jakarta.persistence.UniqueConstraint
 import java.time.LocalDate
 
 @Entity
-@Table(name = "users")
+@Table(
+    name = "users",
+    uniqueConstraints = [
+        UniqueConstraint(name = "uk_users_login_id", columnNames = ["login_id"]),
+        UniqueConstraint(name = "uk_users_email", columnNames = ["email"]),
+    ],
+)
 class UserEntity private constructor(
     loginId: String,
     password: String,

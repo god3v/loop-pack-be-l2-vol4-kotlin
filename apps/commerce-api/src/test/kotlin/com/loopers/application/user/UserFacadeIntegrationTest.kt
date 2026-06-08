@@ -12,6 +12,11 @@ import com.loopers.domain.user.UserFixture.DEFAULT_PASSWORD
 import com.loopers.infrastructure.user.UserJpaRepository
 import com.loopers.support.error.CoreException
 import com.loopers.utils.DatabaseCleanUp
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.DisplayName
@@ -21,6 +26,8 @@ import org.junit.jupiter.api.assertAll
 import org.junit.jupiter.api.assertThrows
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
+import org.springframework.dao.DataIntegrityViolationException
+import org.springframework.http.HttpStatus
 
 @SpringBootTest
 class UserFacadeIntegrationTest @Autowired constructor(
@@ -108,6 +115,51 @@ class UserFacadeIntegrationTest @Autowired constructor(
             // then
             assertAll(
                 { assertThat(result.errorType).isEqualTo(UserErrorType.DUPLICATE_EMAIL) },
+                { assertThat(userJpaRepository.count()).isEqualTo(1L) },
+            )
+        }
+
+        @DisplayName("동일 loginId/email 로 동시에 signup 하면, 정확히 1건만 성공하고 나머지는 중복으로 거부되며 row 는 1건만 남는다.")
+        @Test
+        fun onlyOneSucceeds_whenConcurrentDuplicateSignup() {
+            // give
+            val threadCount = 8
+            val executor = Executors.newFixedThreadPool(threadCount)
+            val ready = CountDownLatch(threadCount)
+            val start = CountDownLatch(1)
+            val successes = AtomicInteger(0)
+            val rejections = AtomicInteger(0)
+            val unexpected = CopyOnWriteArrayList<Throwable>()
+
+            // when — 모든 스레드를 장벽에서 동시에 출발시켜 선조회~저장 사이 경합을 최대화한다.
+            // 거부 경로는 둘 중 하나다: 선조회가 먼저 잡으면 CoreException(DUPLICATE_*, 409),
+            // 선조회를 통과한 경합은 커밋 시 DB 유니크 제약 → DataIntegrityViolationException.
+            val futures = (1..threadCount).map {
+                executor.submit {
+                    ready.countDown()
+                    start.await()
+                    try {
+                        userFacade.signup(validSignupCommand())
+                        successes.incrementAndGet()
+                    } catch (e: CoreException) {
+                        if (e.errorType.status == HttpStatus.CONFLICT) rejections.incrementAndGet() else unexpected.add(e)
+                    } catch (e: DataIntegrityViolationException) {
+                        rejections.incrementAndGet()
+                    } catch (e: Throwable) {
+                        unexpected.add(e)
+                    }
+                }
+            }
+            ready.await()
+            start.countDown()
+            futures.forEach { it.get(10, TimeUnit.SECONDS) }
+            executor.shutdown()
+
+            // then
+            assertAll(
+                { assertThat(successes.get()).isEqualTo(1) },
+                { assertThat(rejections.get()).isEqualTo(threadCount - 1) },
+                { assertThat(unexpected).isEmpty() },
                 { assertThat(userJpaRepository.count()).isEqualTo(1L) },
             )
         }
