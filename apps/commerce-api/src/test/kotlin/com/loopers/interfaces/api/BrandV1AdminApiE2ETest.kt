@@ -95,6 +95,45 @@ class BrandV1AdminApiE2ETest @Autowired constructor(
         }
     }
 
+    @DisplayName("GET /api-admin/v1/brands/{brandId} (관리자) 브랜드 상세 조회")
+    @Nested
+    inner class GetBrandDetail {
+        @DisplayName("존재하는 브랜드를 조회하면, 200 과 { id, name } 을 받는다.")
+        @Test
+        fun returnsBrand_whenExists() {
+            val brandId = brandRepository.save(BrandFixture.validBrand("나이키")).id
+
+            val response = testRestTemplate.exchange(
+                "/api-admin/v1/brands/$brandId",
+                HttpMethod.GET,
+                HttpEntity<Void>(adminHeaders()),
+                object : ParameterizedTypeReference<ApiResponse<BrandV1Dto.AdminBrandResponse>>() {},
+            )
+
+            assertAll(
+                { assertThat(response.statusCode).isEqualTo(HttpStatus.OK) },
+                { assertThat(response.body?.data?.id).isEqualTo(brandId) },
+                { assertThat(response.body?.data?.name).isEqualTo("나이키") },
+            )
+        }
+
+        @DisplayName("존재하지 않거나 삭제 마크된 브랜드를 조회하면, 404 BRAND_NOT_FOUND 응답을 받는다.")
+        @Test
+        fun returnsNotFound_whenMissing() {
+            val response = testRestTemplate.exchange(
+                "/api-admin/v1/brands/999999",
+                HttpMethod.GET,
+                HttpEntity<Void>(adminHeaders()),
+                object : ParameterizedTypeReference<ApiResponse<Any>>() {},
+            )
+
+            assertAll(
+                { assertThat(response.statusCode).isEqualTo(HttpStatus.NOT_FOUND) },
+                { assertThat(response.body?.meta?.errorCode).isEqualTo("BRAND_NOT_FOUND") },
+            )
+        }
+    }
+
     private fun adminHeaders(): HttpHeaders = HttpHeaders().apply {
         set("X-Loopers-Ldap", "loopers.admin")
     }

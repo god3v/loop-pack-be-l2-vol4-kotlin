@@ -125,8 +125,8 @@ Testcontainers 통합 테스트.
 - [x] `page`/`size` 가 반영되고 `totalElements`/`totalPages` 가 정확
 
 **UC-3 상세 — `GET /api-admin/v1/brands/{brandId}`**
-- [ ] 존재하는 브랜드 → `200 OK` + `{ id, name }`
-- [ ] 미존재/삭제 마크 → `404 BRAND_NOT_FOUND`
+- [x] 존재하는 브랜드 → `200 OK` + `{ id, name }`
+- [x] 미존재/삭제 마크 → `404 BRAND_NOT_FOUND`
 
 **UC-4 등록 — `POST /api-admin/v1/brands`**
 - [ ] 정상 등록 → `200 OK` + 생성된 브랜드
