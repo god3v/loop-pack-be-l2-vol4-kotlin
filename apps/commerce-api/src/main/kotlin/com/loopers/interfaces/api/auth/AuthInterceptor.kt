@@ -22,14 +22,14 @@ class AuthInterceptor(
         if (loginId.isNullOrBlank() || loginPw.isNullOrBlank()) {
             throw CoreException(UserErrorType.UNAUTHORIZED)
         }
-        userFacade.authenticate(loginId, loginPw)
-        request.setAttribute(ATTRIBUTE_LOGIN_ID, loginId)
+        val user = userFacade.authenticate(loginId, loginPw)
+        request.setAttribute(ATTRIBUTE_AUTH_USER, AuthUser(id = user.id, loginId = user.loginId))
         return true
     }
 
     companion object {
         const val HEADER_LOGIN_ID = "X-Loopers-LoginId"
         const val HEADER_LOGIN_PW = "X-Loopers-LoginPw"
-        const val ATTRIBUTE_LOGIN_ID = "AUTHENTICATED_LOGIN_ID"
+        const val ATTRIBUTE_AUTH_USER = "AUTHENTICATED_USER"
     }
 }

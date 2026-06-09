@@ -13,7 +13,7 @@ import org.springframework.web.method.support.ModelAndViewContainer
 @Component
 class LoginUserArgumentResolver : HandlerMethodArgumentResolver {
     override fun supportsParameter(parameter: MethodParameter): Boolean =
-        parameter.hasParameterAnnotation(LoginUser::class.java) && parameter.parameterType == String::class.java
+        parameter.hasParameterAnnotation(LoginUser::class.java) && parameter.parameterType == AuthUser::class.java
 
     override fun resolveArgument(
         parameter: MethodParameter,
@@ -23,7 +23,7 @@ class LoginUserArgumentResolver : HandlerMethodArgumentResolver {
     ): Any {
         val request = webRequest.getNativeRequest(HttpServletRequest::class.java)
             ?: throw CoreException(UserErrorType.UNAUTHORIZED)
-        return request.getAttribute(AuthInterceptor.ATTRIBUTE_LOGIN_ID) as? String
+        return request.getAttribute(AuthInterceptor.ATTRIBUTE_AUTH_USER) as? AuthUser
             ?: throw CoreException(UserErrorType.UNAUTHORIZED)
     }
 }

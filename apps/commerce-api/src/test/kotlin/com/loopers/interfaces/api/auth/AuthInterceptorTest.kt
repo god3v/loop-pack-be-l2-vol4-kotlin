@@ -42,7 +42,7 @@ class AuthInterceptorTest {
     class StubController {
         @GetMapping("/test/protected")
         @RequireAuth
-        fun protectedEndpoint(@LoginUser loginId: String): String = "ok:$loginId"
+        fun protectedEndpoint(@LoginUser user: AuthUser): String = "ok:${user.loginId}:${user.id}"
 
         @GetMapping("/test/public")
         fun publicEndpoint(): String = "public"
@@ -127,13 +127,16 @@ class AuthInterceptorTest {
                 .andExpect(jsonPath("$.meta.errorCode", equalTo("UNAUTHORIZED")))
         }
 
-        @DisplayName("인증에 성공하면, 핸들러로 통과하고 @LoginUser 로 인증된 loginId 가 주입된다.")
+        @DisplayName("인증에 성공하면, 핸들러로 통과하고 @LoginUser 로 인증 회원의 AuthUser(loginId, id) 가 주입된다.")
         @Test
-        fun passesThroughAndInjectsLoginId_whenAuthenticationSucceeds() {
+        fun passesThroughAndInjectsAuthUser_whenAuthenticationSucceeds() {
             // give
             every {
                 userFacade.authenticate(UserFixture.DEFAULT_LOGIN_ID, UserFixture.DEFAULT_PASSWORD)
-            } returns mockk<User>()
+            } returns mockk<User> {
+                every { id } returns 42L
+                every { loginId } returns UserFixture.DEFAULT_LOGIN_ID
+            }
 
             // when / then
             mockMvc.perform(
@@ -142,7 +145,7 @@ class AuthInterceptorTest {
                     .header(AuthInterceptor.HEADER_LOGIN_PW, UserFixture.DEFAULT_PASSWORD),
             )
                 .andExpect(status().isOk)
-                .andExpect(content().string("\"ok:${UserFixture.DEFAULT_LOGIN_ID}\""))
+                .andExpect(content().string("\"ok:${UserFixture.DEFAULT_LOGIN_ID}:42\""))
 
             verify(exactly = 1) {
                 userFacade.authenticate(UserFixture.DEFAULT_LOGIN_ID, UserFixture.DEFAULT_PASSWORD)
