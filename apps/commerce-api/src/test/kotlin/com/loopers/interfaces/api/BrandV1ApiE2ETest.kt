@@ -51,11 +51,31 @@ class BrandV1ApiE2ETest @Autowired constructor(
             )
         }
 
-        @DisplayName("존재하지 않거나 삭제 마크된 브랜드를 조회하면, 404 BRAND_NOT_FOUND 응답을 받는다.")
+        @DisplayName("존재하지 않는 브랜드를 조회하면, 404 BRAND_NOT_FOUND 응답을 받는다.")
         @Test
         fun returnsNotFound_whenMissing() {
             val response = testRestTemplate.exchange(
                 "/api/v1/brands/999999",
+                HttpMethod.GET,
+                HttpEntity.EMPTY,
+                object : ParameterizedTypeReference<ApiResponse<Any>>() {},
+            )
+
+            assertAll(
+                { assertThat(response.statusCode).isEqualTo(HttpStatus.NOT_FOUND) },
+                { assertThat(response.body?.meta?.errorCode).isEqualTo("BRAND_NOT_FOUND") },
+            )
+        }
+
+        @DisplayName("삭제 마크된 브랜드를 조회하면, 404 BRAND_NOT_FOUND 응답을 받는다 (회원에게 노출되지 않는다).")
+        @Test
+        fun returnsNotFound_whenSoftDeleted() {
+            val brand = brandRepository.save(BrandFixture.validBrand("나이키"))
+            brand.softDelete()
+            brandRepository.save(brand)
+
+            val response = testRestTemplate.exchange(
+                "/api/v1/brands/${brand.id}",
                 HttpMethod.GET,
                 HttpEntity.EMPTY,
                 object : ParameterizedTypeReference<ApiResponse<Any>>() {},

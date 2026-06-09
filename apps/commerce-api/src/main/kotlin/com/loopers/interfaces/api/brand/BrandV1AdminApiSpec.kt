@@ -30,4 +30,10 @@ interface BrandV1AdminApiSpec {
         description = "브랜드 이름을 수정합니다. 미존재/삭제 마크는 404, 이름 비어 있으면 400, 다른 브랜드와 중복되면 409 입니다. 관리자 인증 필요(X-Loopers-Ldap).",
     )
     fun updateBrand(brandId: Long, request: BrandV1Dto.UpdateBrandRequest): ApiResponse<BrandV1Dto.AdminBrandResponse>
+
+    @Operation(
+        summary = "(관리자) 브랜드 삭제 (카스케이드)",
+        description = "브랜드와 소속 상품을 같은 트랜잭션에서 삭제 마크합니다. 미존재/이미 삭제 마크는 404 입니다. 관리자 인증 필요(X-Loopers-Ldap).",
+    )
+    fun deleteBrand(brandId: Long): ApiResponse<Any>
 }

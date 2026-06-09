@@ -2,6 +2,8 @@ package com.loopers.interfaces.api
 
 import com.loopers.domain.brand.BrandFixture
 import com.loopers.domain.brand.BrandRepository
+import com.loopers.domain.product.ProductFixture
+import com.loopers.domain.product.ProductRepository
 import com.loopers.interfaces.api.brand.BrandV1Dto
 import com.loopers.utils.DatabaseCleanUp
 import org.assertj.core.api.Assertions.assertThat
@@ -25,6 +27,7 @@ class BrandV1AdminApiE2ETest @Autowired constructor(
     private val testRestTemplate: TestRestTemplate,
     private val databaseCleanUp: DatabaseCleanUp,
     private val brandRepository: BrandRepository,
+    private val productRepository: ProductRepository,
 ) {
     @AfterEach
     fun tearDown() {
@@ -60,6 +63,23 @@ class BrandV1AdminApiE2ETest @Autowired constructor(
                 { assertThat(response.statusCode).isEqualTo(HttpStatus.OK) },
                 { assertThat(response.body?.data?.content).isEmpty() },
                 { assertThat(response.body?.data?.totalElements).isEqualTo(0L) },
+            )
+        }
+
+        @DisplayName("삭제 마크된 브랜드는 목록에서 제외된다.")
+        @Test
+        fun excludesSoftDeleted() {
+            brandRepository.save(BrandFixture.validBrand("나이키"))
+            val deleted = brandRepository.save(BrandFixture.validBrand("아디다스"))
+            deleted.softDelete()
+            brandRepository.save(deleted)
+
+            val response = getBrands()
+
+            assertAll(
+                { assertThat(response.statusCode).isEqualTo(HttpStatus.OK) },
+                { assertThat(response.body?.data?.content?.map { it.name }).containsExactly("나이키") },
+                { assertThat(response.body?.data?.totalElements).isEqualTo(1L) },
             )
         }
 
@@ -118,11 +138,31 @@ class BrandV1AdminApiE2ETest @Autowired constructor(
             )
         }
 
-        @DisplayName("존재하지 않거나 삭제 마크된 브랜드를 조회하면, 404 BRAND_NOT_FOUND 응답을 받는다.")
+        @DisplayName("존재하지 않는 브랜드를 조회하면, 404 BRAND_NOT_FOUND 응답을 받는다.")
         @Test
         fun returnsNotFound_whenMissing() {
             val response = testRestTemplate.exchange(
                 "/api-admin/v1/brands/999999",
+                HttpMethod.GET,
+                HttpEntity<Void>(adminHeaders()),
+                object : ParameterizedTypeReference<ApiResponse<Any>>() {},
+            )
+
+            assertAll(
+                { assertThat(response.statusCode).isEqualTo(HttpStatus.NOT_FOUND) },
+                { assertThat(response.body?.meta?.errorCode).isEqualTo("BRAND_NOT_FOUND") },
+            )
+        }
+
+        @DisplayName("삭제 마크된 브랜드를 조회하면, 404 BRAND_NOT_FOUND 응답을 받는다.")
+        @Test
+        fun returnsNotFound_whenSoftDeleted() {
+            val brand = brandRepository.save(BrandFixture.validBrand("나이키"))
+            brand.softDelete()
+            brandRepository.save(brand)
+
+            val response = testRestTemplate.exchange(
+                "/api-admin/v1/brands/${brand.id}",
                 HttpMethod.GET,
                 HttpEntity<Void>(adminHeaders()),
                 object : ParameterizedTypeReference<ApiResponse<Any>>() {},
@@ -252,6 +292,49 @@ class BrandV1AdminApiE2ETest @Autowired constructor(
                 HttpEntity(BrandV1Dto.UpdateBrandRequest(name = name), adminJsonHeaders()),
                 object : ParameterizedTypeReference<ApiResponse<BrandV1Dto.AdminBrandResponse>>() {},
             )
+    }
+
+    @DisplayName("DELETE /api-admin/v1/brands/{brandId} (관리자) 브랜드 삭제 — 카스케이드")
+    @Nested
+    inner class DeleteBrand {
+        @DisplayName("삭제하면 200(data null) 과 함께 브랜드·소속 상품이 모두 삭제 마크된다.")
+        @Test
+        fun deletesBrandAndCascadesProducts() {
+            val brandId = brandRepository.save(BrandFixture.validBrand("나이키")).id
+            val productId = productRepository.save(ProductFixture.validProduct(brandId = brandId, name = "운동화")).id
+
+            val response = testRestTemplate.exchange(
+                "/api-admin/v1/brands/$brandId",
+                HttpMethod.DELETE,
+                HttpEntity<Void>(adminHeaders()),
+                object : ParameterizedTypeReference<ApiResponse<Any>>() {},
+            )
+
+            assertAll(
+                { assertThat(response.statusCode).isEqualTo(HttpStatus.OK) },
+                { assertThat(response.body?.meta?.result).isEqualTo(ApiResponse.Metadata.Result.SUCCESS) },
+                { assertThat(response.body?.data).isNull() },
+                // 카스케이드: 브랜드와 소속 상품 모두 삭제 마크 → @SQLRestriction 으로 조회 시 null.
+                { assertThat(brandRepository.findById(brandId)).isNull() },
+                { assertThat(productRepository.findById(productId)).isNull() },
+            )
+        }
+
+        @DisplayName("존재하지 않거나 이미 삭제 마크된 브랜드를 삭제하면, 404 BRAND_NOT_FOUND 응답을 받는다.")
+        @Test
+        fun returnsNotFound_whenMissing() {
+            val response = testRestTemplate.exchange(
+                "/api-admin/v1/brands/999999",
+                HttpMethod.DELETE,
+                HttpEntity<Void>(adminHeaders()),
+                object : ParameterizedTypeReference<ApiResponse<Any>>() {},
+            )
+
+            assertAll(
+                { assertThat(response.statusCode).isEqualTo(HttpStatus.NOT_FOUND) },
+                { assertThat(response.body?.meta?.errorCode).isEqualTo("BRAND_NOT_FOUND") },
+            )
+        }
     }
 
     private fun adminHeaders(): HttpHeaders = HttpHeaders().apply {

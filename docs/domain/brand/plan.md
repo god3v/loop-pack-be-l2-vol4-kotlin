@@ -140,8 +140,8 @@ Testcontainers 통합 테스트.
 - [x] 이름 형식 위반(blank) → `400 BRAND_BAD_REQUEST`
 
 **UC-6 삭제 카스케이드 — `DELETE /api-admin/v1/brands/{brandId}`**
-- [ ] 삭제 시 `200 OK` + `data: null` — 브랜드와 **소속 상품들이 함께 삭제 마크** (E2E: 사전에 상품 N건 생성 후, 삭제 뒤 `ProductRepository.findById` 가 null = 삭제 확인)
-- [ ] 미존재/이미 삭제 마크 → `404 BRAND_NOT_FOUND`
+- [x] 삭제 시 `200 OK` + `data: null` — 브랜드와 **소속 상품들이 함께 삭제 마크** (E2E: 사전에 상품 생성 후, 삭제 뒤 `ProductRepository.findById` 가 null = 삭제 확인)
+- [x] 미존재/이미 삭제 마크 → `404 BRAND_NOT_FOUND`
 
 **관리자 인증 (전 엔드포인트 공통)**
 - [x] `X-Loopers-Ldap` 헤더 누락 또는 값 불일치 → `401 UNAUTHORIZED` (목록 엔드포인트 E2E 로 헤더 누락 검증, 값 불일치는 `AdminAuthInterceptorTest`)
@@ -150,11 +150,12 @@ Testcontainers 통합 테스트.
 
 ## Phase 9 — api-spec 동기화 (문서)
 
-- [ ] 관리자 목록(`§2`) 응답: 평면 배열 → **페이지 봉투**(`content` + `page`/`size`/`totalElements`/`totalPages`). 페이징 입력은 `Pageable` 정규화(음수 page→0, size 캡) 표기.
+- [x] 관리자 목록(`§2`) 응답: 평면 배열 → `PageResult` 형태(`content` + `page`/`size`/`totalElements`/`totalPages`). 페이징 입력은 `Pageable` 정규화(음수 page→0, size 캡) 표기. 부록 메모도 갱신.
 
 ---
 
 ## 진행 로그
 
 - 2026-05-29: (product/plan 통합 시절) brand 도메인·port·Facade(UC-3~8 = 현 UC-1~6)·infra 어댑터 전체 Green. soft delete 는 `@SQLRestriction(deleted_at IS NULL)`.
+- 2026-06-09: soft-delete 조회 차단을 API 레벨로 명시 검증 추가 — 회원 상세·관리자 상세 = 삭제 브랜드 404, 관리자 목록 = 삭제 브랜드 제외. (동작은 `@SQLRestriction` 으로 이미 강제되던 것을 실제 soft-delete 데이터로 못박음. 회원 채널엔 브랜드 목록 엔드포인트 없음.)
 - 2026-06-09: brand plan 을 `product/plan.md` 에서 분리. 완료된 Phase 1~4 를 옮기고(UC 번호를 brand requirements 재정립 기준 UC-1~6 으로 갱신), 남은 interfaces 계층 + 관리자 채널 인증(공유) + 목록 PageResult 전환을 Phase 5~9 로 수립.

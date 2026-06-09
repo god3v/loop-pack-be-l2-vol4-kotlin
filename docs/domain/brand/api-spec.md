@@ -85,8 +85,8 @@
 
 | 쿼리 파라미터 | 타입 | 필수 | 기본값 | 규칙 |
 |---|---|---|---|---|
-| `page` | Int | X | `0` | 0부터 시작 |
-| `size` | Int | X | `20` | 페이지 크기 |
+| `page` | Int | X | `0` | 0부터 시작. Spring `Pageable` 이 음수를 `0` 으로 보정 |
+| `size` | Int | X | `20` | 페이지 크기. 상한 초과 시 상한값으로 보정 |
 
 **Request Body**: 없음
 
@@ -98,19 +98,29 @@
 ```jsonc
 {
   "meta": { "result": "SUCCESS", "errorCode": null, "message": null },
-  "data": [
-    { "id": 7, "name": "나이키" }
-  ]
+  "data": {
+    "content": [
+      { "id": 7, "name": "나이키" }
+    ],
+    "page":          0,
+    "size":          20,
+    "totalElements": 1,
+    "totalPages":    1
+  }
 }
 ```
 
 | 필드 | 타입 | 비고 |
 |---|---|---|
-| `data` | Array | 삭제 마크되지 않은 브랜드 요약 목록(최신순). 없으면 빈 배열 `[]` |
-| `data[].id` | Long | 브랜드 식별자 |
-| `data[].name` | String | 브랜드 이름 |
+| `data.content` | Array | 삭제 마크되지 않은 브랜드 요약 목록(최신순). 없으면 빈 배열 `[]` |
+| `data.content[].id` | Long | 브랜드 식별자 |
+| `data.content[].name` | String | 브랜드 이름 |
+| `data.page` | Int | 현재 페이지 번호 (0부터) |
+| `data.size` | Int | 페이지 크기 |
+| `data.totalElements` | Long | 전체 브랜드 수 (삭제 마크 제외) |
+| `data.totalPages` | Int | 전체 페이지 수 |
 
-> 현재 `BrandFacade.getBrandsForAdmin` 은 `List<AdminBrandResult>`(평면 배열) 을 반환한다 — 페이지 메타(`totalElements` 등) 는 응답에 포함되지 않는다(부록 참조).
+> `BrandFacade.getBrandsForAdmin` 은 `PageResult<AdminBrandResult>` 를 반환한다 — `data` 는 `content` + `page`/`size`/`totalElements`/`totalPages`.
 
 ### 실패 응답
 
@@ -313,6 +323,6 @@
 - **관리자 인증 (확정)**: [admin/logical-model.md](../admin/logical-model.md) 로 확정 — 별도 도메인 모델 없이 헤더 `X-Loopers-Ldap: loopers.admin` 으로 식별, `/api-admin/**` 경로 기준 인증. 컨트롤러 구현 시 `AdminAuthInterceptor`(§5) 를 따른다.
 - **`description` 없음**: requirements 는 브랜드 "설명(설명 등)" 을 언급하나, 현재 `Brand` 도메인과 `BrandResult`/`AdminBrandResult` 는 `id`·`name` 만 가진다. 설명 필드 도입은 도메인 확장 시 결정.
 - **회원/관리자 브랜드 응답 동일**: 현재 `BrandResult` 와 `AdminBrandResult` 는 `{id, name}` 으로 동일하다. 관리자 전용 정보(생성/수정 시각 등)가 필요해지면 분기.
-- **페이지 메타 없음**: `getBrandsForAdmin` 은 `List`(평면 배열) 반환. `like` 도메인처럼 `PageResult` 페이지 봉투로 전환할지는 후속 결정.
+- **목록 페이징**: `getBrandsForAdmin` 은 `PageResult<AdminBrandResult>` 를 반환한다 — 응답 `data` 는 `content` + `page`/`size`/`totalElements`/`totalPages`. 컨트롤러가 `Pageable → PageQuery` 로 변환한다(`like` 와 동일 패턴).
 - **`PUT` vs `PATCH`**: 수정은 변경 가능한 필드(이름) 전체 치환이라 `PUT` 으로 표기했다.
 - **HTTP 상태**: 등록 성공을 `200 OK` + 생성 리소스로 표기했다(프로젝트 컨벤션). `201 Created` 채택은 컨트롤러 구현 시 결정 가능.
