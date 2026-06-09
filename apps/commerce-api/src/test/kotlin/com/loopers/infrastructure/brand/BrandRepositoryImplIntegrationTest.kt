@@ -87,10 +87,15 @@ class BrandRepositoryImplIntegrationTest @Autowired constructor(
             val page0 = brandRepository.findAll(page = 0, size = 1)
             val page1 = brandRepository.findAll(page = 1, size = 1)
 
-            assertThat(page0.map { it.name.value }).containsExactly("B")
-            assertThat(page1.map { it.name.value }).containsExactly("A")
-            assertThat(brandRepository.findAll(0, 10).map { it.name.value })
+            assertThat(page0.content.map { it.name.value }).containsExactly("B")
+            assertThat(page1.content.map { it.name.value }).containsExactly("A")
+            assertThat(brandRepository.findAll(0, 10).content.map { it.name.value })
                 .doesNotContain("C")
+            // soft-deleted 제외 후 A·B 2건 → size 1 기준 totalElements=2 / totalPages=2.
+            assertThat(page0.totalElements).isEqualTo(2L)
+            assertThat(page0.totalPages).isEqualTo(2)
+            assertThat(page0.page).isEqualTo(0)
+            assertThat(page0.size).isEqualTo(1)
         }
 
         @DisplayName("sleep 없이 동일 시점 다건을 저장해도 페이지 순서가 항상 동일하다 (tie-breaker 안정성).")
@@ -106,11 +111,11 @@ class BrandRepositoryImplIntegrationTest @Autowired constructor(
 
             fun fullOrderPagedBy(size: Int): List<String> =
                 names.indices.flatMap { page ->
-                    brandRepository.findAll(page = page, size = size).map { it.name.value }
+                    brandRepository.findAll(page = page, size = size).content.map { it.name.value }
                 }
 
             // 페이지 크기를 달리해도(1, 2) 합친 순서가 전체 순서와 동일 → 중복/누락 없음.
-            assertThat(brandRepository.findAll(0, names.size).map { it.name.value })
+            assertThat(brandRepository.findAll(0, names.size).content.map { it.name.value })
                 .containsExactlyElementsOf(expected)
             assertThat(fullOrderPagedBy(size = 1)).containsExactlyElementsOf(expected)
             assertThat(fullOrderPagedBy(size = 2)).containsExactlyElementsOf(expected)

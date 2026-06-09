@@ -12,4 +12,13 @@ data class PageResult<T>(
     val size: Int,
     val totalElements: Long,
     val totalPages: Int,
-)
+) {
+    /** content 를 변환하고 페이지 메타는 그대로 보존한다. */
+    fun <R> map(transform: (T) -> R): PageResult<R> = PageResult(
+        content = content.map(transform),
+        page = page,
+        size = size,
+        totalElements = totalElements,
+        totalPages = totalPages,
+    )
+}

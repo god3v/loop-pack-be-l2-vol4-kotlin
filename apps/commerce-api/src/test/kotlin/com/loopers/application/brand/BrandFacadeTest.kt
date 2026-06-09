@@ -9,6 +9,8 @@ import com.loopers.domain.brand.BrandErrorType
 import com.loopers.domain.brand.BrandFixture
 import com.loopers.domain.product.ProductFixture
 import com.loopers.support.error.CoreException
+import com.loopers.support.page.PageQuery
+import com.loopers.support.page.PageResult
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
@@ -53,34 +55,40 @@ class BrandFacadeTest {
     @DisplayName("getBrandsForAdmin — UC-4 관리자 목록")
     inner class GetBrandsForAdmin {
         @Test
-        @DisplayName("Repository.findAll 로 위임된다")
+        @DisplayName("Repository.findAll 로 위임되고 페이지 메타가 전파된다")
         fun delegatesToFindAll() {
-            every { brandRepository.findAll(0, 20) } returns listOf(BrandFixture.validBrand())
+            // content 1건이지만 전체 5건/3페이지 — Facade 가 메타를 재계산하지 않고 그대로 전파하는지 검증.
+            every { brandRepository.findAll(0, 20) } returns
+                PageResult(content = listOf(BrandFixture.validBrand()), page = 0, size = 20, totalElements = 5L, totalPages = 3)
 
-            val result = brandFacade.getBrandsForAdmin(0, 20)
+            val result = brandFacade.getBrandsForAdmin(PageQuery(page = 0, size = 20))
 
-            assertThat(result).hasSize(1)
+            assertThat(result.content).hasSize(1)
+            assertThat(result.totalElements).isEqualTo(5L)
+            assertThat(result.totalPages).isEqualTo(3)
             verify { brandRepository.findAll(0, 20) }
         }
 
         @Test
         @DisplayName("page / size 가 Repository 에 그대로 전달된다")
         fun delegatesPaging() {
-            every { brandRepository.findAll(2, 50) } returns emptyList()
+            every { brandRepository.findAll(2, 50) } returns
+                PageResult(content = emptyList(), page = 2, size = 50, totalElements = 0L, totalPages = 0)
 
-            brandFacade.getBrandsForAdmin(2, 50)
+            brandFacade.getBrandsForAdmin(PageQuery(page = 2, size = 50))
 
             verify { brandRepository.findAll(2, 50) }
         }
 
         @Test
-        @DisplayName("등록된 브랜드가 없으면 빈 목록이 반환된다")
+        @DisplayName("등록된 브랜드가 없으면 빈 content 가 반환된다")
         fun returnsEmptyWhenNone() {
-            every { brandRepository.findAll(0, 20) } returns emptyList()
+            every { brandRepository.findAll(0, 20) } returns
+                PageResult(content = emptyList(), page = 0, size = 20, totalElements = 0L, totalPages = 0)
 
-            val result = brandFacade.getBrandsForAdmin(0, 20)
+            val result = brandFacade.getBrandsForAdmin(PageQuery(page = 0, size = 20))
 
-            assertThat(result).isEmpty()
+            assertThat(result.content).isEmpty()
         }
     }
 

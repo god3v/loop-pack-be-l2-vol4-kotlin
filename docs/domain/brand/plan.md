@@ -93,7 +93,7 @@ Testcontainers 통합 테스트.
 > `/api-admin/**` 전 경로 인증. product 도 그대로 재사용한다.
 
 - [x] **(Red→Green)** `AdminAuthInterceptor` 신설 — `X-Loopers-Ldap` 헤더 검증. 단위 테스트(MockMvc standalone + 스텁 컨트롤러): ① 값이 `loopers.admin` 이면 통과 ② 헤더 누락 → `401 UNAUTHORIZED` ③ 값 불일치 → `401 UNAUTHORIZED`. 기대값은 설정 주입. (`CommonErrorType.UNAUTHORIZED` 추가)
-- [ ] **(구조)** `WebMvcConfig` 에 `addPathPatterns("/api-admin/**")` 로 등록 (회원 `AuthInterceptor` 와 공존). 기대값 설정 키 추가.
+- [x] **(구조)** `WebMvcConfig` 에 `addPathPatterns("/api-admin/**")` 로 등록 (회원 `AuthInterceptor` 와 공존). 기대값 설정 키 `loopers.admin.ldap-id` 추가(application.yml).
 
 ---
 
@@ -101,8 +101,8 @@ Testcontainers 통합 테스트.
 
 > `like` 6.1 과 동형. 포트 반환형 변경이 Facade 까지 컴파일 연쇄되므로 한 원자적 구조 단위. 외부 엔드포인트 전이라 동작 불변(기존 테스트 갱신).
 
-- [ ] **(구조)** `BrandJpaRepository.findAllBy` 반환 `List` → `Page<BrandEntity>`. `BrandRepositoryImpl` 이 Spring `Page` → `PageResult<Brand>` 변환(정렬 `createdAt desc, id desc` 유지). `BrandRepository.findAll` 반환 `List<Brand>` → `PageResult<Brand>`. `BrandRepositoryImplIntegrationTest` 갱신 + `totalElements`/`totalPages` 검증 추가.
-- [ ] **(구조)** `BrandFacade.getBrandsForAdmin(page, size)` → `(pageQuery: PageQuery): PageResult<AdminBrandResult>`(메타 전파). `BrandFacadeTest` 해당 케이스를 `.content` 기준으로 갱신 + 메타 전파 1건.
+- [x] **(구조)** `BrandJpaRepository.findAllBy` 반환 `List` → `Page<BrandEntity>`. `BrandRepositoryImpl` 이 Spring `Page` → `PageResult<Brand>` 변환(정렬 `createdAt desc, id desc` 유지). `BrandRepository.findAll` 반환 `List<Brand>` → `PageResult<Brand>`. `BrandRepositoryImplIntegrationTest` 갱신 + `totalElements`/`totalPages` 검증 추가(`@SQLRestriction` 이 count 에도 적용 확인).
+- [x] **(구조)** `BrandFacade.getBrandsForAdmin(page, size)` → `(pageQuery: PageQuery): PageResult<AdminBrandResult>`(메타 전파, `PageResult.map` 헬퍼 추가). `BrandFacadeTest` 해당 케이스를 `.content` 기준으로 갱신 + 메타 전파 검증.
 
 ---
 
