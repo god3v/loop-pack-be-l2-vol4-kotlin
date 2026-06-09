@@ -24,4 +24,10 @@ interface BrandV1AdminApiSpec {
         description = "새 브랜드를 등록합니다. 이름이 비어 있으면 400, 기존 브랜드와 중복되면 409 입니다. 관리자 인증 필요(X-Loopers-Ldap).",
     )
     fun registerBrand(request: BrandV1Dto.RegisterBrandRequest): ApiResponse<BrandV1Dto.AdminBrandResponse>
+
+    @Operation(
+        summary = "(관리자) 브랜드 정보 수정",
+        description = "브랜드 이름을 수정합니다. 미존재/삭제 마크는 404, 이름 비어 있으면 400, 다른 브랜드와 중복되면 409 입니다. 관리자 인증 필요(X-Loopers-Ldap).",
+    )
+    fun updateBrand(brandId: Long, request: BrandV1Dto.UpdateBrandRequest): ApiResponse<BrandV1Dto.AdminBrandResponse>
 }

@@ -190,6 +190,70 @@ class BrandV1AdminApiE2ETest @Autowired constructor(
         }
     }
 
+    @DisplayName("PUT /api-admin/v1/brands/{brandId} (관리자) 브랜드 정보 수정")
+    @Nested
+    inner class UpdateBrand {
+        @DisplayName("정상 입력으로 수정하면, 200 과 갱신된 브랜드를 받는다.")
+        @Test
+        fun returnsUpdated_whenValid() {
+            val brandId = brandRepository.save(BrandFixture.validBrand("나이키")).id
+
+            val response = updateBrand(brandId, "나이키 코리아")
+
+            assertAll(
+                { assertThat(response.statusCode).isEqualTo(HttpStatus.OK) },
+                { assertThat(response.body?.data?.id).isEqualTo(brandId) },
+                { assertThat(response.body?.data?.name).isEqualTo("나이키 코리아") },
+            )
+        }
+
+        @DisplayName("존재하지 않거나 삭제 마크된 브랜드를 수정하면, 404 BRAND_NOT_FOUND 응답을 받는다.")
+        @Test
+        fun returnsNotFound_whenMissing() {
+            val response = updateBrand(999999L, "아무거나")
+
+            assertAll(
+                { assertThat(response.statusCode).isEqualTo(HttpStatus.NOT_FOUND) },
+                { assertThat(response.body?.meta?.errorCode).isEqualTo("BRAND_NOT_FOUND") },
+            )
+        }
+
+        @DisplayName("다른 브랜드와 이름이 중복되면, 409 DUPLICATE_BRAND_NAME 응답을 받는다.")
+        @Test
+        fun returnsConflict_whenDuplicate() {
+            brandRepository.save(BrandFixture.validBrand("나이키"))
+            val targetId = brandRepository.save(BrandFixture.validBrand("아디다스")).id
+
+            val response = updateBrand(targetId, "나이키")
+
+            assertAll(
+                { assertThat(response.statusCode).isEqualTo(HttpStatus.CONFLICT) },
+                { assertThat(response.body?.meta?.errorCode).isEqualTo("DUPLICATE_BRAND_NAME") },
+            )
+        }
+
+        @DisplayName("이름이 비어 있으면, 400 BRAND_BAD_REQUEST 응답을 받는다.")
+        @Test
+        fun returnsBadRequest_whenBlankName() {
+            val brandId = brandRepository.save(BrandFixture.validBrand("나이키")).id
+
+            val response = updateBrand(brandId, "   ")
+
+            assertAll(
+                { assertThat(response.statusCode).isEqualTo(HttpStatus.BAD_REQUEST) },
+                { assertThat(response.body?.meta?.errorCode).isEqualTo("BRAND_BAD_REQUEST") },
+            )
+        }
+
+        private fun updateBrand(brandId: Long, name: String) =
+            testRestTemplate.exchange(
+                "/api-admin/v1/brands/$brandId",
+                HttpMethod.PUT,
+                HttpEntity(BrandV1Dto.UpdateBrandRequest(name = name), adminJsonHeaders()),
+                object : ParameterizedTypeReference<ApiResponse<BrandV1Dto.AdminBrandResponse>>() {},
+            )
+    }
+
     private fun adminHeaders(): HttpHeaders = HttpHeaders().apply {
         set("X-Loopers-Ldap", "loopers.admin")
     }

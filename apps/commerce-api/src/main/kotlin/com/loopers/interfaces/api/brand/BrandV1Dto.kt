@@ -1,6 +1,7 @@
 package com.loopers.interfaces.api.brand
 
 import com.loopers.application.brand.command.RegisterBrandCommand
+import com.loopers.application.brand.command.UpdateBrandCommand
 import com.loopers.application.brand.result.AdminBrandResult
 import com.loopers.application.brand.result.BrandResult
 import com.loopers.support.page.PageResult
@@ -10,6 +11,12 @@ class BrandV1Dto {
         val name: String,
     ) {
         fun toCommand(): RegisterBrandCommand = RegisterBrandCommand(name = name)
+    }
+
+    data class UpdateBrandRequest(
+        val name: String,
+    ) {
+        fun toCommand(): UpdateBrandCommand = UpdateBrandCommand(name = name)
     }
 
     data class BrandResponse(

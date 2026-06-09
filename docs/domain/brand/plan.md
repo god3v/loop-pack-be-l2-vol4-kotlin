@@ -134,10 +134,10 @@ Testcontainers 통합 테스트.
 - [x] 이름 중복 → `409 DUPLICATE_BRAND_NAME`
 
 **UC-5 수정 — `PUT /api-admin/v1/brands/{brandId}`**
-- [ ] 정상 수정 → `200 OK` + 갱신된 브랜드
-- [ ] 미존재/삭제 마크 → `404 BRAND_NOT_FOUND`
-- [ ] 변경 이름이 다른 브랜드와 중복(자기 자신 제외) → `409 DUPLICATE_BRAND_NAME`
-- [ ] 이름 형식 위반 → `400 BRAND_BAD_REQUEST`
+- [x] 정상 수정 → `200 OK` + 갱신된 브랜드
+- [x] 미존재/삭제 마크 → `404 BRAND_NOT_FOUND`
+- [x] 변경 이름이 다른 브랜드와 중복(자기 자신 제외) → `409 DUPLICATE_BRAND_NAME`
+- [x] 이름 형식 위반(blank) → `400 BRAND_BAD_REQUEST`
 
 **UC-6 삭제 카스케이드 — `DELETE /api-admin/v1/brands/{brandId}`**
 - [ ] 삭제 시 `200 OK` + `data: null` — 브랜드와 **소속 상품들이 함께 삭제 마크** (E2E: 사전에 상품 N건 생성 후, 삭제 뒤 `ProductRepository.findById` 가 null = 삭제 확인)
