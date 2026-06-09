@@ -110,8 +110,8 @@ Testcontainers 통합 테스트.
 
 > `GET /api/v1/brands/{brandId}`. 산출물: `BrandV1Controller`, `BrandV1ApiSpec`, `BrandV1Dto.BrandResponse{id,name}`. 인증 불필요.
 
-- [ ] 존재하는 브랜드를 조회하면 `200 OK` + `{ id, name }`
-- [ ] 존재하지 않거나 삭제 마크된 브랜드 → `404 BRAND_NOT_FOUND`
+- [x] 존재하는 브랜드를 조회하면 `200 OK` + `{ id, name }`
+- [x] 존재하지 않거나 삭제 마크된 브랜드 → `404 BRAND_NOT_FOUND`
 
 ---
 

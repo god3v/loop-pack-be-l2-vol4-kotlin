@@ -6,7 +6,7 @@ import io.swagger.v3.oas.annotations.Operation
 import io.swagger.v3.oas.annotations.tags.Tag
 import org.springframework.data.domain.Pageable
 
-@Tag(name = "Like V1 API", description = "Loopers 좋아요(Like) API 입니다.")
+@Tag(name = "Like V1 API", description = "좋아요 API")
 interface LikeV1ApiSpec {
     @Operation(
         summary = "좋아요 등록",
