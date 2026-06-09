@@ -131,10 +131,13 @@ Testcontainers 통합 테스트 (`@DataJpaTest` + `MySqlTestContainersConfig`).
 - [x] **(구조)** `application.like.query.GetMyLikesQuery(userId, paging: PageQuery)` 신설 — 조회 대상 + 페이징을 담는 유즈케이스 Query. 인증 주체(`authedUserId`)는 횡단 관심사라 분리.
 - [x] **(구조)** `LikeFacade.getMyLikes(authedUserId, query: GetMyLikesQuery)` 로 시그니처 변경. 권한 검사 `authedUserId != query.userId` 유지. `LikeFacadeTest` 호출부 갱신.
 
-### 6.2 인증 숫자 userId 해석 (구조)
+### 6.2 인증 회원 주입 — `@LoginUser` + `AuthUser` 통합 (구조)
 
-- [ ] **(구조)** `AuthInterceptor` 가 `authenticate()` 반환 `User.id` 를 `ATTRIBUTE_LOGIN_USER_ID` attribute 로 저장 (기존 loginId attribute 병존).
-- [ ] **(구조)** `LoginUserArgumentResolver` 가 `@LoginUser` + `Long` 파라미터를 userId 로 해석 (기존 `String`=loginId 경로 무변경 — 회귀 없음). `WebConfig` 의 resolver/Pageable 기본 resolver 공존 확인.
+> **설계 (개정)**: "현재 인증 회원"을 단일 개념으로 통합한다. `@LoginUser` 1개로 통일하고, 주입 타입을 `loginId: String` 에서 `AuthUser(id, loginId)` VO 로 승격. 이전에 검토했던 별도 `@LoginUserId`(타입/애너테이션 2분할) 대신, 타입 매직 없고 개념이 단일한 VO 방식을 택한다. 도메인 `User` 를 그대로 노출하지 않고 컨트롤러가 필요한 식별자(id·loginId)만 좁혀 담는다. 기존 User 엔드포인트까지 손대는 구조 변경이나 동작은 불변(User E2E green 유지).
+
+- [x] **(구조)** `interfaces.api.auth.AuthUser(id: Long, loginId: String)` 신설. `LoginUserArgumentResolver` 가 `@LoginUser` + `AuthUser` 타입을 해석(`ATTRIBUTE_AUTH_USER` attribute 반환, 없으면 `UNAUTHORIZED`). `LoginUserArgumentResolverTest` AuthUser 기준 갱신.
+- [x] **(구조)** `AuthInterceptor` 가 `authenticate()` 반환 `User` 로 `AuthUser` 를 조립해 단일 attribute(`ATTRIBUTE_AUTH_USER`) 로 저장(기존 loginId/userId 2개 attribute 통합). `AuthInterceptorTest` 갱신(`User.id`/`loginId` 스텁 + AuthUser 주입 end-to-end).
+- [x] **(구조)** 기존 사용처 마이그레이션 — `UserV1ApiSpec`/`UserV1Controller` 2곳(`@LoginUser loginId: String` → `user: AuthUser`, 호출부 `user.loginId`), `UserV1ControllerTest` stub 리졸버(AuthUser 반환). `UserV1ApiE2ETest` 동작 불변 통과.
 
 ### 6.3 LikeV1 API (행위 — Red → Green, E2E)
 
