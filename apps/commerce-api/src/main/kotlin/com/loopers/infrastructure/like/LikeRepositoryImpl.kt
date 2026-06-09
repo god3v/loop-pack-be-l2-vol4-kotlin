@@ -2,6 +2,7 @@ package com.loopers.infrastructure.like
 
 import com.loopers.domain.like.LikeRepository
 import com.loopers.domain.like.Like
+import com.loopers.support.page.PageResult
 import org.springframework.data.domain.PageRequest
 import org.springframework.data.domain.Sort
 import org.springframework.stereotype.Component
@@ -25,9 +26,17 @@ class LikeRepositoryImpl(
         likeJpaRepository.deleteByUserIdAndProductId(like.userId, like.productId)
     }
 
-    override fun findAllByUserId(userId: Long, page: Int, size: Int): List<Like> =
-        likeJpaRepository.findAllByUserId(
+    override fun findAllByUserId(userId: Long, page: Int, size: Int): PageResult<Like> {
+        val found = likeJpaRepository.findAllByUserId(
             userId,
             PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt")),
-        ).map { it.toDomain() }
+        )
+        return PageResult(
+            content = found.content.map { it.toDomain() },
+            page = found.number,
+            size = found.size,
+            totalElements = found.totalElements,
+            totalPages = found.totalPages,
+        )
+    }
 }

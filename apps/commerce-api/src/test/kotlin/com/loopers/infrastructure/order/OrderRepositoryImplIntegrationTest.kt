@@ -8,6 +8,7 @@ import com.loopers.domain.order.OrderLine
 import com.loopers.domain.order.OrderStatus
 import com.loopers.support.error.CoreException
 import com.loopers.testcontainers.MySqlTestContainersConfig
+import org.hibernate.SessionFactory
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Nested
@@ -143,6 +144,43 @@ class OrderRepositoryImplIntegrationTest @Autowired constructor(
 
             assertThat(page0.map { it.id }).containsExactly(c.id, b.id)
             assertThat(page1.map { it.id }).containsExactly(a.id)
+        }
+    }
+
+    @DisplayName("lines 패치 — N+1 방지")
+    @Nested
+    inner class LinesFetch {
+        @DisplayName("주문 20건(각 2라인) 목록 조회 시 lines 가 배치 로딩되어 주문 수에 비례한 쿼리가 발생하지 않는다.")
+        @Test
+        fun listQueryBatchLoadsLines() {
+            val userId = 7L
+            repeat(20) { i ->
+                persistPaid(
+                    userId = userId,
+                    idempotencyKey = "idem-$i",
+                    lines = listOf(line(productId = 1L), line(productId = 2L)),
+                )
+            }
+            testEntityManager.clear()
+
+            val statistics = testEntityManager.entityManager.entityManagerFactory
+                .unwrap(SessionFactory::class.java).statistics
+            statistics.isStatisticsEnabled = true
+            statistics.clear()
+
+            val orders = orderRepository.findAllByUserIdAndOrderedAtBetween(
+                userId = userId,
+                start = LocalDateTime.now().minusDays(1),
+                end = LocalDateTime.now().plusDays(1),
+                page = 0,
+                size = 50,
+            )
+
+            // toDomain() 이 lines 를 순회하므로 조회 시점에 lines 가 적재된다.
+            assertThat(orders).hasSize(20)
+            assertThat(orders.flatMap { it.lines }).hasSize(40)
+            // 주문 1회 + lines 배치(IN) 1회 수준. 주문 건수(20)에 비례한 N+1 이면 20+ 가 된다.
+            assertThat(statistics.prepareStatementCount).isLessThanOrEqualTo(3)
         }
     }
 }

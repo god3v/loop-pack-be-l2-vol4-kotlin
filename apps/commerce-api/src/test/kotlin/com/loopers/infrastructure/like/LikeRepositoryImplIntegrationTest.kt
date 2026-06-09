@@ -121,10 +121,10 @@ class LikeRepositoryImplIntegrationTest @Autowired constructor(
 
             val result = likeRepository.findAllByUserId(1L, 0, 10)
 
-            assertThat(result.map { it.productId }).containsExactly(30L, 20L, 10L)
+            assertThat(result.content.map { it.productId }).containsExactly(30L, 20L, 10L)
         }
 
-        @DisplayName("page / size 페이징이 적용된다.")
+        @DisplayName("page / size 페이징이 적용되고 totalElements / totalPages 가 정확하다.")
         @Test
         fun appliesPagination() {
             (10L..14L).forEach {
@@ -137,9 +137,14 @@ class LikeRepositoryImplIntegrationTest @Autowired constructor(
             val page0 = likeRepository.findAllByUserId(1L, 0, 2)
             val page1 = likeRepository.findAllByUserId(1L, 1, 2)
 
-            assertThat(page0).hasSize(2)
-            assertThat(page1).hasSize(2)
-            assertThat(page0[0].productId).isNotEqualTo(page1[0].productId)
+            assertThat(page0.content).hasSize(2)
+            assertThat(page1.content).hasSize(2)
+            assertThat(page0.content[0].productId).isNotEqualTo(page1.content[0].productId)
+            // 전체 5건 / 페이지 크기 2 → 총 3페이지.
+            assertThat(page0.totalElements).isEqualTo(5L)
+            assertThat(page0.totalPages).isEqualTo(3)
+            assertThat(page0.page).isEqualTo(0)
+            assertThat(page0.size).isEqualTo(2)
         }
 
         @DisplayName("다른 user 의 좋아요는 결과에 포함되지 않는다.")
@@ -152,9 +157,10 @@ class LikeRepositoryImplIntegrationTest @Autowired constructor(
 
             val result = likeRepository.findAllByUserId(1L, 0, 10)
 
-            assertThat(result).hasSize(1)
-            assertThat(result[0].userId).isEqualTo(1L)
-            assertThat(result[0].productId).isEqualTo(10L)
+            assertThat(result.content).hasSize(1)
+            assertThat(result.totalElements).isEqualTo(1L)
+            assertThat(result.content[0].userId).isEqualTo(1L)
+            assertThat(result.content[0].productId).isEqualTo(10L)
         }
     }
 }

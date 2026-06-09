@@ -117,9 +117,19 @@ Testcontainers 통합 테스트 (`@DataJpaTest` + `MySqlTestContainersConfig`).
 > 외부 엔드포인트가 아직 없어 관측 가능한 행위 변화 없음. 기존 테스트를 새 반환형으로 갱신해 Green 유지하는 구조 커밋.
 
 - [x] **(구조)** `support.page.PageResult<T>` 신설 — `content / page / size / totalElements / totalPages`. 순수 Kotlin, Spring import 0.
-- [ ] **(구조)** `LikeJpaRepository.findAllByUserId` 반환 `List<LikeEntity>` → `Page<LikeEntity>`. `LikeRepositoryImpl` 이 Spring `Page` → `PageResult<Like>` 변환 (PageRequest + `Sort` DESC `createdAt` 유지). `LikeRepository` 포트 반환 `List<Like>` → `PageResult<Like>`.
-- [ ] **(구조)** `LikeRepositoryImplIntegrationTest` 를 새 반환형으로 갱신 + `totalElements`/`totalPages` 정확성 검증 추가 (기존 정렬·페이징·격리 케이스 유지).
-- [ ] **(구조)** `LikeFacade.getMyLikes` 반환 `List<LikedProductResult>` → `PageResult<LikedProductResult>` (page 메타는 like 페이지에서 보존, content 는 기존 `findAllByIds` batch-load + `mapNotNull` 유지). `LikeFacadeTest` getMyLikes 케이스를 `.content` 기준으로 갱신 + 메타 전파 1건 추가.
+- [x] **(구조)** `LikeJpaRepository.findAllByUserId` 반환 `List<LikeEntity>` → `Page<LikeEntity>`. `LikeRepositoryImpl` 이 Spring `Page` → `PageResult<Like>` 변환 (PageRequest + `Sort` DESC `createdAt` 유지). `LikeRepository` 포트 반환 `List<Like>` → `PageResult<Like>`.
+- [x] **(구조)** `LikeRepositoryImplIntegrationTest` 를 새 반환형으로 갱신 + `totalElements`/`totalPages` 정확성 검증 추가 (기존 정렬·페이징·격리 케이스 유지).
+- [x] **(구조)** `LikeFacade.getMyLikes` 반환 `List<LikedProductResult>` → `PageResult<LikedProductResult>` (page 메타는 like 페이지에서 보존, content 는 기존 `findAllByIds` batch-load + `mapNotNull` 유지). `LikeFacadeTest` getMyLikes 케이스를 `.content` 기준으로 갱신 + 메타 전파 1건 추가.
+
+> 위 3개는 포트 반환형 변경이 호출부(Facade)까지 컴파일상 연쇄되어 분리 불가 — 한 원자적 구조 단위로 처리. 6.1.1 의 `PageResult<T>` 가 read 경로(infra→domain→application)에 모두 배선됨.
+
+### 6.1c 읽기 Query DTO 도입 (구조)
+
+> 조건 검색(필터)이 들어올 유즈케이스(상품 검색 등)를 대비해, 유즈케이스별 Query 가 '조건의 집' 이 되고 페이징은 공용 VO 로 합성하는 패턴을 like 에서 먼저 세운다. 입력 계약 재구성 — 동작 불변(구조 커밋).
+
+- [x] **(구조)** `support.page.PageQuery(page, size)` 신설 — `PageResult` 의 입력 짝(프레임워크 독립). 조건 검색 Query 가 합성해 페이징 어휘를 공유한다.
+- [x] **(구조)** `application.like.query.GetMyLikesQuery(userId, paging: PageQuery)` 신설 — 조회 대상 + 페이징을 담는 유즈케이스 Query. 인증 주체(`authedUserId`)는 횡단 관심사라 분리.
+- [x] **(구조)** `LikeFacade.getMyLikes(authedUserId, query: GetMyLikesQuery)` 로 시그니처 변경. 권한 검사 `authedUserId != query.userId` 유지. `LikeFacadeTest` 호출부 갱신.
 
 ### 6.2 인증 숫자 userId 해석 (구조)
 
