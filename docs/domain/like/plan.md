@@ -177,8 +177,8 @@ Testcontainers 통합 테스트 (`@DataJpaTest` + `MySqlTestContainersConfig`).
 
 ### 6.4 api-spec 동기화 (문서)
 
-- [ ] 내 목록 응답: 평면 배열 → **페이지 봉투**(`content` + `page`/`size`/`totalElements`/`totalPages`) 로 갱신. "페이지 메타" TBD 해소 표기.
-- [ ] 400 행: Pageable 의 음수 page 보정/ size 캡 동작에 맞춰 케이스 문구 정리.
+- [x] 내 목록 응답: 평면 배열 → **페이지 봉투**(`content` + `page`/`size`/`totalElements`/`totalPages`) 로 갱신. "페이지 메타" TBD 해소 표기.
+- [x] 400 행: Pageable 의 음수 page 보정/ size 캡 동작에 맞춰 케이스 문구 정리(페이징 입력 400 제거 + 정규화 설명).
 
 ---
 

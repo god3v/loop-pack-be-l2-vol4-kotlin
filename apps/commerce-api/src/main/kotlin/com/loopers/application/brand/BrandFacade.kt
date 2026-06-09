@@ -9,6 +9,8 @@ import com.loopers.domain.product.ProductRepository
 import com.loopers.domain.brand.Brand
 import com.loopers.domain.brand.BrandErrorType
 import com.loopers.support.error.CoreException
+import com.loopers.support.page.PageQuery
+import com.loopers.support.page.PageResult
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
 
@@ -25,8 +27,8 @@ class BrandFacade(
     }
 
     @Transactional(readOnly = true)
-    fun getBrandsForAdmin(page: Int, size: Int): List<AdminBrandResult> =
-        brandRepository.findAll(page, size).map { AdminBrandResult.from(it) }
+    fun getBrandsForAdmin(pageQuery: PageQuery): PageResult<AdminBrandResult> =
+        brandRepository.findAll(pageQuery.page, pageQuery.size).map { AdminBrandResult.from(it) }
 
     @Transactional(readOnly = true)
     fun getBrandForAdmin(brandId: Long): AdminBrandResult {

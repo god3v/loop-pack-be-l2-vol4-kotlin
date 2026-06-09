@@ -131,8 +131,10 @@
 
 | 쿼리 파라미터 | 타입 | 필수 | 기본값 | 규칙 |
 |---|---|---|---|---|
-| `page` | Int | X | `0` | 0 이상 (0부터 시작). 음수 거부 |
-| `size` | Int | X | `20` | 1 이상, 합리적 상한 이내. 범위 밖 거부 |
+| `page` | Int | X | `0` | 0부터 시작. Spring `Pageable` 이 처리하며 음수는 `0` 으로 **보정**된다 |
+| `size` | Int | X | `20` | 페이지 크기. 상한(`max-page-size`)을 초과하면 상한값으로 **보정**된다 |
+
+> 페이징은 Spring `Pageable`(`@PageableDefault(size = 20)`) 로 수신하므로, 음수 `page`/과대 `size` 는 거부(400)가 아니라 정규화된다. 정렬은 서버 고정(likedAt desc) 이라 `sort` 파라미터는 무시한다.
 
 **Request Body**: 없음
 
@@ -143,26 +145,36 @@
 ```jsonc
 {
   "meta": { "result": "SUCCESS", "errorCode": null, "message": null },
-  "data": [
-    {
-      "productId": 101,
-      "name":      "운동화",
-      "price":     59000,
-      "likeCount": 42,
-      "brandId":   7
-    }
-  ]
+  "data": {
+    "content": [
+      {
+        "productId": 101,
+        "name":      "운동화",
+        "price":     59000,
+        "likeCount": 42,
+        "brandId":   7
+      }
+    ],
+    "page":          0,
+    "size":          20,
+    "totalElements": 1,
+    "totalPages":    1
+  }
 }
 ```
 
 | 필드 | 타입 | 비고 |
 |---|---|---|
-| `data` | Array | 좋아요한 상품 요약 목록. 좋아요한 시각 **내림차순**(최근순) 정렬. 좋아요한 상품이 없으면 빈 배열 `[]` |
-| `data[].productId` | Long | 상품 식별자 |
-| `data[].name` | String | 상품 이름 |
-| `data[].price` | Long | 상품 가격 |
-| `data[].likeCount` | Long | 상품의 좋아요 수 |
-| `data[].brandId` | Long | 브랜드 식별자 |
+| `data.content` | Array | 좋아요한 상품 요약 목록. 좋아요한 시각 **내림차순**(최근순) 정렬. 좋아요한 상품이 없으면 빈 배열 `[]` |
+| `data.content[].productId` | Long | 상품 식별자 |
+| `data.content[].name` | String | 상품 이름 |
+| `data.content[].price` | Long | 상품 가격 |
+| `data.content[].likeCount` | Long | 상품의 좋아요 수 |
+| `data.content[].brandId` | Long | 브랜드 식별자 |
+| `data.page` | Int | 현재 페이지 번호 (0부터) |
+| `data.size` | Int | 페이지 크기 |
+| `data.totalElements` | Long | 전체 좋아요 건수 |
+| `data.totalPages` | Int | 전체 페이지 수 |
 
 > 좋아요한 시각은 정렬 기준으로만 사용되며 응답 항목에 포함하지 않는다 (requirements §5).
 
@@ -172,9 +184,10 @@
 
 | HTTP | errorCode | 케이스 |
 |---|---|---|
-| `400` | `BAD_REQUEST` | `page` 가 음수이거나 `size` 가 허용 범위를 벗어남 |
 | `401` | `UNAUTHORIZED` | 헤더 누락, loginId 미존재, 비밀번호 불일치 (응답에서 구분 X) |
 | `403` | `LIKE_FORBIDDEN` | 경로의 `userId` 가 인증된 회원과 다름 — 타인의 좋아요 목록 조회 불가 |
+
+> requirements §UC-3 E2 는 음수 `page`/범위 밖 `size` 를 `400` 으로 규정했으나, 구현은 Spring `Pageable` 로 페이징을 수신해 해당 입력을 **정규화**(음수 page→0, 과대 size→상한)한다. 따라서 페이징 입력으로 인한 `400` 은 발생하지 않는다.
 
 ---
 
@@ -184,16 +197,15 @@
 |---|---|---|
 | `UNAUTHORIZED` | 401 | 모든 엔드포인트 — 헤더 누락/인증 실패 |
 | `PRODUCT_NOT_FOUND` | 404 | 좋아요 등록·취소 — 대상 상품 미존재 (`ProductErrorType.PRODUCT_NOT_FOUND`) |
-| `BAD_REQUEST` | 400 | 내 목록 조회 — `page`/`size` 범위 위반 |
 | `LIKE_FORBIDDEN` | 403 | 내 목록 조회 — 경로 `userId` 와 인증 회원 불일치 (`LikeErrorType.LIKE_FORBIDDEN`) |
 
 > requirements §UC-3 E1 은 일반 `FORBIDDEN` 으로 표기했으나, 실제 구현은 도메인 전용 코드 `LIKE_FORBIDDEN` (HTTP 403) 을 사용한다. 본 명세는 구현을 따른다.
 
-## 부록 — 구현과의 차이 / 미해결 사항
+## 부록 — 구현 메모 / 미해결 사항
 
-> 좋아요 컨트롤러는 아직 구현되지 않아 경로/응답 형태는 본 명세가 계약을 선언하며, 현재 구현된 `application.like.LikeFacade` 의 시그니처와 정합하도록 작성했다. 다음 항목은 컨트롤러 구현 시 확정한다.
+> `LikeV1Controller` 구현 완료. 인증은 `@RequireAuth` + `@LoginUser user: AuthUser`(인증 회원의 `id`·`loginId` 를 담는 주체 VO), 페이징은 `Pageable` 수신 → 프레임워크 독립 `PageQuery`/`PageResult` 로 변환한다.
 
-- **페이지 메타**: requirements §UC-3 은 "페이지 메타" 를 포함한 응답을 기술하나, 현재 `LikeFacade.getMyLikes` 는 `List<LikedProductResult>` (평면 배열) 만 반환하며 전체 건수/총 페이지 수를 산출하지 않는다. 본 명세는 구현에 맞춰 `data` 를 배열로 둔다. 페이지 메타 봉투(`totalElements` 등) 도입은 컨트롤러 구현 시 결정한다.
-- **브랜드 요약**: requirements 는 항목에 "브랜드 요약" 을 명시하나, 현재 `LikedProductResult` 는 `brandId: Long` 만 담는다. 브랜드 이름 등 요약 확장은 `product`/`brand` 도메인 연동 시 결정한다.
-- **`size` 상한**: requirements §6 의 "합리적 상한" 구체값은 컨트롤러 검증에서 확정한다.
+- **페이지 메타** *(해소)*: `LikeFacade.getMyLikes` 가 `PageResult<LikedProductResult>` 를 반환하며, 응답 `data` 는 `content` + `page`/`size`/`totalElements`/`totalPages` 봉투다. (이전 "평면 배열" TBD 해소)
+- **브랜드 요약** *(미해결)*: requirements 는 항목에 "브랜드 요약" 을 명시하나, 현재 `LikedProductItem` 은 `brandId: Long` 만 담는다. 브랜드 이름 등 요약 확장은 `product`/`brand` 도메인 연동 시 결정한다.
+- **`size` 상한**: requirements §6 의 "합리적 상한" 은 Spring `spring.data.web.pageable.max-page-size` 설정으로 캡한다(미설정 시 프레임워크 기본값).
 - requirements §5 의 TBD(좋아요 수 진실의 원천, 판매 중지/삭제 상품의 목록 노출 정책) 는 본 API 응답 계약에 직접 영향을 줄 수 있어 추적 대상이다.
