@@ -129,9 +129,9 @@ Testcontainers 통합 테스트.
 - [x] 미존재/삭제 마크 → `404 BRAND_NOT_FOUND`
 
 **UC-4 등록 — `POST /api-admin/v1/brands`**
-- [ ] 정상 등록 → `200 OK` + 생성된 브랜드
-- [ ] 이름 형식 위반 → `400 BRAND_BAD_REQUEST`
-- [ ] 이름 중복 → `409 DUPLICATE_BRAND_NAME`
+- [x] 정상 등록 → `200 OK` + 생성된 브랜드
+- [x] 이름 형식 위반(blank) → `400 BRAND_BAD_REQUEST`
+- [x] 이름 중복 → `409 DUPLICATE_BRAND_NAME`
 
 **UC-5 수정 — `PUT /api-admin/v1/brands/{brandId}`**
 - [ ] 정상 수정 → `200 OK` + 갱신된 브랜드

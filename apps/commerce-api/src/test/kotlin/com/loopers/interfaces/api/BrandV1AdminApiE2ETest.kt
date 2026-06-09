@@ -18,6 +18,7 @@ import org.springframework.http.HttpEntity
 import org.springframework.http.HttpHeaders
 import org.springframework.http.HttpMethod
 import org.springframework.http.HttpStatus
+import org.springframework.http.MediaType
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class BrandV1AdminApiE2ETest @Autowired constructor(
@@ -134,8 +135,67 @@ class BrandV1AdminApiE2ETest @Autowired constructor(
         }
     }
 
+    @DisplayName("POST /api-admin/v1/brands (관리자) 브랜드 등록")
+    @Nested
+    inner class RegisterBrand {
+        @DisplayName("정상 입력으로 등록하면, 200 과 생성된 브랜드를 받는다.")
+        @Test
+        fun returnsCreated_whenValid() {
+            val response = testRestTemplate.exchange(
+                "/api-admin/v1/brands",
+                HttpMethod.POST,
+                HttpEntity(BrandV1Dto.RegisterBrandRequest(name = "나이키"), adminJsonHeaders()),
+                object : ParameterizedTypeReference<ApiResponse<BrandV1Dto.AdminBrandResponse>>() {},
+            )
+
+            assertAll(
+                { assertThat(response.statusCode).isEqualTo(HttpStatus.OK) },
+                { assertThat(response.body?.data?.id).isNotNull() },
+                { assertThat(response.body?.data?.name).isEqualTo("나이키") },
+            )
+        }
+
+        @DisplayName("이름이 비어 있으면, 400 BRAND_BAD_REQUEST 응답을 받는다.")
+        @Test
+        fun returnsBadRequest_whenBlankName() {
+            val response = testRestTemplate.exchange(
+                "/api-admin/v1/brands",
+                HttpMethod.POST,
+                HttpEntity(BrandV1Dto.RegisterBrandRequest(name = "   "), adminJsonHeaders()),
+                object : ParameterizedTypeReference<ApiResponse<Any>>() {},
+            )
+
+            assertAll(
+                { assertThat(response.statusCode).isEqualTo(HttpStatus.BAD_REQUEST) },
+                { assertThat(response.body?.meta?.errorCode).isEqualTo("BRAND_BAD_REQUEST") },
+            )
+        }
+
+        @DisplayName("이미 존재하는 이름으로 등록하면, 409 DUPLICATE_BRAND_NAME 응답을 받는다.")
+        @Test
+        fun returnsConflict_whenDuplicate() {
+            brandRepository.save(BrandFixture.validBrand("나이키"))
+
+            val response = testRestTemplate.exchange(
+                "/api-admin/v1/brands",
+                HttpMethod.POST,
+                HttpEntity(BrandV1Dto.RegisterBrandRequest(name = "나이키"), adminJsonHeaders()),
+                object : ParameterizedTypeReference<ApiResponse<Any>>() {},
+            )
+
+            assertAll(
+                { assertThat(response.statusCode).isEqualTo(HttpStatus.CONFLICT) },
+                { assertThat(response.body?.meta?.errorCode).isEqualTo("DUPLICATE_BRAND_NAME") },
+            )
+        }
+    }
+
     private fun adminHeaders(): HttpHeaders = HttpHeaders().apply {
         set("X-Loopers-Ldap", "loopers.admin")
+    }
+
+    private fun adminJsonHeaders(): HttpHeaders = adminHeaders().apply {
+        contentType = MediaType.APPLICATION_JSON
     }
 
     private fun getBrands(page: Int? = null, size: Int? = null) =
