@@ -120,9 +120,9 @@ Testcontainers 통합 테스트.
 > `/api-admin/v1/brands`. 산출물: `BrandV1AdminController`, ApiSpec, `BrandV1Dto`(`AdminBrandResponse`, `BrandsResponse`=페이지 봉투, `RegisterBrandRequest`, `UpdateBrandRequest`). 인증 헤더 `X-Loopers-Ldap`.
 
 **UC-2 목록 — `GET /api-admin/v1/brands`**
-- [ ] 인증 관리자가 조회하면 `200 OK` + 페이지 봉투(content + page/size/totalElements/totalPages), **최신순**
-- [ ] 등록된 브랜드가 없으면 빈 content + 페이지 메타
-- [ ] `page`/`size` 가 반영되고 `totalElements`/`totalPages` 가 정확
+- [x] 인증 관리자가 조회하면 `200 OK` + 페이지 봉투(content + page/size/totalElements/totalPages), **최신순**
+- [x] 등록된 브랜드가 없으면 빈 content + 페이지 메타
+- [x] `page`/`size` 가 반영되고 `totalElements`/`totalPages` 가 정확
 
 **UC-3 상세 — `GET /api-admin/v1/brands/{brandId}`**
 - [ ] 존재하는 브랜드 → `200 OK` + `{ id, name }`
@@ -144,7 +144,7 @@ Testcontainers 통합 테스트.
 - [ ] 미존재/이미 삭제 마크 → `404 BRAND_NOT_FOUND`
 
 **관리자 인증 (전 엔드포인트 공통)**
-- [ ] `X-Loopers-Ldap` 헤더 누락 또는 값 불일치 → `401 UNAUTHORIZED` (대표 1~2 엔드포인트로 검증)
+- [x] `X-Loopers-Ldap` 헤더 누락 또는 값 불일치 → `401 UNAUTHORIZED` (목록 엔드포인트 E2E 로 헤더 누락 검증, 값 불일치는 `AdminAuthInterceptorTest`)
 
 ---
 
