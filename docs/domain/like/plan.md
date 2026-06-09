@@ -141,26 +141,39 @@ Testcontainers 통합 테스트 (`@DataJpaTest` + `MySqlTestContainersConfig`).
 
 ### 6.3 LikeV1 API (행위 — Red → Green, E2E)
 
-> 산출물: `LikeV1Dto`(`LikedProductsResponse` = content + page 메타, `LikedProductItem`), `LikeV1ApiSpec`, `LikeV1Controller`. 검증은 `@SpringBootTest(RANDOM_PORT)` + `TestRestTemplate` E2E.
+> 산출물: `LikeV1Dto`(`LikedProductsResponse` = content + page 메타, `LikedProductItem`), `LikeV1ApiSpec`(@Tag + 3 @Operation), `LikeV1Controller`. 검증은 `@SpringBootTest(RANDOM_PORT)` + `TestRestTemplate` E2E.
 
-**UC-1 등록 — `POST /api/v1/products/{productId}/likes`**
-- [ ] 인증 회원이 등록하면 `200 OK` + `data: null`
-- [ ] 이미 좋아요한 상태 재요청도 `200 OK` (멱등)
-- [ ] 존재하지 않는 productId → `404 PRODUCT_NOT_FOUND`
-- [ ] 인증 헤더 누락 → `401 UNAUTHORIZED`
+**컨트롤러 시그니처** — base path 가 둘이라 클래스 레벨 매핑 없이 메서드별 풀 경로. 각 메서드에 `@RequireAuth` + `@LoginUser user: AuthUser` (현행 컨벤션, 짝으로).
+- `like(@LoginUser user, @PathVariable productId)` → `likeFacade.like(user.id, productId)` → `ApiResponse.success()`
+- `unlike(@LoginUser user, @PathVariable productId)` → `likeFacade.unlike(user.id, productId)` → `ApiResponse.success()`
+- `getMyLikes(@LoginUser user, @PathVariable userId, @PageableDefault(size = 20) pageable)` → `GetMyLikesQuery(userId, PageQuery(pageable.pageNumber, pageable.pageSize))` → `likeFacade.getMyLikes(user.id, query)` → `LikedProductsResponse.from(result)`. 정렬은 서버 고정이므로 `pageable.sort` 미사용.
 
-**UC-2 취소 — `DELETE /api/v1/products/{productId}/likes`**
-- [ ] 좋아요 취소 시 `200 OK` + `data: null`
-- [ ] 좋아요 없는 상태 요청도 `200 OK` (멱등)
-- [ ] 존재하지 않는 productId → `404 PRODUCT_NOT_FOUND`
-- [ ] 인증 헤더 누락 → `401 UNAUTHORIZED`
+**E2E 셋업** — `@AfterEach` `DatabaseCleanUp`. 인증용 회원은 signup 엔드포인트로 생성 후 `UserRepository.findByLoginId(loginId)!!.id` 로 숫자 userId 확보. 대상 상품은 `productRepository.save(ProductFixture.validProduct(...)).id`. 인증 헤더 헬퍼(`X-Loopers-LoginId/Pw`). 403 케이스는 `userId + 1`(불일치 id) 로 — DB 추가 셋업 불필요(Facade 가 lookup 전에 분기).
 
-**UC-3 내 목록 — `GET /api/v1/users/{userId}/likes`**
-- [ ] 본인 식별자로 조회하면 `200 OK` + 페이지 봉투(content + totalElements/totalPages/page/size), `likedAt desc` 정렬
-- [ ] 좋아요한 상품이 없으면 빈 content + 페이지 메타
-- [ ] 인증된 회원과 다른 `userId` → `403 LIKE_FORBIDDEN`
-- [ ] `page`/`size` 가 반영되고 `totalElements`/`totalPages` 가 정확
-- [ ] 인증 헤더 누락 → `401 UNAUTHORIZED`
+**증분 경계** — UC 단위 3개 행위 커밋. 6.3a(POST)에서 Dto/ApiSpec/Controller 골격을 함께 만든다.
+
+**리스크/확인** — ① `Pageable` MVC 리졸버는 Boot autoconfig 로 활성(커스텀 `WebMvcConfig` 는 기본 리졸버를 대체하지 않음) → E2E 로 확인. ② `ProductFixture` 의 `brandId=1` 저장 시 brand FK 가 없다는 가정(ID 참조 컨벤션) — 저장 실패 시 brand 셋업 추가. ③ `size` 상한은 필요 시 `spring.data.web.pageable.max-page-size` 로 캡.
+
+**UC-1 등록 — `POST /api/v1/products/{productId}/likes`** (6.3a — 골격 포함)
+- [x] 인증 회원이 등록하면 `200 OK` + `data: null`
+- [x] 이미 좋아요한 상태 재요청도 `200 OK` (멱등)
+- [x] 존재하지 않는 productId → `404 PRODUCT_NOT_FOUND`
+- [x] 인증 헤더 누락 → `401 UNAUTHORIZED`
+
+**UC-2 취소 — `DELETE /api/v1/products/{productId}/likes`** (6.3b)
+- [x] 좋아요 취소 시 `200 OK` + `data: null`
+- [x] 좋아요 없는 상태 요청도 `200 OK` (멱등)
+- [x] 존재하지 않는 productId → `404 PRODUCT_NOT_FOUND`
+- [x] 인증 헤더 누락 → `401 UNAUTHORIZED`
+
+**UC-3 내 목록 — `GET /api/v1/users/{userId}/likes`** (6.3c)
+- [x] 본인 식별자로 조회하면 `200 OK` + 페이지 봉투(content + totalElements/totalPages/page/size). likeCount 토글 반영(=1) 확인
+- [x] 좋아요한 상품이 없으면 빈 content + 페이지 메타
+- [x] 인증된 회원과 다른 `userId` → `403 LIKE_FORBIDDEN`
+- [x] `page`/`size` 가 반영되고 `totalElements`/`totalPages` 가 정확 (3건/size 2 → 2페이지)
+- [x] 인증 헤더 누락 → `401 UNAUTHORIZED`
+
+> 정렬(likedAt desc)의 엄밀한 순서 검증은 타임스탬프 동률 flaky 회피를 위해 통합 테스트(`LikeRepositoryImplIntegrationTest`)가 담당. E2E 는 멤버십·페이지 메타 검증.
 
 ### 6.4 api-spec 동기화 (문서)
 
@@ -174,3 +187,4 @@ Testcontainers 통합 테스트 (`@DataJpaTest` + `MySqlTestContainersConfig`).
 - 2026-05-29: plan 작성. likeCount SSOT = Product 컬럼 토글, likedByMe 실제 연동 포함, 취소 = hard delete 결정.
 - 2026-05-29: Phase 1 ~ 5 전체 Green. Like 도메인 모델 · LikeFacade (10 tests) · LikeRepositoryImpl (7 통합 tests) · Product likeCount 토글 (3 tests) · ProductFacade.getProductDetail likedByMe 연동 (2 tests). 사용자 피드백 — Like 의 userId/productId 양수 검증은 무용해서 제거, LIKE_BAD_REQUEST 도 함께 제거.
 - 2026-06-08: Phase 6 계획 추가. api-spec 3개 엔드포인트(`interfaces.api.like`) 가 유일한 미구현 계층. 결정 — 페이징은 `support.page.PageResult<T>` 로 application/domain 프레임워크 독립 유지, Spring `Pageable`/`Page` 는 Controller·Adapter 에만. 인증 숫자 userId 는 AuthInterceptor 가 보유한 `User.id` 를 attribute 로 저장 + `@LoginUser Long` resolver 확장으로 추가 조회 0회. 구조(6.1~6.2) → 행위(6.3) 커밋 분리.
+- 2026-06-09: 6.1·6.1c·6.2·6.3 구현 완료(전체 스위트 Green). ① 읽기 경로 `PageResult<T>` 페이징 전환(infra Page→PageResult, domain/app 독립). ② 입력 합성 — `support.page.PageQuery` + `application.like.query.GetMyLikesQuery`. ③ 인증 주입은 사용자 결정으로 `@LoginUserId` 분리안 폐기 → `@LoginUser` + `AuthUser(id, loginId)` VO 단일 개념 통합(UserV1 마이그레이션, E2E 동작 불변). ④ `LikeV1Dto`/`LikeV1ApiSpec`/`LikeV1Controller`(`@RequestMapping("/api/v1")`, 각 메서드 `@RequireAuth`+`@LoginUser`) + E2E 13케이스. 남은 작업: 6.4 api-spec 문서 동기화.
