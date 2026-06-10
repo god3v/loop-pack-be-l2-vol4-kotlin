@@ -27,9 +27,7 @@ class CouponTest {
             )
 
             assertThat(coupon.name.value).isEqualTo("신규가입 10% 할인")
-            assertThat(coupon.discountPolicy.type).isEqualTo(DiscountType.RATE)
-            assertThat(coupon.discountPolicy.value).isEqualTo(10)
-            assertThat(coupon.discountPolicy).isInstanceOf(DiscountPolicy.Rate::class.java)
+            assertThat(coupon.discountPolicy).isEqualTo(PercentageDiscountPolicy(10))
             assertThat(coupon.minOrderAmount).isEqualTo(10000)
             assertThat(coupon.isDeleted()).isFalse()
         }
@@ -154,8 +152,7 @@ class CouponTest {
             )
 
             assertThat(coupon.name.value).isEqualTo("변경")
-            assertThat(coupon.discountPolicy.type).isEqualTo(DiscountType.FIXED)
-            assertThat(coupon.discountPolicy.value).isEqualTo(3000)
+            assertThat(coupon.discountPolicy).isEqualTo(FixedAmountDiscountPolicy(3000))
             assertThat(coupon.minOrderAmount).isEqualTo(5000)
             assertThat(coupon.expiredAt).isEqualTo(now.plusDays(10))
         }

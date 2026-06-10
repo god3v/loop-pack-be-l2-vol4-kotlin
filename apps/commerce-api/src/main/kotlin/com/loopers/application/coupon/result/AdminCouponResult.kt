@@ -13,13 +13,16 @@ data class AdminCouponResult(
     val expiredAt: LocalDateTime,
 ) {
     companion object {
-        fun from(coupon: Coupon): AdminCouponResult = AdminCouponResult(
-            id = coupon.id,
-            name = coupon.name.value,
-            type = coupon.discountPolicy.type,
-            value = coupon.discountPolicy.value,
-            minOrderAmount = coupon.minOrderAmount,
-            expiredAt = coupon.expiredAt,
-        )
+        fun from(coupon: Coupon): AdminCouponResult {
+            val (type, value) = coupon.discountPolicy.toTypeValue()
+            return AdminCouponResult(
+                id = coupon.id,
+                name = coupon.name.value,
+                type = type,
+                value = value,
+                minOrderAmount = coupon.minOrderAmount,
+                expiredAt = coupon.expiredAt,
+            )
+        }
     }
 }

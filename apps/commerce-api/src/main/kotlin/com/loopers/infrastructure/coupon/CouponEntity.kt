@@ -5,6 +5,8 @@ import com.loopers.domain.coupon.Coupon
 import com.loopers.domain.coupon.CouponName
 import com.loopers.domain.coupon.DiscountPolicy
 import com.loopers.domain.coupon.DiscountType
+import com.loopers.domain.coupon.FixedAmountDiscountPolicy
+import com.loopers.domain.coupon.PercentageDiscountPolicy
 import jakarta.persistence.Column
 import jakarta.persistence.Entity
 import jakarta.persistence.EnumType
@@ -57,9 +59,10 @@ class CouponEntity private constructor(
     )
 
     fun syncFrom(coupon: Coupon) {
+        val (type, value) = coupon.discountPolicy.toColumns()
         this.name = coupon.name.value
-        this.discountType = coupon.discountPolicy.type
-        this.discountValue = coupon.discountPolicy.value
+        this.discountType = type
+        this.discountValue = value
         this.minOrderAmount = coupon.minOrderAmount
         this.expiredAt = coupon.expiredAt
         if (coupon.isDeleted() && this.deletedAt == null) {
@@ -68,12 +71,21 @@ class CouponEntity private constructor(
     }
 
     companion object {
-        fun from(coupon: Coupon): CouponEntity = CouponEntity(
-            name = coupon.name.value,
-            discountType = coupon.discountPolicy.type,
-            discountValue = coupon.discountPolicy.value,
-            minOrderAmount = coupon.minOrderAmount,
-            expiredAt = coupon.expiredAt,
-        )
+        fun from(coupon: Coupon): CouponEntity {
+            val (type, value) = coupon.discountPolicy.toColumns()
+            return CouponEntity(
+                name = coupon.name.value,
+                discountType = type,
+                discountValue = value,
+                minOrderAmount = coupon.minOrderAmount,
+                expiredAt = coupon.expiredAt,
+            )
+        }
     }
+}
+
+/** 영속(컬럼) 투영 — `DiscountPolicy.of` 의 역방향. 정책 종류가 늘면 컴파일러가 분기 누락을 강제한다. */
+private fun DiscountPolicy.toColumns(): Pair<DiscountType, Long> = when (this) {
+    is FixedAmountDiscountPolicy -> DiscountType.FIXED to amount
+    is PercentageDiscountPolicy -> DiscountType.RATE to percent
 }

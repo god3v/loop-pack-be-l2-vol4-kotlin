@@ -18,16 +18,19 @@ data class IssuedCouponResult(
     val issuedAt: LocalDateTime,
 ) {
     companion object {
-        fun of(userCoupon: UserCoupon, coupon: Coupon): IssuedCouponResult = IssuedCouponResult(
-            userCouponId = userCoupon.id,
-            couponId = coupon.id,
-            name = coupon.name.value,
-            type = coupon.discountPolicy.type,
-            value = coupon.discountPolicy.value,
-            minOrderAmount = coupon.minOrderAmount,
-            expiredAt = coupon.expiredAt,
-            status = userCoupon.status,
-            issuedAt = userCoupon.issuedAt,
-        )
+        fun of(userCoupon: UserCoupon, coupon: Coupon): IssuedCouponResult {
+            val (type, value) = coupon.discountPolicy.toTypeValue()
+            return IssuedCouponResult(
+                userCouponId = userCoupon.id,
+                couponId = coupon.id,
+                name = coupon.name.value,
+                type = type,
+                value = value,
+                minOrderAmount = coupon.minOrderAmount,
+                expiredAt = coupon.expiredAt,
+                status = userCoupon.status,
+                issuedAt = userCoupon.issuedAt,
+            )
+        }
     }
 }
