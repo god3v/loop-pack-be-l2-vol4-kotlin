@@ -63,19 +63,38 @@ class LoginUserArgumentResolverTest {
         assertThat(resolver.resolveArgument(mockk(), null, webRequest, null)).isEqualTo(authUser)
     }
 
-    @DisplayName("resolveArgument 는 request attribute 가 없으면, UNAUTHORIZED 예외를 던진다.")
+    @DisplayName("resolveArgument 는 non-null(필수) 파라미터인데 attribute 가 없으면, UNAUTHORIZED 예외를 던진다.")
     @Test
-    fun resolveArgument_throwsUnauthorized_whenAttributeAbsent() {
+    fun resolveArgument_throwsUnauthorized_whenAttributeAbsentAndRequired() {
         val request: HttpServletRequest = mockk {
             every { getAttribute(AuthInterceptor.ATTRIBUTE_AUTH_USER) } returns null
         }
         val webRequest: NativeWebRequest = mockk {
             every { getNativeRequest(HttpServletRequest::class.java) } returns request
         }
+        val parameter: MethodParameter = mockk {
+            every { isOptional } returns false
+        }
 
         val ex = assertThrows<CoreException> {
-            resolver.resolveArgument(mockk(), null, webRequest, null)
+            resolver.resolveArgument(parameter, null, webRequest, null)
         }
         assertThat(ex.errorType).isEqualTo(UserErrorType.UNAUTHORIZED)
+    }
+
+    @DisplayName("resolveArgument 는 nullable(선택) 파라미터이고 attribute 가 없으면, 거부 없이 null 을 반환한다.")
+    @Test
+    fun resolveArgument_returnsNull_whenAttributeAbsentAndOptional() {
+        val request: HttpServletRequest = mockk {
+            every { getAttribute(AuthInterceptor.ATTRIBUTE_AUTH_USER) } returns null
+        }
+        val webRequest: NativeWebRequest = mockk {
+            every { getNativeRequest(HttpServletRequest::class.java) } returns request
+        }
+        val parameter: MethodParameter = mockk {
+            every { isOptional } returns true
+        }
+
+        assertThat(resolver.resolveArgument(parameter, null, webRequest, null)).isNull()
     }
 }
