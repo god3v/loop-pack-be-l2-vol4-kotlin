@@ -3,6 +3,7 @@ package com.loopers.infrastructure.coupon
 import com.loopers.config.jpa.DataSourceConfig
 import com.loopers.domain.coupon.Coupon
 import com.loopers.domain.coupon.CouponRepository
+import com.loopers.domain.coupon.DiscountPolicy
 import com.loopers.domain.coupon.DiscountType
 import com.loopers.testcontainers.MySqlTestContainersConfig
 import org.assertj.core.api.Assertions.assertThat
@@ -44,8 +45,9 @@ class CouponRepositoryImplIntegrationTest @Autowired constructor(
 
             val found = requireNotNull(couponRepository.findById(saved.id))
             assertThat(found.name.value).isEqualTo("신규가입 10% 할인")
-            assertThat(found.discount.type).isEqualTo(DiscountType.RATE)
-            assertThat(found.discount.value).isEqualTo(10)
+            assertThat(found.discountPolicy.type).isEqualTo(DiscountType.RATE)
+            assertThat(found.discountPolicy.value).isEqualTo(10)
+            assertThat(found.discountPolicy).isInstanceOf(DiscountPolicy.Rate::class.java)
             assertThat(found.minOrderAmount).isEqualTo(10000)
             assertThat(found.expiredAt).isEqualTo(now.plusDays(30))
         }

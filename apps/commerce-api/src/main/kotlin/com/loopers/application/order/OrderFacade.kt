@@ -1,5 +1,6 @@
 package com.loopers.application.order
 
+import com.loopers.application.coupon.CouponFacade
 import com.loopers.application.order.command.PlaceOrderCommand
 import com.loopers.domain.order.OrderRepository
 import com.loopers.domain.order.OrderService
@@ -19,6 +20,7 @@ class OrderFacade(
     private val userRepository: UserRepository,
     private val productRepository: ProductRepository,
     private val orderRepository: OrderRepository,
+    private val couponFacade: CouponFacade,
 ) {
     @Transactional
     fun placeOrder(command: PlaceOrderCommand): OrderResult {
@@ -39,6 +41,13 @@ class OrderFacade(
             idempotencyKey = command.idempotencyKey,
         )
 
+        // 쿠폰은 주문 1건당 1장. 같은 트랜잭션에서 발급 쿠폰을 소진(USED)하고 할인 금액을 주문에 반영한다.
+        // 존재하지 않음/타인 소유/이미 사용/만료/최소금액 미달이면 여기서 예외가 던져져 주문 전체가 롤백된다.
+        command.userCouponId?.let { userCouponId ->
+            val discount = couponFacade.applyCoupon(user.id, userCouponId, order.originalAmount)
+            order.applyCoupon(userCouponId, discount)
+        }
+
         productRepository.saveAll(products.values)
         return OrderResult.from(orderRepository.save(order))
     }
@@ -54,13 +63,7 @@ class OrderFacade(
         val user = userRepository.findByLoginId(loginId)
             ?: throw CoreException(UserErrorType.UNAUTHORIZED)
         return orderRepository
-            .findAllByUserIdAndOrderedAtBetween(
-                user.id,
-                startAt ?: LocalDateTime.MIN,
-                endAt ?: LocalDateTime.MAX,
-                page,
-                size,
-            )
+            .findAllByUserIdInPeriod(user.id, startAt, endAt, page, size)
             .map { OrderResult.from(it) }
     }
 

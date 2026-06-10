@@ -106,10 +106,6 @@ class CouponFacade(
             .map { CouponIssueResult.of(it, coupon, now) }
     }
 
-    /**
-     * 쿠폰 사용(UC-9). 주문 흐름이 위임하는 능력 — 할인 금액을 계산하고 발급 쿠폰을 소진한다.
-     * 본 도메인은 진입점만 제공하며, 주문(order) 연동·결제 실패 보상은 범위 밖이다.
-     */
     @Transactional
     fun applyCoupon(userId: Long, userCouponId: Long, orderAmount: Long): Long {
         // 비관적 쓰기 락으로 조회 — 같은 발급 쿠폰에 대한 동시 사용을 직렬화해 이중 소진을 막는다.

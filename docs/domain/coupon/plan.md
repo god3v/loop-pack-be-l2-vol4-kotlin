@@ -18,7 +18,7 @@
 - **사용 최대 1회**: `UserCoupon.use()` 는 `AVAILABLE → USED` 단방향. 이미 `USED` 면 `409 ALREADY_USED_COUPON`. 동시성은 통합 시 행 락/조건부 갱신으로 보장(범위 메모).
 - **만료 파생**: 저장 상태는 `AVAILABLE`/`USED` 둘뿐. `EXPIRED` 는 `coupons.expired_at` 경과로 조회·사용 시 파생. 만료 배치 없음.
 - **할인 계산**: `FIXED` → `min(value, orderAmount)`. `RATE` → `floor(orderAmount × value / 100)`, 주문 합계 상한. 둘 다 음수 불가.
-- **VO 중심**: `CouponName`(공백 불가), `Discount(type, value)`(value>0, RATE 1~100, `amountFor(orderAmount)` 보유). `DiscountType` enum(`FIXED`/`RATE`).
+- **정책 다형 모델**: `CouponName`(공백 불가) VO + `DiscountPolicy` sealed interface(`Fixed(amount)`/`Rate(percent)`, 각자 불변식·`discountFor(orderAmount)` 소유). `DiscountType` enum(`FIXED`/`RATE`) 은 영속/와이어 discriminator 로 유지하고, `(type, value) ↔ 정책` 양방향 매핑은 `DiscountPolicy.type`/`value`/`of` 가 단일 소유한다(타입코드 when 은 복원 1지점에만, 컴파일 exhaustive). *(v0.2 에서 `Discount(type, value)` VO 를 정책 모델로 구조 리팩터)*
 - **템플릿 삭제 무영향**: `Coupon` 은 soft delete. `CouponEntity` 는 `@SQLRestriction` 대신 **리포지토리에서 명시적 `deletedAt IS NULL` 필터** — 발급 쿠폰 조회·사용 경로는 삭제 마크를 무시하고 템플릿을 조회해야 하기 때문(`findByIdIncludingDeleted`/`findAllByIdsIncludingDeleted`).
 - **상태 직렬화**: `type`/`status` 와이어 값은 enum 이름(대문자) 그대로. (product `salesStatus` 의 snake_case key 와 다름 — 원 스펙 `"type":"RATE"` 준수.)
 - **Facade 단일**: `CouponFacade` (쿠폰 UC 전체). 회원·관리자 결과 DTO 는 별도.

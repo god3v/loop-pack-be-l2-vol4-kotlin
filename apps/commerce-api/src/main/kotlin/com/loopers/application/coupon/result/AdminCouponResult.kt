@@ -16,8 +16,8 @@ data class AdminCouponResult(
         fun from(coupon: Coupon): AdminCouponResult = AdminCouponResult(
             id = coupon.id,
             name = coupon.name.value,
-            type = coupon.discount.type,
-            value = coupon.discount.value,
+            type = coupon.discountPolicy.type,
+            value = coupon.discountPolicy.value,
             minOrderAmount = coupon.minOrderAmount,
             expiredAt = coupon.expiredAt,
         )

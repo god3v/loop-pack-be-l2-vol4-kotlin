@@ -3,7 +3,7 @@ package com.loopers.infrastructure.coupon
 import com.loopers.domain.BaseEntity
 import com.loopers.domain.coupon.Coupon
 import com.loopers.domain.coupon.CouponName
-import com.loopers.domain.coupon.Discount
+import com.loopers.domain.coupon.DiscountPolicy
 import com.loopers.domain.coupon.DiscountType
 import jakarta.persistence.Column
 import jakarta.persistence.Entity
@@ -51,15 +51,15 @@ class CouponEntity private constructor(
     fun toDomain(): Coupon = Coupon(
         id = this.id,
         name = CouponName.of(this.name),
-        discount = Discount.of(this.discountType, this.discountValue),
+        discountPolicy = DiscountPolicy.of(this.discountType, this.discountValue),
         minOrderAmount = this.minOrderAmount,
         expiredAt = this.expiredAt,
     )
 
     fun syncFrom(coupon: Coupon) {
         this.name = coupon.name.value
-        this.discountType = coupon.discount.type
-        this.discountValue = coupon.discount.value
+        this.discountType = coupon.discountPolicy.type
+        this.discountValue = coupon.discountPolicy.value
         this.minOrderAmount = coupon.minOrderAmount
         this.expiredAt = coupon.expiredAt
         if (coupon.isDeleted() && this.deletedAt == null) {
@@ -70,8 +70,8 @@ class CouponEntity private constructor(
     companion object {
         fun from(coupon: Coupon): CouponEntity = CouponEntity(
             name = coupon.name.value,
-            discountType = coupon.discount.type,
-            discountValue = coupon.discount.value,
+            discountType = coupon.discountPolicy.type,
+            discountValue = coupon.discountPolicy.value,
             minOrderAmount = coupon.minOrderAmount,
             expiredAt = coupon.expiredAt,
         )

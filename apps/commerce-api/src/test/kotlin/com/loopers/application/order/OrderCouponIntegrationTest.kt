@@ -77,13 +77,13 @@ class OrderCouponIntegrationTest @Autowired constructor(
             PlaceOrderCommand(
                 loginId = user.loginId,
                 idempotencyKey = "order-1",
-                couponId = userCoupon.id,
+                userCouponId = userCoupon.id,
                 lines = listOf(OrderLineCommand(productId = product.id, quantity = 2)),
             ),
         )
 
         // 원 합계 2000, 10% 할인 → 200 차감 → 1800
-        assertThat(result.couponId).isEqualTo(userCoupon.id)
+        assertThat(result.userCouponId).isEqualTo(userCoupon.id)
         assertThat(result.discountAmount).isEqualTo(200L)
         assertThat(result.totalAmount).isEqualTo(1800L)
         assertThat(result.status).isEqualTo(OrderStatus.PAYMENT_PENDING)
@@ -106,7 +106,7 @@ class OrderCouponIntegrationTest @Autowired constructor(
                 PlaceOrderCommand(
                     loginId = user.loginId,
                     idempotencyKey = "order-2",
-                    couponId = userCoupon.id,
+                    userCouponId = userCoupon.id,
                     lines = listOf(OrderLineCommand(productId = product.id, quantity = 2)),
                 ),
             )
@@ -132,7 +132,7 @@ class OrderCouponIntegrationTest @Autowired constructor(
                 PlaceOrderCommand(
                     loginId = requester.loginId,
                     idempotencyKey = "order-3",
-                    couponId = othersCoupon.id,
+                    userCouponId = othersCoupon.id,
                     lines = listOf(OrderLineCommand(productId = product.id, quantity = 2)),
                 ),
             )
@@ -160,7 +160,7 @@ class OrderCouponIntegrationTest @Autowired constructor(
                 PlaceOrderCommand(
                     loginId = user.loginId,
                     idempotencyKey = "order-expired",
-                    couponId = userCoupon.id,
+                    userCouponId = userCoupon.id,
                     lines = listOf(OrderLineCommand(productId = product.id, quantity = 2)),
                 ),
             )
@@ -194,7 +194,7 @@ class OrderCouponIntegrationTest @Autowired constructor(
                 PlaceOrderCommand(
                     loginId = user.loginId,
                     idempotencyKey = "order-min",
-                    couponId = userCoupon.id,
+                    userCouponId = userCoupon.id,
                     lines = listOf(OrderLineCommand(productId = product.id, quantity = 2)),
                 ),
             )
@@ -216,7 +216,7 @@ class OrderCouponIntegrationTest @Autowired constructor(
                 PlaceOrderCommand(
                     loginId = user.loginId,
                     idempotencyKey = "order-missing",
-                    couponId = 999_999L,
+                    userCouponId = 999_999L,
                     lines = listOf(OrderLineCommand(productId = product.id, quantity = 2)),
                 ),
             )
@@ -239,7 +239,7 @@ class OrderCouponIntegrationTest @Autowired constructor(
             PlaceOrderCommand(
                 loginId = user.loginId,
                 idempotencyKey = "order-first",
-                couponId = userCoupon.id,
+                userCouponId = userCoupon.id,
                 lines = listOf(OrderLineCommand(productId = product.id, quantity = 1)),
             ),
         )
@@ -250,7 +250,7 @@ class OrderCouponIntegrationTest @Autowired constructor(
                 PlaceOrderCommand(
                     loginId = user.loginId,
                     idempotencyKey = "order-second",
-                    couponId = userCoupon.id,
+                    userCouponId = userCoupon.id,
                     lines = listOf(OrderLineCommand(productId = product.id, quantity = 1)),
                 ),
             )
@@ -288,7 +288,7 @@ class OrderCouponIntegrationTest @Autowired constructor(
                         PlaceOrderCommand(
                             loginId = user.loginId,
                             idempotencyKey = "concurrent-$i",
-                            couponId = userCoupon.id,
+                            userCouponId = userCoupon.id,
                             lines = listOf(OrderLineCommand(productId = product.id, quantity = 1)),
                         ),
                     )

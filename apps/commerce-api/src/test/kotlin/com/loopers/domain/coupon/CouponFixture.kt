@@ -19,7 +19,7 @@ object CouponFixture {
     ): Coupon = Coupon(
         id = id,
         name = CouponName.of(name),
-        discount = Discount.of(discountType, discountValue),
+        discountPolicy = DiscountPolicy.of(discountType, discountValue),
         minOrderAmount = minOrderAmount,
         expiredAt = expiredAt,
     )
