@@ -16,17 +16,17 @@ class OrderTest {
     @DisplayName("Order 를 생성할 때, ")
     @Nested
     inner class Create {
-        @DisplayName("정상 인자로 생성하면 userId · lines · idempotencyKey · couponId 가 보관된다.")
+        @DisplayName("정상 인자로 생성하면 userId · lines · idempotencyKey · userCouponId 가 보관된다.")
         @Test
         fun preservesFields() {
             val lines = listOf(line(productId = 1L), line(productId = 2L))
 
-            val order = Order.create(userId = 42L, lines = lines, idempotencyKey = "abc", couponId = 77L)
+            val order = Order.create(userId = 42L, lines = lines, idempotencyKey = "abc", userCouponId = 77L)
 
             assertThat(order.userId).isEqualTo(42L)
             assertThat(order.lines).hasSize(2)
             assertThat(order.idempotencyKey).isEqualTo("abc")
-            assertThat(order.couponId).isEqualTo(77L)
+            assertThat(order.userCouponId).isEqualTo(77L)
         }
 
         @DisplayName("lines 가 비어 있으면 EMPTY_LINES 예외가 발생한다.")
@@ -78,6 +78,54 @@ class OrderTest {
             val order = Order.create(userId = 42L, lines = listOf(line()), idempotencyKey = "abc")
 
             assertThat(order.status).isEqualTo(OrderStatus.PAYMENT_PENDING)
+        }
+    }
+
+    @DisplayName("쿠폰을 적용할 때, ")
+    @Nested
+    inner class ApplyCoupon {
+        @DisplayName("applyCoupon 은 userCouponId 와 할인 금액을 바인딩하고 totalAmount 에 반영한다.")
+        @Test
+        fun bindsCouponAndReflectsDiscount() {
+            val order = Order.create(
+                userId = 42L,
+                lines = listOf(OrderLine.create(1L, "T", 1000, 3)),
+                idempotencyKey = "abc",
+            )
+
+            order.applyCoupon(userCouponId = 7L, discountAmount = 500)
+
+            assertThat(order.userCouponId).isEqualTo(7L)
+            assertThat(order.discountAmount).isEqualTo(500)
+            assertThat(order.originalAmount).isEqualTo(3000)
+            assertThat(order.totalAmount).isEqualTo(2500)
+        }
+
+        @DisplayName("할인 금액이 라인 합계를 초과해도 totalAmount 는 0 미만으로 내려가지 않는다.")
+        @Test
+        fun totalAmountNeverNegative() {
+            val order = Order.create(
+                userId = 42L,
+                lines = listOf(OrderLine.create(1L, "T", 1000, 1)),
+                idempotencyKey = "abc",
+            )
+
+            order.applyCoupon(userCouponId = 7L, discountAmount = 999_999)
+
+            assertThat(order.totalAmount).isEqualTo(0)
+        }
+
+        @DisplayName("쿠폰 미적용 주문의 discountAmount 는 0 이고 totalAmount 는 라인 합과 같다.")
+        @Test
+        fun noCouponMeansZeroDiscount() {
+            val order = Order.create(
+                userId = 42L,
+                lines = listOf(OrderLine.create(1L, "T", 1000, 2)),
+                idempotencyKey = "abc",
+            )
+
+            assertThat(order.discountAmount).isEqualTo(0)
+            assertThat(order.totalAmount).isEqualTo(2000)
         }
     }
 

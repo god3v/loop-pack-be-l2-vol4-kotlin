@@ -70,6 +70,24 @@ class OrderRepositoryImplIntegrationTest @Autowired constructor(
             assertThat(verifiedFound.lines.map { it.productName }).containsExactlyInAnyOrder("P-1", "P-2")
         }
 
+        @DisplayName("쿠폰이 적용된 주문은 userCouponId · discountAmount · 순(net) totalAmount 가 보존된다.")
+        @Test
+        fun roundTripWithCoupon() {
+            val order = Order.create(
+                userId = 7L,
+                lines = listOf(line(productId = 1L, price = 1000, qty = 3)),
+                idempotencyKey = "k-coupon-${System.nanoTime()}",
+            ).also { it.applyCoupon(userCouponId = 55L, discountAmount = 700) }
+            val saved = orderRepository.save(order)
+            testEntityManager.flush()
+            testEntityManager.clear()
+
+            val found = requireNotNull(orderRepository.findById(saved.id))
+            assertThat(found.userCouponId).isEqualTo(55L)
+            assertThat(found.discountAmount).isEqualTo(700)
+            assertThat(found.totalAmount).isEqualTo(3000 - 700)
+        }
+
         @DisplayName("DB 에 존재하지 않는 id 로 save(update) 하면, ORDER_NOT_FOUND 예외가 발생한다.")
         @Test
         fun throwsOrderNotFound_whenUpdatingNonExistentId() {
@@ -102,7 +120,7 @@ class OrderRepositoryImplIntegrationTest @Autowired constructor(
         }
     }
 
-    @DisplayName("findAllByUserIdAndOrderedAtBetween")
+    @DisplayName("findAllByUserIdInPeriod")
     @Nested
     inner class MyListing {
         @DisplayName("orderedAt desc 정렬 + 기간 필터 + 본인 userId 필터가 모두 적용된다.")
@@ -114,7 +132,7 @@ class OrderRepositoryImplIntegrationTest @Autowired constructor(
             persistPaid(userId = 99L)
             testEntityManager.clear()
 
-            val result = orderRepository.findAllByUserIdAndOrderedAtBetween(
+            val result = orderRepository.findAllByUserIdInPeriod(
                 userId = 7L,
                 start = LocalDateTime.now().minusDays(1),
                 end = LocalDateTime.now().plusDays(1),
@@ -123,6 +141,43 @@ class OrderRepositoryImplIntegrationTest @Autowired constructor(
             )
 
             assertThat(result.map { it.id }).containsExactly(b.id, a.id)
+        }
+
+        @DisplayName("기간을 지정하지 않으면(start·end 모두 null) 본인 주문 전체가 조회된다 — sentinel 시각 매칭 공백 회귀 방지.")
+        @Test
+        fun returnsAllWhenPeriodUnspecified() {
+            val a = persistPaid(userId = 7L)
+            Thread.sleep(10)
+            val b = persistPaid(userId = 7L)
+            persistPaid(userId = 99L)
+            testEntityManager.clear()
+
+            val result = orderRepository.findAllByUserIdInPeriod(
+                userId = 7L,
+                start = null,
+                end = null,
+                page = 0,
+                size = 10,
+            )
+
+            assertThat(result.map { it.id }).containsExactly(b.id, a.id)
+        }
+
+        @DisplayName("start 만 지정하면 하한만, end 만 지정하면 상한만 적용된다 (각 경계 독립적 선택).")
+        @Test
+        fun appliesPartialBounds() {
+            val old = persistPaid(userId = 7L)
+            Thread.sleep(10)
+            val mid = LocalDateTime.now()
+            Thread.sleep(10)
+            val recent = persistPaid(userId = 7L)
+            testEntityManager.clear()
+
+            val fromMid = orderRepository.findAllByUserIdInPeriod(7L, start = mid, end = null, page = 0, size = 10)
+            val untilMid = orderRepository.findAllByUserIdInPeriod(7L, start = null, end = mid, page = 0, size = 10)
+
+            assertThat(fromMid.map { it.id }).containsExactly(recent.id)
+            assertThat(untilMid.map { it.id }).containsExactly(old.id)
         }
     }
 
@@ -168,7 +223,7 @@ class OrderRepositoryImplIntegrationTest @Autowired constructor(
             statistics.isStatisticsEnabled = true
             statistics.clear()
 
-            val orders = orderRepository.findAllByUserIdAndOrderedAtBetween(
+            val orders = orderRepository.findAllByUserIdInPeriod(
                 userId = userId,
                 start = LocalDateTime.now().minusDays(1),
                 end = LocalDateTime.now().plusDays(1),

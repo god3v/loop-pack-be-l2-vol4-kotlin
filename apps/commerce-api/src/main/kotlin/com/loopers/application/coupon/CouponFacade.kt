@@ -105,27 +105,4 @@ class CouponFacade(
         return userCouponRepository.findAllByCouponId(couponId, pageQuery.page, pageQuery.size)
             .map { CouponIssueResult.of(it, coupon, now) }
     }
-
-    @Transactional
-    fun applyCoupon(userId: Long, userCouponId: Long, orderAmount: Long): Long {
-        // 비관적 쓰기 락으로 조회 — 같은 발급 쿠폰에 대한 동시 사용을 직렬화해 이중 소진을 막는다.
-        val userCoupon = userCouponRepository.findByIdForUpdate(userCouponId)
-            ?: throw CoreException(CouponErrorType.USER_COUPON_NOT_FOUND)
-        if (userCoupon.userId != userId) {
-            throw CoreException(CouponErrorType.USER_COUPON_NOT_FOUND)
-        }
-        if (userCoupon.isUsed()) {
-            throw CoreException(CouponErrorType.ALREADY_USED_COUPON)
-        }
-        val coupon = couponRepository.findByIdIncludingDeleted(userCoupon.couponId)
-            ?: throw CoreException(CouponErrorType.COUPON_NOT_FOUND)
-        val now = LocalDateTime.now()
-        if (coupon.isExpired(now)) {
-            throw CoreException(CouponErrorType.COUPON_NOT_APPLICABLE, "만료된 쿠폰이다.")
-        }
-        val discount = coupon.calculateDiscount(orderAmount)
-        userCoupon.use(now)
-        userCouponRepository.save(userCoupon)
-        return discount
-    }
 }

@@ -30,13 +30,13 @@ class OrderRepositoryImpl(
     override fun findByUserIdAndIdempotencyKey(userId: Long, idempotencyKey: String): Order? =
         orderJpaRepository.findByUserIdAndIdempotencyKey(userId, idempotencyKey)?.toDomain()
 
-    override fun findAllByUserIdAndOrderedAtBetween(
+    override fun findAllByUserIdInPeriod(
         userId: Long,
-        start: LocalDateTime,
-        end: LocalDateTime,
+        start: LocalDateTime?,
+        end: LocalDateTime?,
         page: Int,
         size: Int,
-    ): List<Order> = orderJpaRepository.findAllByUserIdAndOrderedAtBetween(
+    ): List<Order> = orderJpaRepository.findAllByUserIdInPeriod(
         userId,
         start,
         end,

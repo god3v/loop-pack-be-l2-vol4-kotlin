@@ -10,6 +10,8 @@ data class OrderResult(
     val userId: Long,
     val orderedAt: LocalDateTime,
     val totalAmount: Long,
+    val discountAmount: Long,
+    val userCouponId: Long?,
     val status: OrderStatus,
     val lines: List<OrderLineResult>,
 ) {
@@ -19,6 +21,8 @@ data class OrderResult(
             userId = order.userId,
             orderedAt = order.orderedAt,
             totalAmount = order.totalAmount,
+            discountAmount = order.discountAmount,
+            userCouponId = order.userCouponId,
             status = order.status,
             lines = order.lines.map { OrderLineResult.from(it) },
         )

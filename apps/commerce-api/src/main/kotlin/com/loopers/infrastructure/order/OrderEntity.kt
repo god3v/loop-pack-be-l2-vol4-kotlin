@@ -25,7 +25,8 @@ class OrderEntity private constructor(
     userId: Long,
     orderedAt: LocalDateTime,
     idempotencyKey: String,
-    couponId: Long?,
+    userCouponId: Long?,
+    discountAmount: Long,
     status: OrderStatus,
     paymentTransactionId: String?,
     paymentResultCode: String?,
@@ -42,8 +43,12 @@ class OrderEntity private constructor(
     var idempotencyKey: String = idempotencyKey
         protected set
 
-    @Column(name = "coupon_id")
-    var couponId: Long? = couponId
+    @Column(name = "user_coupon_id")
+    var userCouponId: Long? = userCouponId
+        protected set
+
+    @Column(name = "discount_amount", nullable = false)
+    var discountAmount: Long = discountAmount
         protected set
 
     @Enumerated(EnumType.STRING)
@@ -72,7 +77,8 @@ class OrderEntity private constructor(
         lines = this.lines.map { it.toDomain() },
         orderedAt = this.orderedAt,
         idempotencyKey = this.idempotencyKey,
-        couponId = this.couponId,
+        userCouponId = this.userCouponId,
+        discountAmount = this.discountAmount,
         status = this.status,
         paymentTransactionId = this.paymentTransactionId,
         paymentResultCode = this.paymentResultCode,
@@ -90,7 +96,8 @@ class OrderEntity private constructor(
                 userId = order.userId,
                 orderedAt = order.orderedAt,
                 idempotencyKey = order.idempotencyKey,
-                couponId = order.couponId,
+                userCouponId = order.userCouponId,
+                discountAmount = order.discountAmount,
                 status = order.status,
                 paymentTransactionId = order.paymentTransactionId,
                 paymentResultCode = order.paymentResultCode,

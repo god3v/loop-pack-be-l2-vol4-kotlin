@@ -6,10 +6,13 @@ interface OrderRepository {
     fun save(order: Order): Order
     fun findById(id: Long): Order?
     fun findByUserIdAndIdempotencyKey(userId: Long, idempotencyKey: String): Order?
-    fun findAllByUserIdAndOrderedAtBetween(
+
+    // start/end 는 각각 독립적으로 선택적이다. null 인 경계는 필터에서 제외된다
+    // (둘 다 null 이면 회원의 전체 주문). 무한 sentinel 시각을 넘기지 않는다.
+    fun findAllByUserIdInPeriod(
         userId: Long,
-        start: LocalDateTime,
-        end: LocalDateTime,
+        start: LocalDateTime?,
+        end: LocalDateTime?,
         page: Int,
         size: Int,
     ): List<Order>
