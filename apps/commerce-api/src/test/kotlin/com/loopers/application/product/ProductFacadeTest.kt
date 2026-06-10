@@ -4,6 +4,7 @@ import com.loopers.domain.brand.BrandRepository
 import com.loopers.domain.like.LikeRepository
 import com.loopers.application.product.command.RegisterProductCommand
 import com.loopers.application.product.command.UpdateProductCommand
+import com.loopers.application.product.query.GetProductsQuery
 import com.loopers.domain.product.ProductRepository
 import com.loopers.domain.brand.BrandErrorType
 import com.loopers.domain.brand.BrandFixture
@@ -13,6 +14,8 @@ import com.loopers.domain.product.ProductFixture
 import com.loopers.domain.product.ProductSortType
 import com.loopers.domain.product.SalesStatus
 import com.loopers.support.error.CoreException
+import com.loopers.support.page.PageQuery
+import com.loopers.support.page.PageResult
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
@@ -30,6 +33,27 @@ class ProductFacadeTest {
     private val likeRepository: LikeRepository = mockk()
     private val productFacade = ProductFacade(productRepository, brandRepository, likeRepository)
 
+    private fun pageOf(
+        vararg products: Product,
+        page: Int = 0,
+        size: Int = 20,
+    ): PageResult<Product> = PageResult(
+        content = products.toList(),
+        page = page,
+        size = size,
+        totalElements = products.size.toLong(),
+        totalPages = if (products.isEmpty()) 0 else 1,
+    )
+
+    private fun emptyPage(page: Int = 0, size: Int = 20): PageResult<Product> = pageOf(page = page, size = size)
+
+    private fun productsQuery(
+        sort: ProductSortType? = ProductSortType.LATEST,
+        brandId: Long? = null,
+        page: Int = 0,
+        size: Int = 20,
+    ): GetProductsQuery = GetProductsQuery(sort = sort, brandId = brandId, paging = PageQuery(page, size))
+
     @Nested
     @DisplayName("getProducts — UC-1 회원 카탈로그 목록")
     inner class GetProducts {
@@ -38,11 +62,11 @@ class ProductFacadeTest {
         fun delegatesLatestSortToRepository() {
             every {
                 productRepository.findAll(ProductSortType.LATEST, null, 0, 20)
-            } returns listOf(ProductFixture.validProduct())
+            } returns pageOf(ProductFixture.validProduct())
 
-            val result = productFacade.getProducts(ProductSortType.LATEST, null, 0, 20)
+            val result = productFacade.getProducts(productsQuery(sort = ProductSortType.LATEST))
 
-            assertThat(result).hasSize(1)
+            assertThat(result.content).hasSize(1)
             verify { productRepository.findAll(ProductSortType.LATEST, null, 0, 20) }
         }
 
@@ -51,9 +75,9 @@ class ProductFacadeTest {
         fun delegatesPriceAscSortToRepository() {
             every {
                 productRepository.findAll(ProductSortType.PRICE_ASC, null, 0, 20)
-            } returns emptyList()
+            } returns emptyPage()
 
-            productFacade.getProducts(ProductSortType.PRICE_ASC, null, 0, 20)
+            productFacade.getProducts(productsQuery(sort = ProductSortType.PRICE_ASC))
 
             verify { productRepository.findAll(ProductSortType.PRICE_ASC, null, 0, 20) }
         }
@@ -63,9 +87,9 @@ class ProductFacadeTest {
         fun delegatesLikesDescSortToRepository() {
             every {
                 productRepository.findAll(ProductSortType.LIKES_DESC, null, 0, 20)
-            } returns emptyList()
+            } returns emptyPage()
 
-            productFacade.getProducts(ProductSortType.LIKES_DESC, null, 0, 20)
+            productFacade.getProducts(productsQuery(sort = ProductSortType.LIKES_DESC))
 
             verify { productRepository.findAll(ProductSortType.LIKES_DESC, null, 0, 20) }
         }
@@ -75,9 +99,9 @@ class ProductFacadeTest {
         fun nullSortResolvesToLatest() {
             every {
                 productRepository.findAll(ProductSortType.LATEST, null, 0, 20)
-            } returns emptyList()
+            } returns emptyPage()
 
-            productFacade.getProducts(sort = null, brandId = null, page = 0, size = 20)
+            productFacade.getProducts(productsQuery(sort = null))
 
             verify { productRepository.findAll(ProductSortType.LATEST, null, 0, 20) }
         }
@@ -88,9 +112,9 @@ class ProductFacadeTest {
             val brandId = 42L
             every {
                 productRepository.findAll(ProductSortType.LATEST, brandId, 0, 20)
-            } returns emptyList()
+            } returns emptyPage()
 
-            productFacade.getProducts(ProductSortType.LATEST, brandId, 0, 20)
+            productFacade.getProducts(productsQuery(sort = ProductSortType.LATEST, brandId = brandId))
 
             verify { productRepository.findAll(ProductSortType.LATEST, brandId, 0, 20) }
         }
@@ -100,11 +124,32 @@ class ProductFacadeTest {
         fun delegatesPagingToRepository() {
             every {
                 productRepository.findAll(ProductSortType.LATEST, null, 3, 50)
-            } returns emptyList()
+            } returns emptyPage(page = 3, size = 50)
 
-            productFacade.getProducts(ProductSortType.LATEST, null, 3, 50)
+            productFacade.getProducts(productsQuery(sort = ProductSortType.LATEST, page = 3, size = 50))
 
             verify { productRepository.findAll(ProductSortType.LATEST, null, 3, 50) }
+        }
+
+        @Test
+        @DisplayName("Repository 의 페이지 메타(page/size/totalElements/totalPages)가 결과로 전파된다")
+        fun propagatesPageMeta() {
+            every {
+                productRepository.findAll(ProductSortType.LATEST, null, 0, 20)
+            } returns PageResult(
+                content = listOf(ProductFixture.validProduct()),
+                page = 0,
+                size = 20,
+                totalElements = 57L,
+                totalPages = 3,
+            )
+
+            val result = productFacade.getProducts(productsQuery(sort = ProductSortType.LATEST))
+
+            assertThat(result.page).isEqualTo(0)
+            assertThat(result.size).isEqualTo(20)
+            assertThat(result.totalElements).isEqualTo(57L)
+            assertThat(result.totalPages).isEqualTo(3)
         }
     }
 
@@ -180,14 +225,14 @@ class ProductFacadeTest {
     }
 
     @Nested
-    @DisplayName("getProductsForAdmin — UC-9 관리자 목록")
+    @DisplayName("getProductsForAdmin — UC-3 관리자 목록")
     inner class GetProductsForAdmin {
         @Test
         @DisplayName("Repository 의 findAllForAdmin 으로 최신순 페이징을 위임한다")
         fun delegatesToFindAllForAdmin() {
-            every { productRepository.findAllForAdmin(null, 0, 20) } returns emptyList()
+            every { productRepository.findAllForAdmin(null, 0, 20) } returns emptyPage()
 
-            productFacade.getProductsForAdmin(brandId = null, page = 0, size = 20)
+            productFacade.getProductsForAdmin(brandId = null, pageQuery = PageQuery(0, 20))
 
             verify { productRepository.findAllForAdmin(null, 0, 20) }
         }
@@ -195,9 +240,9 @@ class ProductFacadeTest {
         @Test
         @DisplayName("brandId 필터를 Repository 에 전달한다")
         fun delegatesBrandIdFilter() {
-            every { productRepository.findAllForAdmin(7L, 1, 30) } returns emptyList()
+            every { productRepository.findAllForAdmin(7L, 1, 30) } returns emptyPage(page = 1, size = 30)
 
-            productFacade.getProductsForAdmin(brandId = 7L, page = 1, size = 30)
+            productFacade.getProductsForAdmin(brandId = 7L, pageQuery = PageQuery(1, 30))
 
             verify { productRepository.findAllForAdmin(7L, 1, 30) }
         }
@@ -206,12 +251,29 @@ class ProductFacadeTest {
         @DisplayName("응답 항목에 salesStatus 가 포함된다")
         fun responseIncludesSalesStatus() {
             val product = ProductFixture.validProduct()
-            every { productRepository.findAllForAdmin(null, 0, 20) } returns listOf(product)
+            every { productRepository.findAllForAdmin(null, 0, 20) } returns pageOf(product)
 
-            val result = productFacade.getProductsForAdmin(brandId = null, page = 0, size = 20)
+            val result = productFacade.getProductsForAdmin(brandId = null, pageQuery = PageQuery(0, 20))
 
-            assertThat(result).hasSize(1)
-            assertThat(result[0].salesStatus).isEqualTo(SalesStatus.ON_SALE)
+            assertThat(result.content).hasSize(1)
+            assertThat(result.content[0].salesStatus).isEqualTo(SalesStatus.ON_SALE)
+        }
+
+        @Test
+        @DisplayName("Repository 의 페이지 메타가 결과로 전파된다")
+        fun propagatesPageMeta() {
+            every { productRepository.findAllForAdmin(null, 0, 20) } returns PageResult(
+                content = listOf(ProductFixture.validProduct()),
+                page = 0,
+                size = 20,
+                totalElements = 42L,
+                totalPages = 3,
+            )
+
+            val result = productFacade.getProductsForAdmin(brandId = null, pageQuery = PageQuery(0, 20))
+
+            assertThat(result.totalElements).isEqualTo(42L)
+            assertThat(result.totalPages).isEqualTo(3)
         }
     }
 

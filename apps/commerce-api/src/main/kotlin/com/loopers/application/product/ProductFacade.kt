@@ -4,6 +4,7 @@ import com.loopers.domain.brand.BrandRepository
 import com.loopers.domain.like.LikeRepository
 import com.loopers.application.product.command.RegisterProductCommand
 import com.loopers.application.product.command.UpdateProductCommand
+import com.loopers.application.product.query.GetProductsQuery
 import com.loopers.domain.product.ProductRepository
 import com.loopers.application.product.result.AdminProductDetailResult
 import com.loopers.application.product.result.AdminProductSummaryResult
@@ -14,6 +15,8 @@ import com.loopers.domain.product.Product
 import com.loopers.domain.product.ProductErrorType
 import com.loopers.domain.product.ProductSortType
 import com.loopers.support.error.CoreException
+import com.loopers.support.page.PageQuery
+import com.loopers.support.page.PageResult
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
 
@@ -24,15 +27,10 @@ class ProductFacade(
     private val likeRepository: LikeRepository,
 ) {
     @Transactional(readOnly = true)
-    fun getProducts(
-        sort: ProductSortType?,
-        brandId: Long?,
-        page: Int,
-        size: Int,
-    ): List<ProductSummaryResult> {
-        val resolvedSort = sort ?: ProductSortType.LATEST
+    fun getProducts(query: GetProductsQuery): PageResult<ProductSummaryResult> {
+        val resolvedSort = query.sort ?: ProductSortType.LATEST
         return productRepository
-            .findAll(resolvedSort, brandId, page, size)
+            .findAll(resolvedSort, query.brandId, query.paging.page, query.paging.size)
             .map { ProductSummaryResult.from(it) }
     }
 
@@ -47,13 +45,9 @@ class ProductFacade(
     }
 
     @Transactional(readOnly = true)
-    fun getProductsForAdmin(
-        brandId: Long?,
-        page: Int,
-        size: Int,
-    ): List<AdminProductSummaryResult> =
+    fun getProductsForAdmin(brandId: Long?, pageQuery: PageQuery): PageResult<AdminProductSummaryResult> =
         productRepository
-            .findAllForAdmin(brandId, page, size)
+            .findAllForAdmin(brandId, pageQuery.page, pageQuery.size)
             .map { AdminProductSummaryResult.from(it) }
 
     @Transactional(readOnly = true)

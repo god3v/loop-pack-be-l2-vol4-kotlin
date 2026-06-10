@@ -7,6 +7,7 @@ import com.loopers.domain.user.User
 import com.loopers.domain.user.UserErrorType
 import com.loopers.domain.user.UserFixture
 import com.loopers.interfaces.api.ApiControllerAdvice
+import com.loopers.support.error.CommonErrorType
 import com.loopers.support.error.CoreException
 import io.mockk.every
 import io.mockk.mockk
@@ -46,12 +47,16 @@ class AuthInterceptorTest {
 
         @GetMapping("/test/public")
         fun publicEndpoint(): String = "public"
+
+        // 선택 인증: @RequireAuth 없이 nullable AuthUser? 를 주입받는다.
+        @GetMapping("/test/optional")
+        fun optionalEndpoint(@LoginUser user: AuthUser?): String = "optional:${user?.loginId ?: "anonymous"}"
     }
 
     @DisplayName("@RequireAuth 가 없는 핸들러에 대해, ")
     @Nested
     inner class WithoutRequireAuth {
-        @DisplayName("헤더 없이 호출해도 통과한다.")
+        @DisplayName("헤더 없이 호출해도 통과하며 인증을 시도하지 않는다.")
         @Test
         fun passesThrough_whenAnnotationAbsent() {
             // when / then
@@ -60,6 +65,96 @@ class AuthInterceptorTest {
                 .andExpect(content().string("\"public\""))
 
             verify(exactly = 0) { userFacade.authenticate(any(), any()) }
+        }
+    }
+
+    @DisplayName("선택 인증(@RequireAuth 없이 AuthUser? 주입) 핸들러에 대해, ")
+    @Nested
+    inner class WithOptionalAuth {
+        @DisplayName("헤더 없이 호출하면 거부 없이 통과하고 AuthUser 가 null(anonymous)로 주입된다.")
+        @Test
+        fun injectsNull_whenNoHeaders() {
+            // when / then
+            mockMvc.perform(get("/test/optional"))
+                .andExpect(status().isOk)
+                .andExpect(content().string("\"optional:anonymous\""))
+
+            verify(exactly = 0) { userFacade.authenticate(any(), any()) }
+        }
+
+        @DisplayName("헤더가 있고 인증에 성공하면 AuthUser 가 주입된다.")
+        @Test
+        fun injectsAuthUser_whenAuthenticationSucceeds() {
+            // give
+            every {
+                userFacade.authenticate(UserFixture.DEFAULT_LOGIN_ID, UserFixture.DEFAULT_PASSWORD)
+            } returns mockk<User> {
+                every { id } returns 42L
+                every { loginId } returns UserFixture.DEFAULT_LOGIN_ID
+            }
+
+            // when / then
+            mockMvc.perform(
+                get("/test/optional")
+                    .header(AuthInterceptor.HEADER_LOGIN_ID, UserFixture.DEFAULT_LOGIN_ID)
+                    .header(AuthInterceptor.HEADER_LOGIN_PW, UserFixture.DEFAULT_PASSWORD),
+            )
+                .andExpect(status().isOk)
+                .andExpect(content().string("\"optional:${UserFixture.DEFAULT_LOGIN_ID}\""))
+
+            verify(exactly = 1) {
+                userFacade.authenticate(UserFixture.DEFAULT_LOGIN_ID, UserFixture.DEFAULT_PASSWORD)
+            }
+        }
+
+        @DisplayName("헤더가 있으나 인증에 실패하면 거부 없이 통과하고 AuthUser 가 null(anonymous)로 주입된다.")
+        @Test
+        fun injectsNull_whenAuthenticationFails() {
+            // give
+            every {
+                userFacade.authenticate(UserFixture.DEFAULT_LOGIN_ID, "Wrong1234!")
+            } throws CoreException(UserErrorType.UNAUTHORIZED)
+
+            // when / then
+            mockMvc.perform(
+                get("/test/optional")
+                    .header(AuthInterceptor.HEADER_LOGIN_ID, UserFixture.DEFAULT_LOGIN_ID)
+                    .header(AuthInterceptor.HEADER_LOGIN_PW, "Wrong1234!"),
+            )
+                .andExpect(status().isOk)
+                .andExpect(content().string("\"optional:anonymous\""))
+        }
+
+        @DisplayName("헤더가 공백 문자열이면, 인증을 시도하지 않고 거부 없이 통과한다(anonymous).")
+        @Test
+        fun injectsNull_whenHeadersBlank() {
+            // when / then
+            mockMvc.perform(
+                get("/test/optional")
+                    .header(AuthInterceptor.HEADER_LOGIN_ID, "   ")
+                    .header(AuthInterceptor.HEADER_LOGIN_PW, "   "),
+            )
+                .andExpect(status().isOk)
+                .andExpect(content().string("\"optional:anonymous\""))
+
+            verify(exactly = 0) { userFacade.authenticate(any(), any()) }
+        }
+
+        @DisplayName("인증이 UNAUTHORIZED 가 아닌 오류를 던지면, 선택 인증이라도 삼키지 않고 그대로 전파한다.")
+        @Test
+        fun propagatesNonAuthError() {
+            // give — authenticate 가 인증 실패가 아닌 일반 오류(INTERNAL_ERROR)를 던지는 상황.
+            every {
+                userFacade.authenticate(UserFixture.DEFAULT_LOGIN_ID, UserFixture.DEFAULT_PASSWORD)
+            } throws CoreException(CommonErrorType.INTERNAL_ERROR)
+
+            // when / then — 200(anonymous)로 숨겨지지 않고 5xx 로 surfaced.
+            mockMvc.perform(
+                get("/test/optional")
+                    .header(AuthInterceptor.HEADER_LOGIN_ID, UserFixture.DEFAULT_LOGIN_ID)
+                    .header(AuthInterceptor.HEADER_LOGIN_PW, UserFixture.DEFAULT_PASSWORD),
+            )
+                .andExpect(status().isInternalServerError)
         }
     }
 

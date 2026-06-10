@@ -1,5 +1,7 @@
 package com.loopers.domain.product
 
+import com.loopers.support.page.PageResult
+
 interface ProductRepository {
     fun save(product: Product): Product
     fun saveAll(products: Collection<Product>): List<Product>
@@ -10,13 +12,13 @@ interface ProductRepository {
         brandId: Long?,
         page: Int,
         size: Int,
-    ): List<Product>
+    ): PageResult<Product>
 
     fun findAllForAdmin(
         brandId: Long?,
         page: Int,
         size: Int,
-    ): List<Product>
+    ): PageResult<Product>
 
     fun findAllByBrandId(brandId: Long): List<Product>
 
