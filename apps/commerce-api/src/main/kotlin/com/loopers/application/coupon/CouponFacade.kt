@@ -27,9 +27,7 @@ class CouponFacade(
     fun issueCoupon(userId: Long, couponId: Long): IssuedCouponResult {
         val coupon = couponRepository.findById(couponId)
             ?: throw CoreException(CouponErrorType.COUPON_NOT_FOUND)
-        if (coupon.isExpired(LocalDateTime.now())) {
-            throw CoreException(CouponErrorType.COUPON_NOT_APPLICABLE, "만료된 쿠폰은 발급할 수 없다.")
-        }
+        coupon.ensureIssuable(LocalDateTime.now())
         if (userCouponRepository.existsByUserIdAndCouponId(userId, couponId)) {
             throw CoreException(CouponErrorType.ALREADY_ISSUED_COUPON)
         }

@@ -1,5 +1,6 @@
 package com.loopers.domain.order
 
+import com.loopers.support.page.PageResult
 import java.time.LocalDateTime
 
 interface OrderRepository {
@@ -15,7 +16,7 @@ interface OrderRepository {
         end: LocalDateTime?,
         page: Int,
         size: Int,
-    ): List<Order>
+    ): PageResult<Order>
 
-    fun findAllForAdmin(page: Int, size: Int): List<Order>
+    fun findAllForAdmin(page: Int, size: Int): PageResult<Order>
 }

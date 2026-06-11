@@ -40,7 +40,7 @@
 > 원 과제(week4) 요청 예시는 와이어 필드를 `couponId` 로 적었으나, 본 명세는 식별자의 실제 의미(발급 쿠폰)를 와이어에 그대로 드러내기 위해 **`userCouponId`** 로 명명한다.
 
 ### 0.5 주문 상태(status) 표기
-와이어 값은 도메인 `OrderStatus` 의 이름을 그대로 쓴다(대문자). 주문 저장 직후의 내부 상태는 `PAYMENT_PENDING` 이며, 결제(본 iteration 항상 성공) 가 반영된 뒤 `PAID` 가 된다. **주문 생성 응답(UC-1)·조회 응답에 노출되는 상태는 `PAID`** 다.
+와이어 값은 도메인 `OrderStatus` 의 이름을 그대로 쓴다(대문자). 주문 저장 직후의 상태는 `PAYMENT_PENDING` 이며, 결제(본 iteration 항상 성공) 가 반영된 뒤 `PAID` 가 된다. **주문 생성(UC-1) 응답의 상태는 `PAYMENT_PENDING`** 이다 — 결제는 주문 저장 트랜잭션이 커밋된 뒤 이벤트 처리기가 반영하므로 생성 응답 시점엔 아직 결제 전이다. **이후 조회(UC-2·3·4·5) 응답의 상태는 `PAID`** 다.
 
 | 값 | 의미 | 비고 |
 |---|---|---|
@@ -53,9 +53,9 @@
 
 | 필드 | 의미 |
 |---|---|
-| `grossAmount` | 상품 합계 — 라인 `unitPrice × quantity` 의 합 (쿠폰 적용 전 금액) |
+| `originalAmount` | 상품 합계 — 라인 `unitPrice × quantity` 의 합 (쿠폰 적용 전 금액) |
 | `discountAmount` | 할인 금액 — 적용 쿠폰의 할인액, 미적용 시 `0` |
-| `payableAmount` | 결제 금액 — `grossAmount − discountAmount`, 0 이상 (최종 결제 대상 금액) |
+| `totalAmount` | 결제 금액 — `originalAmount − discountAmount`, 0 이상 (최종 결제 대상 금액) |
 
 ### 0.7 엔드포인트 일람
 
@@ -104,11 +104,11 @@
   "data": {
     "orderId":        1001,
     "userId":         7,
-    "status":         "PAID",
+    "status":         "PAYMENT_PENDING",
     "orderedAt":      "2026-06-10T21:30:00",
-    "grossAmount":    35000,
+    "originalAmount":    35000,
     "discountAmount": 3500,
-    "payableAmount":  31500,
+    "totalAmount":  31500,
     "userCouponId":   42,
     "items": [
       { "productId": 1, "productName": "스투시 반팔티", "unitPrice": 15000, "quantity": 2, "subtotal": 30000 },
@@ -122,11 +122,11 @@
 |---|---|---|
 | `data.orderId` | Long | 생성된 주문 식별자 |
 | `data.userId` | Long | 주문 소유 회원 식별자 |
-| `data.status` | String | 주문 상태 (`§0.5`) — 정상 응답은 `PAID` |
+| `data.status` | String | 주문 상태 (`§0.5`) — **생성 응답은 `PAYMENT_PENDING`** (커밋 후 결제 반영으로 `PAID` 전이) |
 | `data.orderedAt` | String | 주문 시각 (`Asia/Seoul`) |
-| `data.grossAmount` | Long | 상품 합계 (쿠폰 적용 전) (`§0.6`) |
+| `data.originalAmount` | Long | 상품 합계 (쿠폰 적용 전) (`§0.6`) |
 | `data.discountAmount` | Long | 할인 금액 — 미적용 시 `0` (`§0.6`) |
-| `data.payableAmount` | Long | 결제 금액 (`§0.6`) |
+| `data.totalAmount` | Long | 결제 금액 (`§0.6`) |
 | `data.userCouponId` | Long? | 적용된 발급 쿠폰 식별자 — 미적용 시 `null` (`§0.4`) |
 | `data.items[].productId` | Long | 상품 식별자 |
 | `data.items[].productName` | String | **시점** 상품명 스냅샷 |
@@ -134,7 +134,7 @@
 | `data.items[].quantity` | Int | 주문 수량 |
 | `data.items[].subtotal` | Long | `unitPrice × quantity` |
 
-> **처리 순서**: 재고 차감 · 쿠폰 사용 · 주문 저장(`PAYMENT_PENDING`) 이 단일 트랜잭션으로 처리되고, 커밋 후 결제(항상 성공) 가 반영되어 `PAID` 로 전이된 결과를 응답한다.
+> **처리 순서**: 재고 차감 · 쿠폰 사용 · 주문 저장(`PAYMENT_PENDING`) 이 단일 트랜잭션으로 처리되고 **주문 발생 이벤트**가 발행된다. 트랜잭션 커밋 후 이벤트 처리기가 결제(항상 성공) 를 반영해 주문을 `PAID` 로 전이시킨다. **생성 응답 자체는 `PAYMENT_PENDING`** 이며, 이후 조회에서 `PAID` 로 보인다.
 > **멱등 재요청**: 같은 회원이 같은 `Idempotency-Key` 로 재요청하면 신규 주문을 만들지 않고 기존 주문과 동일한 본문으로 `200 OK` 를 응답한다.
 
 ### 실패 응답
@@ -184,9 +184,9 @@
         "orderId":        1001,
         "status":         "PAID",
         "orderedAt":      "2026-06-10T21:30:00",
-        "grossAmount":    35000,
+        "originalAmount":    35000,
         "discountAmount": 3500,
-        "payableAmount":  31500,
+        "totalAmount":  31500,
         "userCouponId":   42,
         "items": [
           { "productId": 1, "productName": "스투시 반팔티", "unitPrice": 15000, "quantity": 2, "subtotal": 30000 }
@@ -207,9 +207,9 @@
 | `data.content[].orderId` | Long | 주문 식별자 |
 | `data.content[].status` | String | 주문 상태 (`§0.5`) |
 | `data.content[].orderedAt` | String | 주문 시각 |
-| `data.content[].grossAmount` | Long | 상품 합계 |
+| `data.content[].originalAmount` | Long | 상품 합계 |
 | `data.content[].discountAmount` | Long | 할인 금액 |
-| `data.content[].payableAmount` | Long | 결제 금액 |
+| `data.content[].totalAmount` | Long | 결제 금액 |
 | `data.content[].userCouponId` | Long? | 적용 발급 쿠폰 식별자 — 미적용 시 `null` |
 | `data.content[].items[]` | Array | 라인 요약 (상품 생성과 동일 필드) |
 | `data.page` / `size` / `totalElements` / `totalPages` | — | 페이지 메타 |
@@ -251,9 +251,9 @@
     "userId":         7,
     "status":         "PAID",
     "orderedAt":      "2026-06-10T21:30:00",
-    "grossAmount":    35000,
+    "originalAmount":    35000,
     "discountAmount": 3500,
-    "payableAmount":  31500,
+    "totalAmount":  31500,
     "userCouponId":   42,
     "items": [
       { "productId": 1, "productName": "스투시 반팔티", "unitPrice": 15000, "quantity": 2, "subtotal": 30000 },
@@ -306,9 +306,9 @@
         "userMaskedName":      "김민*",
         "status":              "PAID",
         "orderedAt":           "2026-06-10T21:30:00",
-        "grossAmount":         35000,
+        "originalAmount":         35000,
         "discountAmount":      3500,
-        "payableAmount":       31500,
+        "totalAmount":       31500,
         "userCouponId":        42,
         "paymentTransactionId": "tx-20260610-0001",
         "paymentResultCode":    "APPROVED",
@@ -377,5 +377,5 @@
 ## 부록 — 쿠폰/결제 연동 메모
 
 - **쿠폰 사용 결선**: 주문 생성 시 쿠폰 사용(소유·사용·만료·최소금액 검증 + 할인 계산 + 소진)은 `OrderFacade` 가 **쿠폰 도메인 객체·리포지토리를 자신의 트랜잭션 안에서 직접 조율**한다(`CouponFacade.applyCoupon` 경유 아님). 할인 계산식·단일 사용·만료 판정 규칙 자체는 Coupon 도메인이 소유한다. 쿠폰 사용은 독립 엔드포인트로 노출하지 않는다.
-- **결제 게이트웨이**: `application.order.port.PaymentGateway`(outbound port) + `infrastructure.order` 의 **항상 성공** 어댑터. 결제 금액을 받아 `PaymentResult`(transactionId·resultCode·success) VO 를 반환한다. **주문 저장 트랜잭션 커밋 이후** 호출되며(트랜잭션 안 호출 아님), 결과로 주문이 `PAID` 로 전이된다. 실제 PG 연동·결제 실패·보상은 차주 과제(requirements §미해결).
+- **결제 게이트웨이**: `application.order.port.PaymentGateway`(outbound port) + `infrastructure.order` 의 **항상 성공** 어댑터(`AlwaysSuccessPaymentGateway`). 결제 금액을 받아 `PaymentResult`(transactionId·resultCode·success) VO 를 반환한다. 주문 저장 시 `OrderPlacedEvent` 를 발행하고, **`@TransactionalEventListener(AFTER_COMMIT)` 가 별도 트랜잭션(`REQUIRES_NEW`)에서** PG 를 호출해(트랜잭션 안 호출 아님) 주문을 `PAID` 로 전이시킨다. 생성 응답은 `PAYMENT_PENDING`. 실제 PG 연동·결제 실패·보상은 차주 과제(requirements §미해결).
 - **락 전략**: 발급 쿠폰 단일 사용은 Coupon 도메인이 비관적 행 락(`findByIdForUpdate`)을 제공한다. 재고 차감 락(비관/낙관)은 **TBD** — requirements §미해결 결정 사항 참조.

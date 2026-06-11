@@ -140,7 +140,7 @@ class OrderRepositoryImplIntegrationTest @Autowired constructor(
                 size = 10,
             )
 
-            assertThat(result.map { it.id }).containsExactly(b.id, a.id)
+            assertThat(result.content.map { it.id }).containsExactly(b.id, a.id)
         }
 
         @DisplayName("기간을 지정하지 않으면(start·end 모두 null) 본인 주문 전체가 조회된다 — sentinel 시각 매칭 공백 회귀 방지.")
@@ -160,7 +160,7 @@ class OrderRepositoryImplIntegrationTest @Autowired constructor(
                 size = 10,
             )
 
-            assertThat(result.map { it.id }).containsExactly(b.id, a.id)
+            assertThat(result.content.map { it.id }).containsExactly(b.id, a.id)
         }
 
         @DisplayName("start 만 지정하면 하한만, end 만 지정하면 상한만 적용된다 (각 경계 독립적 선택).")
@@ -176,8 +176,8 @@ class OrderRepositoryImplIntegrationTest @Autowired constructor(
             val fromMid = orderRepository.findAllByUserIdInPeriod(7L, start = mid, end = null, page = 0, size = 10)
             val untilMid = orderRepository.findAllByUserIdInPeriod(7L, start = null, end = mid, page = 0, size = 10)
 
-            assertThat(fromMid.map { it.id }).containsExactly(recent.id)
-            assertThat(untilMid.map { it.id }).containsExactly(old.id)
+            assertThat(fromMid.content.map { it.id }).containsExactly(recent.id)
+            assertThat(untilMid.content.map { it.id }).containsExactly(old.id)
         }
     }
 
@@ -197,8 +197,8 @@ class OrderRepositoryImplIntegrationTest @Autowired constructor(
             val page0 = orderRepository.findAllForAdmin(0, 2)
             val page1 = orderRepository.findAllForAdmin(1, 2)
 
-            assertThat(page0.map { it.id }).containsExactly(c.id, b.id)
-            assertThat(page1.map { it.id }).containsExactly(a.id)
+            assertThat(page0.content.map { it.id }).containsExactly(c.id, b.id)
+            assertThat(page1.content.map { it.id }).containsExactly(a.id)
         }
     }
 
@@ -232,8 +232,8 @@ class OrderRepositoryImplIntegrationTest @Autowired constructor(
             )
 
             // toDomain() 이 lines 를 순회하므로 조회 시점에 lines 가 적재된다.
-            assertThat(orders).hasSize(20)
-            assertThat(orders.flatMap { it.lines }).hasSize(40)
+            assertThat(orders.content).hasSize(20)
+            assertThat(orders.content.flatMap { it.lines }).hasSize(40)
             // 주문 1회 + lines 배치(IN) 1회 수준. 주문 건수(20)에 비례한 N+1 이면 20+ 가 된다.
             assertThat(statistics.prepareStatementCount).isLessThanOrEqualTo(3)
         }

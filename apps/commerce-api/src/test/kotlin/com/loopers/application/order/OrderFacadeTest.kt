@@ -20,6 +20,7 @@ import com.loopers.domain.product.ProductFixture
 import com.loopers.domain.user.UserErrorType
 import com.loopers.domain.user.UserFixture
 import com.loopers.support.error.CoreException
+import com.loopers.support.page.PageResult
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
@@ -29,6 +30,7 @@ import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import org.springframework.context.ApplicationEventPublisher
 import java.time.LocalDateTime
 
 @DisplayName("OrderFacade")
@@ -38,8 +40,9 @@ class OrderFacadeTest {
     private val orderRepository: OrderRepository = mockk()
     private val couponRepository: CouponRepository = mockk()
     private val userCouponRepository: UserCouponRepository = mockk()
+    private val eventPublisher: ApplicationEventPublisher = mockk(relaxed = true)
     private val orderFacade =
-        OrderFacade(userRepository, productRepository, orderRepository, couponRepository, userCouponRepository)
+        OrderFacade(userRepository, productRepository, orderRepository, couponRepository, userCouponRepository, eventPublisher)
 
     private val loginId = UserFixture.DEFAULT_LOGIN_ID
     private val idempotencyKey = "idem-001"
@@ -265,6 +268,7 @@ class OrderFacadeTest {
             assertThat(result.status).isEqualTo(OrderStatus.PAID)
             verify(exactly = 0) { productRepository.findById(any()) }
             verify(exactly = 0) { orderRepository.save(any()) }
+            verify(exactly = 0) { eventPublisher.publishEvent(any()) }
         }
 
         @Test
@@ -374,7 +378,7 @@ class OrderFacadeTest {
             every { userRepository.findByLoginId(loginId) } returns user
             every {
                 orderRepository.findAllByUserIdInPeriod(user.id, start, end, 1, 30)
-            } returns emptyList()
+            } returns PageResult(emptyList(), 1, 30, 0, 0)
 
             orderFacade.getMyOrders(loginId, start, end, page = 1, size = 30)
 
@@ -388,7 +392,7 @@ class OrderFacadeTest {
             every { userRepository.findByLoginId(loginId) } returns user
             every {
                 orderRepository.findAllByUserIdInPeriod(user.id, null, null, 0, 20)
-            } returns emptyList()
+            } returns PageResult(emptyList(), 0, 20, 0, 0)
 
             orderFacade.getMyOrders(loginId, startAt = null, endAt = null, page = 0, size = 20)
 
@@ -405,6 +409,24 @@ class OrderFacadeTest {
                 orderFacade.getMyOrders(loginId, null, null, 0, 20)
             }
             assertThat(ex.errorType).isEqualTo(UserErrorType.UNAUTHORIZED)
+        }
+
+        @Test
+        @DisplayName("startAt 이 endAt 보다 크면 INVALID_DATE_RANGE")
+        fun invalidDateRange() {
+            val user = UserFixture.validUser()
+            every { userRepository.findByLoginId(loginId) } returns user
+
+            val ex = assertThrows<CoreException> {
+                orderFacade.getMyOrders(
+                    loginId,
+                    LocalDateTime.of(2026, 5, 10, 0, 0),
+                    LocalDateTime.of(2026, 5, 1, 0, 0),
+                    0,
+                    20,
+                )
+            }
+            assertThat(ex.errorType).isEqualTo(OrderErrorType.INVALID_DATE_RANGE)
         }
     }
 
@@ -468,15 +490,15 @@ class OrderFacadeTest {
                 lines = listOf(OrderLine.create(1L, "P", 1000, 1)),
                 idempotencyKey = "k",
             ).also { it.markPaid("tx-9", "APPROVED") }
-            every { orderRepository.findAllForAdmin(0, 20) } returns listOf(order)
+            every { orderRepository.findAllForAdmin(0, 20) } returns PageResult(listOf(order), 0, 20, 1, 1)
             every { userRepository.findAllByIds(any()) } returns listOf(user)
 
             val result = orderFacade.getOrdersForAdmin(0, 20)
 
-            assertThat(result).hasSize(1)
-            assertThat(result[0].userMaskedName).endsWith("*")
-            assertThat(result[0].paymentTransactionId).isEqualTo("tx-9")
-            assertThat(result[0].paymentResultCode).isEqualTo("APPROVED")
+            assertThat(result.content).hasSize(1)
+            assertThat(result.content[0].userMaskedName).endsWith("*")
+            assertThat(result.content[0].paymentTransactionId).isEqualTo("tx-9")
+            assertThat(result.content[0].paymentResultCode).isEqualTo("APPROVED")
         }
 
         @Test
@@ -488,14 +510,14 @@ class OrderFacadeTest {
                 lines = listOf(OrderLine.create(1L, "P", 1000, 1)),
                 idempotencyKey = "k",
             ).also { it.markPaymentFailed(null, null) }
-            every { orderRepository.findAllForAdmin(0, 20) } returns listOf(failed)
+            every { orderRepository.findAllForAdmin(0, 20) } returns PageResult(listOf(failed), 0, 20, 1, 1)
             every { userRepository.findAllByIds(any()) } returns listOf(user)
 
             val result = orderFacade.getOrdersForAdmin(0, 20)
 
-            assertThat(result[0].status).isEqualTo(OrderStatus.PAYMENT_FAILED)
-            assertThat(result[0].paymentTransactionId).isNull()
-            assertThat(result[0].paymentResultCode).isNull()
+            assertThat(result.content[0].status).isEqualTo(OrderStatus.PAYMENT_FAILED)
+            assertThat(result.content[0].paymentTransactionId).isNull()
+            assertThat(result.content[0].paymentResultCode).isNull()
         }
 
         @Test
@@ -520,12 +542,12 @@ class OrderFacadeTest {
                     idempotencyKey = "k-$uid",
                 )
             }
-            every { orderRepository.findAllForAdmin(0, size) } returns orders
+            every { orderRepository.findAllForAdmin(0, size) } returns PageResult(orders, 0, size, size.toLong(), 1)
             every { userRepository.findAllByIds(any()) } returns users
 
             val result = orderFacade.getOrdersForAdmin(0, size)
 
-            assertThat(result).hasSize(size)
+            assertThat(result.content).hasSize(size)
             verify(exactly = 1) { userRepository.findAllByIds(any()) }
             verify(exactly = 0) { userRepository.findById(any()) }
         }

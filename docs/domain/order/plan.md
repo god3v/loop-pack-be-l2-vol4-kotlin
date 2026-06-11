@@ -23,7 +23,7 @@
 - B(CouponFacade 호출) → **A(직접 조율)**. `CouponFacade.applyCoupon` + 그 테스트 제거, 조율을 OrderFacade 로 이주.
 - 와이어/내부 `couponId` → **`userCouponId`** 전면 개명.
 - PG 부재 + PENDING 잔존 → **PaymentGateway(커밋 후) + PAID 전이**.
-- 3금액(grossAmount/discountAmount/payableAmount) 노출 명명 확정 (현재 originalAmount/totalAmount 게터).
+- 3금액(originalAmount/discountAmount/totalAmount) 노출 명명 확정 (현재 originalAmount/totalAmount 게터).
 - interfaces 부재 → 컨트롤러·ApiSpec·DTO·E2E.
 
 ---
@@ -60,42 +60,51 @@
 
 ---
 
-## 3. Phase 3 — 3금액 스냅샷 정합 (도메인) — **행위 커밋**
+## 3. Phase 3 — 3금액 노출 정합 — ✅ (2026-06-10)
+
+> **명명 결정**: 코드 어휘로 통일. 도메인 getter `originalAmount`(적용 전)·`discountAmount`·`totalAmount`(최종) 를 **그대로 유지**(gross/payable 로 개명하지 않음). v0.4 문서(api-spec·requirements §1)에 임의로 넣었던 `grossAmount`/`payableAmount` 는 `originalAmount`/`totalAmount` 로 정정.
 
 ### 3.1 Order 금액 노출
-- [ ] `grossAmount`(=상품 합계, 현 originalAmount) · `discountAmount` · `payableAmount`(=현 totalAmount) 명명 정합
-- [ ] `OrderResult`/`AdminOrderResult` 가 3금액을 노출 (단일 totalAmount 대체)
-- [ ] `OrderEntity` 3금액 컬럼 매핑 + ERD 동기화 (save→findById 복원 통합 테스트)
+- [x] 도메인 getter `originalAmount`/`totalAmount` 유지 — 개명 없음
+- [x] `OrderResult`/`AdminOrderResult` 가 3금액(`originalAmount`·`discountAmount`·`totalAmount`) 모두 노출 (`originalAmount` 신규 추가)
+- [x] 3금액은 라인 스냅샷 + 저장된 `discountAmount` 에서 파생 — **OrderEntity 에 별도 gross/payable 컬럼 추가하지 않음**(중복 비정규화 회피, 불변 보장은 라인+할인 스냅샷으로 충족)
+- [x] api-spec §0.6·예시, requirements §1 유비쿼터스 언어를 코드 어휘로 정정
+- [x] OrderCouponIntegrationTest 에 `originalAmount` 단언 추가, 컴파일·order 테스트·ktlint 그린
 
 ---
 
-## 4. Phase 4 — PaymentGateway 도입 (커밋 후 결제) — **행위 커밋**
+## 4. Phase 4 — PaymentGateway 도입 (커밋 후 결제, 이벤트 방식) — ✅ (2026-06-10)
 
-> 흐름: `tx1(재고+쿠폰+주문 PENDING) → 커밋 → PG → tx2(markPaid → PAID)`. 외부 호출은 트랜잭션 밖.
+> **구조 결정 = 도메인 이벤트 + AFTER_COMMIT 리스너.** `placeOrder`(tx1) 가 재고·쿠폰·주문 PENDING 저장 후 `OrderPlacedEvent` 발행 → 커밋 → `@TransactionalEventListener(AFTER_COMMIT)` + `@Transactional(REQUIRES_NEW)` 가 PG 호출·markPaid·저장(tx2). 외부 호출이 주문 트랜잭션 밖.
+> **생성 응답은 `PAYMENT_PENDING`** (응답값이 리스너 실행 전에 조립됨 — 리스너가 응답을 주지 못하는 구조). 리스너는 커밋 직후 동기 실행되어 DB 는 즉시 `PAID`, 이후 조회는 `PAID`.
 
 ### 4.1 port / VO / adapter
-- [ ] `application.order.port.PaymentGateway` — `charge(orderId, amount): PaymentResult`
-- [ ] `PaymentResult(transactionId: String, resultCode: String, success: Boolean)` VO (애그리거트 아님)
-- [ ] `infrastructure.order` 의 항상 성공 어댑터 (tx-prefix + `APPROVED`)
+- [x] `application.order.port.PaymentGateway` — `charge(orderId, amount): PaymentResult`
+- [x] `PaymentResult(transactionId, resultCode, success)` VO (애그리거트 아님)
+- [x] `infrastructure.order.AlwaysSuccessPaymentGateway` — `tx-$orderId` + `APPROVED`
 
-### 4.2 OrderFacade 2단계 흐름
-- [ ] `placeOrder` 를 비-트랜잭션 조율로: ① `@Transactional` 메서드로 재고·쿠폰·주문(PENDING) 저장 → ② 커밋 후 PG.charge → ③ 별도 `@Transactional` 메서드로 markPaid→PAID 저장
-- [ ] Spring self-invocation 회피: tx 메서드를 별도 빈(예: `OrderRegistrar`/도메인 서비스 빈)으로 분리하거나 `ApplicationEventPublisher` + `@TransactionalEventListener(AFTER_COMMIT)` 중 택1 — **설계 결정 필요** (단순함 우선: 별도 빈 2-메서드)
-- [ ] 정상: 주문이 PAID + paymentTransactionId/resultCode 박힘
-- [ ] 멱등: 재요청 시 기존 주문 반환, PG 재호출 없음
-- [ ] ⚠ markPaymentFailed/PAYMENT_FAILED 경로는 항상 성공이라 미발火 — dead 아님, 차주 실제 PG 대비 보존
+### 4.2 이벤트 흐름
+- [x] `application.order.OrderPlacedEvent(orderId)` + `OrderFacade` 가 새 주문 저장 후 `ApplicationEventPublisher` 로 발행 (멱등 재요청·검증 실패 시 미발행)
+- [x] `application.order.OrderPaymentEventListener` — AFTER_COMMIT + REQUIRES_NEW, PG 호출 → 성공 시 `markPaid` / 실패 시 `markPaymentFailed`(항상 성공이라 미발火) → save
+- [x] 정상(통합): `placeOrder` 응답 `PAYMENT_PENDING`, 커밋 후 리스너가 주문을 `PAID` + `paymentTransactionId` 박음 (OrderCouponIntegrationTest 검증)
+- [x] 멱등(단위): 재요청 시 기존 주문 반환, 이벤트 미발행(`verify(exactly=0)`)
+- [x] 컴파일·OrderFacadeTest·OrderCouponIntegrationTest(동시성 포함)·ktlint 그린
 
 ---
 
 ## 5. Phase 5 — interfaces (행위 — E2E)
 
-> 산출물: `OrderV1Controller`(`/api/v1/orders`) · `OrderV1AdminController`(`/api-admin/v1/orders`) · `*ApiSpec` · DTO. 와이어 필드 `userCouponId`, 멱등 키 `Idempotency-Key` 헤더.
+> 산출물: `OrderV1Controller`(`/api/v1/orders`) · `OrderV1AdminController`(`/api-admin/v1/orders`) · `*ApiSpec` · DTO. `@RequireAuth`+`@LoginUser`(회원, `AuthUser.loginId` 를 Facade 에 전달), `AdminAuthInterceptor`(어드민, 경로 강제). 와이어 필드 `userCouponId`, 멱등 키 `Idempotency-Key` 헤더(미존재 시 빈 문자열 → 도메인이 `IDEMPOTENCY_KEY_BLANK`).
+>
+> **페이징 = PageResult (coupon 일관) ✅ 사전 완료 (2026-06-10).** `OrderRepository.findAllByUserIdInPeriod`/`findAllForAdmin` 과 `OrderFacade.getMyOrders`/`getOrdersForAdmin` 을 `List` → `PageResult` 로 변경(`OrderJpaRepository` 가 `Page` 반환 + 기간 쿼리에 `countQuery`, `Page.toPageResult()` 확장). 목록 응답 DTO 는 coupon 처럼 `content`/`page`/`size`/`totalElements`/`totalPages`. (OrderFacadeTest·OrderRepositoryImplIntegrationTest 갱신, 그린.)
 
-- [ ] UC-1 `POST /api/v1/orders` — 정상(쿠폰 적용/미적용) / IDEMPOTENCY_KEY_BLANK / EMPTY_LINES / INVALID_QUANTITY / PRODUCT_NOT_FOUND / INSUFFICIENT_STOCK / USER_COUPON_NOT_FOUND / ALREADY_USED_COUPON / COUPON_NOT_APPLICABLE / UNAUTHORIZED / 멱등 재요청
-- [ ] UC-2 `GET /api/v1/orders` — 목록·페이징·기간·INVALID_DATE_RANGE·UNAUTHORIZED
-- [ ] UC-3 `GET /api/v1/orders/{orderId}` — 본인/ORDER_NOT_FOUND/ORDER_FORBIDDEN/UNAUTHORIZED
-- [ ] UC-4 `GET /api-admin/v1/orders` — 운영 메타(마스킹 표시명·결제 메타)·401/403
-- [ ] UC-5 `GET /api-admin/v1/orders/{orderId}` — 어느 회원 주문이든·ORDER_NOT_FOUND
+### 회원 채널 ✅ (2026-06-10) — `OrderV1Controller`·`OrderV1ApiSpec`·`OrderV1Dto`·`OrderV1ApiE2ETest`
+- [x] UC-1 `POST /api/v1/orders` — 정상(쿠폰 적용→PENDING→커밋후 PAID 전이/미적용) / IDEMPOTENCY_KEY_BLANK / EMPTY_LINES / ALREADY_USED_COUPON / 멱등 수렴 / UNAUTHORIZED (E2E)
+- [x] UC-2 `GET /api/v1/orders` — 목록(PageResult)·INVALID_DATE_RANGE (getMyOrders 에 기간 검증 가드 추가 + 단위 테스트)
+- [x] UC-3 `GET /api/v1/orders/{orderId}` — 본인 상세(PAID) / ORDER_NOT_FOUND / ORDER_FORBIDDEN(타인)
+### 어드민 채널 ✅ (2026-06-10) — `OrderV1AdminController`·`OrderV1AdminApiSpec`·`OrderV1AdminApiE2ETest` (`X-Loopers-Ldap`, `AdminAuthInterceptor` 경로 커버)
+- [x] UC-4 `GET /api-admin/v1/orders` — 운영 메타(마스킹 표시명·PAID·결제 메타) 포함 PageResult / `X-Loopers-Ldap` 누락 → `401`
+- [x] UC-5 `GET /api-admin/v1/orders/{orderId}` — 어느 회원 주문이든 조회 / `ORDER_NOT_FOUND`
 
 ---
 

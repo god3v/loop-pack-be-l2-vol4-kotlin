@@ -2,6 +2,7 @@ package com.loopers.domain.coupon
 
 import com.loopers.support.error.CoreException
 import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatCode
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
@@ -131,6 +132,27 @@ class CouponTest {
             assertThat(coupon.isExpired(now.plusSeconds(1))).isTrue()
             assertThat(coupon.isExpired(now)).isFalse()
             assertThat(coupon.isExpired(now.minusSeconds(1))).isFalse()
+        }
+    }
+
+    @DisplayName("ensureIssuable 은 ")
+    @Nested
+    inner class EnsureIssuable {
+        @DisplayName("만료된 쿠폰이면 COUPON_NOT_APPLICABLE 예외가 발생한다.")
+        @Test
+        fun throwsWhenExpired() {
+            val coupon = CouponFixture.coupon(expiredAt = now.minusSeconds(1))
+
+            val result = assertThrows<CoreException> { coupon.ensureIssuable(now) }
+            assertThat(result.errorType).isEqualTo(CouponErrorType.COUPON_NOT_APPLICABLE)
+        }
+
+        @DisplayName("만료되지 않은 쿠폰이면 예외 없이 통과한다.")
+        @Test
+        fun passesWhenNotExpired() {
+            val coupon = CouponFixture.coupon(expiredAt = now.plusDays(1))
+
+            assertThatCode { coupon.ensureIssuable(now) }.doesNotThrowAnyException()
         }
     }
 

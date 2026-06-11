@@ -36,6 +36,12 @@ class Coupon internal constructor(
 
     fun isExpired(at: LocalDateTime): Boolean = at.isAfter(expiredAt)
 
+    fun ensureIssuable(now: LocalDateTime) {
+        if (isExpired(now)) {
+            throw CoreException(CouponErrorType.COUPON_NOT_APPLICABLE, "만료된 쿠폰은 발급할 수 없다.")
+        }
+    }
+
     fun update(
         name: String,
         discountType: DiscountType,
