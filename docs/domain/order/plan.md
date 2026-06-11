@@ -119,11 +119,35 @@
 
 ---
 
-## 6. Phase 6 — 동시성 테스트 (락 전략 TBD)
+## 6. Phase 6 — 동시성 (비관 락 보강)
 
-- [ ] 동일 발급 쿠폰 N 동시 주문 → 정확히 1건 성공, 나머지 `ALREADY_USED_COUPON` (Coupon 비관 락 `findByIdForUpdate` 가 직렬화 — 검증)
-- [ ] 동일 상품 재고 K 에 N(>K) 동시 주문 → 정확히 K건 성공, 재고 음수 없음
-- [ ] **TBD**: 재고 차감 락 — 비관 vs 낙관(`@Version`) vs 조건부 UPDATE 선택·적용. 결제 실패 보상의 `Product.restoreStock` 도 차감과 같은 read-modify-write 라 동일한 락 TBD 선상에 있다(보상 트랜잭션과 신규 차감의 경합).
+> **락 전략 결정 (2026-06-12): 비관 락 채택.** 저장소는 재고 차감(`products FOR UPDATE`)·쿠폰 사용(`userCoupon FOR UPDATE`) 을 비관 락으로 일관되게 다스린다. 결제 보상·재결제 트리거의 잔여 경합도 같은 언어(비관 락)로 닫는다. `@Version`(낙관) 은 Order 의 *모든* 쓰기 경로에 낙관 실패(`OptimisticLockException`) 시맨틱을 전파시켜(비관 락 경로에선 검사만 무해히 따라붙지만, 무락 경로가 재시도 의무를 떠안음) 채택하지 않는다.
+> **락 순서(데드락 안전):** 모든 경로가 products 를 id 오름차순(`findAllByIdsForUpdate ... ORDER BY p.id`)으로 잠근다. pay() 의 order 행 락은 사이클에 참여하지 않는다(placeOrder 는 order 를 신규 insert 라 기존 행을 잠그지 않음 → order→products 단방향). 따라서 대기 그래프에 사이클이 없다.
+
+### 6.0 기존 동시성 가드
+- [x] 동일 발급 쿠폰 N 동시 주문 → 정확히 1건 성공, 나머지 `ALREADY_USED_COUPON` (`OrderCouponIntegrationTest.concurrentOrdersConsumeCouponOnce` — Coupon 비관 락 직렬화)
+- [ ] 동일 상품 재고 K 에 N(>K) 동시 주문 → 정확히 K건 성공, 재고 음수 없음 (forward deduct 락 — 가드 테스트 추가 여지)
+
+### 6.1 재고 복원 비관 락 (보상 ↔ 신규 차감 경합) — 행위 커밋
+
+> **문제:** `PaymentFacade.compensate` 가 `findAllByIds`(무락) 로 읽고 `restoreStock` 후 `saveAll` → read-modify-write. 스냅샷 기준 계산값을 덮어써 동시 차감을 잃는다(lost update → 오버셀 위험). forward 차감은 비관 락인데 보상만 무락 — 비대칭.
+> **해법:** compensate 도 기존 `findAllByIdsForUpdate`(ORDER BY id, 이미 존재) 로 잠가 차감과 동일하게 직렬화한다. 신규 리포 메서드 불필요.
+
+- [x] (Red·단위) `PaymentFacadeTest` OnFailure 2건의 stub 을 `findAllByIds` → `findAllByIdsForUpdate` 로 교체 + `verify` → MockKException 으로 Red 확인 (2026-06-12)
+- [x] (Green) `compensate` 의 `findAllByIds` → `findAllByIdsForUpdate` (id ASC 락으로 차감과 동일 직렬화)
+- [x] (행위 가드·통합) `OrderPaymentFailureIntegrationTest.concurrentCompensationsPreserveStock` — N(4) 동시 결제 실패 주문(각 1 차감 후 보상 +1) → 최종 재고 보존·전건 PAYMENT_FAILED. 스레드 수는 풀(10)·REQUIRES_NEW 2커넥션 고려해 보수적
+- [x] `PaymentFacadeTest` · `OrderPaymentFailureIntegrationTest` 그린 (ktlint 최종 일괄 확인)
+
+### 6.2 결제 트리거 이후 주문 비관 락 (동시 pay 직렬화) — 구조 + 행위 커밋
+
+> **문제:** `PaymentFacade.pay` 가 `findById`(무락) + `status != PAYMENT_PENDING` 가드만 가져, 동시 `pay()` 둘이 모두 PENDING 을 읽고 이중 청구·이중 보상할 수 있다. 현재는 트리거가 1회뿐이라 잠재 위험이나, 재시도/스윕 도입 시 활성 결함이 된다.
+> **해법:** pay 진입 시 `findByIdForUpdate` 로 주문 행을 잠가 상태 전이(PENDING→PAID/FAILED)를 원자화한다. 늦은 호출은 커밋된 비-PENDING 을 읽고 no-op.
+
+- [x] (구조 커밋·행위 무변경) `OrderRepository.findByIdForUpdate` + `OrderJpaRepository`(@Lock PESSIMISTIC_WRITE) + `OrderRepositoryImpl` 추가 — 호출처 없음, 기존 `PaymentFacadeTest` 그대로 그린으로 중립 확인 (2026-06-12)
+- [x] (Red·단위) `PaymentFacadeTest` 의 `orderRepository.findById` 5개 stub → `findByIdForUpdate` + 성공 케이스 `verify` → 5건 MockKException Red
+- [x] (Green) `pay` 의 `findById` → `findByIdForUpdate`
+- [x] (행위 가드·통합) `PaymentConcurrencyIntegrationTest.concurrentPayChargesExactlyOnce` — 단일 PENDING 주문에 4 동시 `pay()`(charge 150ms 지연 mock) → `charge` 정확히 1회·주문 PAID
+- [x] `PaymentFacadeTest` · 신규 통합 그린 (ktlint 최종 일괄 확인)
 
 ---
 

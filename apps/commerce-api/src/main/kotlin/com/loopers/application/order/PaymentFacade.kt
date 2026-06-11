@@ -26,7 +26,8 @@ class PaymentFacade(
 ) {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     fun pay(orderId: Long) {
-        val order = orderRepository.findById(orderId) ?: return
+        // 주문 행을 비관 락으로 잡아 상태 전이(PENDING→PAID/FAILED)를 원자화한다 — 동시/중복 pay 의 이중 청구·이중 보상 방지.
+        val order = orderRepository.findByIdForUpdate(orderId) ?: return
         if (order.status != OrderStatus.PAYMENT_PENDING) return
 
         val result = paymentGateway.charge(order.id, order.totalAmount)
@@ -40,7 +41,9 @@ class PaymentFacade(
     }
 
     private fun compensate(order: Order) {
-        val products = productRepository.findAllByIds(order.lines.map { it.productId }).associateBy { it.id }
+        // 재고 복원은 신규 주문의 재고 차감과 경합한다 — 차감과 동일한 비관 쓰기 락(id ASC)으로 상품 행을 잡아
+        // read-modify-write 의 lost update(복원이 동시 차감을 덮어쓰는 오버셀)를 막는다.
+        val products = productRepository.findAllByIdsForUpdate(order.lines.map { it.productId }).associateBy { it.id }
         order.lines.forEach { line -> products[line.productId]?.restoreStock(line.quantity.value) }
         productRepository.saveAll(products.values)
 

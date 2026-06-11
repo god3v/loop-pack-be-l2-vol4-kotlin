@@ -44,7 +44,7 @@ class PaymentFacadeTest {
         @DisplayName("주문이 PAID 로 전이·저장되고, 보상(재고·쿠폰)은 일어나지 않는다")
         fun marksPaidWithoutCompensation() {
             val order = pendingOrder(userCouponId = 99L)
-            every { orderRepository.findById(1L) } returns order
+            every { orderRepository.findByIdForUpdate(1L) } returns order
             every { paymentGateway.charge(any(), any()) } returns PaymentResult("tx-1", "APPROVED", true)
             every { orderRepository.save(any()) } answers { firstArg() }
 
@@ -52,6 +52,8 @@ class PaymentFacadeTest {
 
             assertThat(order.status).isEqualTo(OrderStatus.PAID)
             assertThat(order.paymentTransactionId).isEqualTo("tx-1")
+            // 결제 처리는 주문 행을 비관 락으로 잡아 동시 pay 의 상태 전이를 직렬화한다.
+            verify { orderRepository.findByIdForUpdate(1L) }
             verify(exactly = 0) { productRepository.saveAll(any()) }
             verify(exactly = 0) { userCouponRepository.save(any()) }
             verify { orderRepository.save(order) }
@@ -67,9 +69,10 @@ class PaymentFacadeTest {
             val order = pendingOrder(userCouponId = 99L)
             val product = ProductFixture.validProduct(id = 1L, name = "운동화", price = 1000, stock = 10)
             val userCoupon = CouponFixture.userCoupon(id = 99L, userId = 1L, couponId = 7L, status = UserCouponStatus.USED)
-            every { orderRepository.findById(1L) } returns order
+            every { orderRepository.findByIdForUpdate(1L) } returns order
             every { paymentGateway.charge(any(), any()) } returns PaymentResult("tx-f", "DECLINED", false)
-            every { productRepository.findAllByIds(listOf(1L)) } returns listOf(product)
+            // 보상 재고 복원은 신규 차감과 경합하므로 비관 락으로 상품 행을 잡고 읽는다(lost update 방지).
+            every { productRepository.findAllByIdsForUpdate(listOf(1L)) } returns listOf(product)
             every { productRepository.saveAll(any()) } answers { firstArg<Collection<com.loopers.domain.product.Product>>().toList() }
             every { userCouponRepository.findById(99L) } returns userCoupon
             every { userCouponRepository.save(any()) } answers { firstArg() }
@@ -80,6 +83,7 @@ class PaymentFacadeTest {
             assertThat(order.status).isEqualTo(OrderStatus.PAYMENT_FAILED)
             assertThat(product.stock.value).isEqualTo(12) // 10 + 라인 수량 2 원복
             assertThat(userCoupon.status).isEqualTo(UserCouponStatus.AVAILABLE)
+            verify { productRepository.findAllByIdsForUpdate(listOf(1L)) }
             verify { productRepository.saveAll(any()) }
             verify { userCouponRepository.save(userCoupon) }
         }
@@ -89,9 +93,9 @@ class PaymentFacadeTest {
         fun compensatesStockOnlyWhenNoCoupon() {
             val order = pendingOrder(userCouponId = null)
             val product = ProductFixture.validProduct(id = 1L, name = "운동화", price = 1000, stock = 10)
-            every { orderRepository.findById(1L) } returns order
+            every { orderRepository.findByIdForUpdate(1L) } returns order
             every { paymentGateway.charge(any(), any()) } returns PaymentResult("tx-f", "DECLINED", false)
-            every { productRepository.findAllByIds(listOf(1L)) } returns listOf(product)
+            every { productRepository.findAllByIdsForUpdate(listOf(1L)) } returns listOf(product)
             every { productRepository.saveAll(any()) } answers { firstArg<Collection<com.loopers.domain.product.Product>>().toList() }
             every { orderRepository.save(any()) } answers { firstArg() }
 
@@ -110,7 +114,7 @@ class PaymentFacadeTest {
         @DisplayName("이미 PAID 인 주문은 결제하지 않는다 (중복 트리거 no-op)")
         fun skipsWhenAlreadyPaid() {
             val order = pendingOrder().also { it.markPaid("tx-prev", "APPROVED") }
-            every { orderRepository.findById(1L) } returns order
+            every { orderRepository.findByIdForUpdate(1L) } returns order
 
             paymentFacade.pay(1L)
 
@@ -121,7 +125,7 @@ class PaymentFacadeTest {
         @Test
         @DisplayName("주문이 없으면 결제하지 않는다")
         fun skipsWhenOrderMissing() {
-            every { orderRepository.findById(404L) } returns null
+            every { orderRepository.findByIdForUpdate(404L) } returns null
 
             paymentFacade.pay(404L)
 
