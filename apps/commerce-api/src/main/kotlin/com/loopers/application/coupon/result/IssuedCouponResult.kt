@@ -13,6 +13,7 @@ data class IssuedCouponResult(
     val type: DiscountType,
     val value: Long,
     val minOrderAmount: Long?,
+    val usableFrom: LocalDateTime,
     val expiredAt: LocalDateTime,
     val status: UserCouponStatus,
     val issuedAt: LocalDateTime,
@@ -27,7 +28,8 @@ data class IssuedCouponResult(
                 type = type,
                 value = value,
                 minOrderAmount = coupon.minOrderAmount,
-                expiredAt = coupon.expiredAt,
+                usableFrom = userCoupon.usableFrom,
+                expiredAt = userCoupon.expiredAt,
                 status = userCoupon.status,
                 issuedAt = userCoupon.issuedAt,
             )

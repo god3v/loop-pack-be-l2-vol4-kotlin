@@ -61,9 +61,16 @@ class OrderCouponIntegrationTest @Autowired constructor(
                 discountType = DiscountType.RATE,
                 discountValue = value,
                 minOrderAmount = null,
-                expiredAt = LocalDateTime.now().plusDays(30),
             ),
         )
+
+    // 발급 쿠폰 도메인 객체 생성(저장은 호출부에서). 사용 가능 구간을 인자로 스냅샷한다.
+    private fun issue(
+        userId: Long,
+        couponId: Long,
+        usableFrom: LocalDateTime = LocalDateTime.now().minusDays(1),
+        expiredAt: LocalDateTime = LocalDateTime.now().plusDays(30),
+    ): UserCoupon = UserCoupon.issue(userId = userId, couponId = couponId, usableFrom = usableFrom, expiredAt = expiredAt)
 
     @DisplayName("쿠폰을 적용해 주문하면, 할인이 반영되고 쿠폰이 즉시 USED 로 소진된다.")
     @Test
@@ -71,7 +78,7 @@ class OrderCouponIntegrationTest @Autowired constructor(
         val user = newUser()
         val product = newProduct(price = 1000, stock = 10)
         val template = newRateTemplate(value = 10)
-        val userCoupon = userCouponRepository.save(UserCoupon.issue(userId = user.id, couponId = template.id))
+        val userCoupon = userCouponRepository.save(issue(userId = user.id, couponId = template.id))
 
         val result = orderFacade.placeOrder(
             PlaceOrderCommand(
@@ -102,7 +109,7 @@ class OrderCouponIntegrationTest @Autowired constructor(
         val user = newUser()
         val product = newProduct(price = 1000, stock = 10)
         val template = newRateTemplate()
-        val userCoupon = userCouponRepository.save(UserCoupon.issue(userId = user.id, couponId = template.id))
+        val userCoupon = userCouponRepository.save(issue(userId = user.id, couponId = template.id))
             .also { it.use(LocalDateTime.now()) }
             .also { userCouponRepository.save(it) }
 
@@ -130,7 +137,7 @@ class OrderCouponIntegrationTest @Autowired constructor(
         val requester = newUser(loginId = "requester", email = "requester@example.com")
         val product = newProduct(price = 1000, stock = 10)
         val template = newRateTemplate()
-        val othersCoupon = userCouponRepository.save(UserCoupon.issue(userId = owner.id, couponId = template.id))
+        val othersCoupon = userCouponRepository.save(issue(userId = owner.id, couponId = template.id))
 
         val ex = assertThrows<CoreException> {
             orderFacade.placeOrder(
@@ -154,11 +161,16 @@ class OrderCouponIntegrationTest @Autowired constructor(
     fun rollsBackWhenCouponExpired() {
         val user = newUser()
         val product = newProduct(price = 1000, stock = 10)
-        // 발급 당시엔 유효했으나 이후 만료된 템플릿을 모사한다(픽스처는 create 검증을 우회).
-        val expiredTemplate = couponRepository.save(
-            CouponFixture.coupon(name = "만료", expiredAt = LocalDateTime.now().minusDays(1)),
+        // 발급 당시엔 유효했으나 이후 사용 만료된 발급 쿠폰을 모사한다 — 만료는 발급 쿠폰의 expiredAt(스냅샷)으로 판정된다.
+        val template = couponRepository.save(CouponFixture.coupon(name = "만료"))
+        val userCoupon = userCouponRepository.save(
+            issue(
+                userId = user.id,
+                couponId = template.id,
+                usableFrom = LocalDateTime.now().minusDays(30),
+                expiredAt = LocalDateTime.now().minusDays(1),
+            ),
         )
-        val userCoupon = userCouponRepository.save(UserCoupon.issue(userId = user.id, couponId = expiredTemplate.id))
 
         val ex = assertThrows<CoreException> {
             orderFacade.placeOrder(
@@ -189,10 +201,9 @@ class OrderCouponIntegrationTest @Autowired constructor(
                 discountValue = 10,
                 // 최소 주문 금액(100,000) 을 상품 합계(2,000) 보다 크게 둔다.
                 minOrderAmount = 100_000,
-                expiredAt = LocalDateTime.now().plusDays(30),
             ),
         )
-        val userCoupon = userCouponRepository.save(UserCoupon.issue(userId = user.id, couponId = template.id))
+        val userCoupon = userCouponRepository.save(issue(userId = user.id, couponId = template.id))
 
         val ex = assertThrows<CoreException> {
             orderFacade.placeOrder(
@@ -238,7 +249,7 @@ class OrderCouponIntegrationTest @Autowired constructor(
         val user = newUser()
         val product = newProduct(price = 1000, stock = 10)
         val template = newRateTemplate()
-        val userCoupon = userCouponRepository.save(UserCoupon.issue(userId = user.id, couponId = template.id))
+        val userCoupon = userCouponRepository.save(issue(userId = user.id, couponId = template.id))
 
         orderFacade.placeOrder(
             PlaceOrderCommand(
@@ -275,7 +286,7 @@ class OrderCouponIntegrationTest @Autowired constructor(
         val user = newUser()
         val product = newProduct(price = 1000, stock = 100)
         val template = newRateTemplate()
-        val userCoupon = userCouponRepository.save(UserCoupon.issue(userId = user.id, couponId = template.id))
+        val userCoupon = userCouponRepository.save(issue(userId = user.id, couponId = template.id))
 
         val threads = 6
         val startLatch = CountDownLatch(1)

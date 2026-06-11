@@ -31,7 +31,15 @@ class CouponFacade(
         if (userCouponRepository.existsByUserIdAndCouponId(userId, couponId)) {
             throw CoreException(CouponErrorType.ALREADY_ISSUED_COUPON)
         }
-        val saved = userCouponRepository.save(UserCoupon.issue(userId = userId, couponId = couponId))
+        // 발급 시점에 템플릿의 사용 가능 구간을 발급 쿠폰으로 스냅샷한다 — 이후 템플릿이 바뀌어도 발급분 유효기간은 고정.
+        val saved = userCouponRepository.save(
+            UserCoupon.issue(
+                userId = userId,
+                couponId = couponId,
+                usableFrom = coupon.useStartAt,
+                expiredAt = coupon.useEndAt,
+            ),
+        )
         return IssuedCouponResult.of(saved, coupon)
     }
 
@@ -66,7 +74,10 @@ class CouponFacade(
             discountType = command.discountType,
             discountValue = command.discountValue,
             minOrderAmount = command.minOrderAmount,
-            expiredAt = command.expiredAt,
+            issueStartAt = command.issueStartAt,
+            issueEndAt = command.issueEndAt,
+            useStartAt = command.useStartAt,
+            useEndAt = command.useEndAt,
             now = LocalDateTime.now(),
         )
         return AdminCouponResult.from(couponRepository.save(coupon))
@@ -81,7 +92,10 @@ class CouponFacade(
             discountType = command.discountType,
             discountValue = command.discountValue,
             minOrderAmount = command.minOrderAmount,
-            expiredAt = command.expiredAt,
+            issueStartAt = command.issueStartAt,
+            issueEndAt = command.issueEndAt,
+            useStartAt = command.useStartAt,
+            useEndAt = command.useEndAt,
             now = LocalDateTime.now(),
         )
         return AdminCouponResult.from(couponRepository.save(coupon))
@@ -97,10 +111,10 @@ class CouponFacade(
 
     @Transactional(readOnly = true)
     fun getCouponIssues(couponId: Long, pageQuery: PageQuery): PageResult<CouponIssueResult> {
-        val coupon = couponRepository.findById(couponId)
+        couponRepository.findById(couponId)
             ?: throw CoreException(CouponErrorType.COUPON_NOT_FOUND)
         val now = LocalDateTime.now()
         return userCouponRepository.findAllByCouponId(couponId, pageQuery.page, pageQuery.size)
-            .map { CouponIssueResult.of(it, coupon, now) }
+            .map { CouponIssueResult.of(it, now) }
     }
 }

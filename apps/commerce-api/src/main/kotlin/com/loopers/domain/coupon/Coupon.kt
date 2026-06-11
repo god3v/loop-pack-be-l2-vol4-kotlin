@@ -8,7 +8,10 @@ class Coupon internal constructor(
     name: CouponName,
     discountPolicy: DiscountPolicy,
     minOrderAmount: Long?,
-    expiredAt: LocalDateTime,
+    issueStartAt: LocalDateTime,
+    issueEndAt: LocalDateTime,
+    useStartAt: LocalDateTime,
+    useEndAt: LocalDateTime,
 ) {
     var name: CouponName = name
         private set
@@ -19,7 +22,16 @@ class Coupon internal constructor(
     var minOrderAmount: Long? = minOrderAmount
         private set
 
-    var expiredAt: LocalDateTime = expiredAt
+    var issueStartAt: LocalDateTime = issueStartAt
+        private set
+
+    var issueEndAt: LocalDateTime = issueEndAt
+        private set
+
+    var useStartAt: LocalDateTime = useStartAt
+        private set
+
+    var useEndAt: LocalDateTime = useEndAt
         private set
 
     var deletedAt: LocalDateTime? = null
@@ -34,11 +46,9 @@ class Coupon internal constructor(
         return discountPolicy.discountFor(orderAmount)
     }
 
-    fun isExpired(at: LocalDateTime): Boolean = at.isAfter(expiredAt)
-
     fun ensureIssuable(now: LocalDateTime) {
-        if (isExpired(now)) {
-            throw CoreException(CouponErrorType.COUPON_NOT_APPLICABLE, "만료된 쿠폰은 발급할 수 없다.")
+        if (now.isBefore(issueStartAt) || now.isAfter(issueEndAt)) {
+            throw CoreException(CouponErrorType.COUPON_NOT_APPLICABLE, "발급 가능 기간이 아니다.")
         }
     }
 
@@ -47,14 +57,20 @@ class Coupon internal constructor(
         discountType: DiscountType,
         discountValue: Long,
         minOrderAmount: Long?,
-        expiredAt: LocalDateTime,
+        issueStartAt: LocalDateTime,
+        issueEndAt: LocalDateTime,
+        useStartAt: LocalDateTime,
+        useEndAt: LocalDateTime,
         now: LocalDateTime,
     ) {
-        validate(minOrderAmount, expiredAt, now)
+        validate(minOrderAmount, issueStartAt, issueEndAt, useStartAt, useEndAt, now)
         this.name = CouponName.of(name)
         this.discountPolicy = DiscountPolicy.of(discountType, discountValue)
         this.minOrderAmount = minOrderAmount
-        this.expiredAt = expiredAt
+        this.issueStartAt = issueStartAt
+        this.issueEndAt = issueEndAt
+        this.useStartAt = useStartAt
+        this.useEndAt = useEndAt
     }
 
     fun softDelete() {
@@ -66,12 +82,25 @@ class Coupon internal constructor(
     fun isDeleted(): Boolean = deletedAt != null
 
     companion object {
-        private fun validate(minOrderAmount: Long?, expiredAt: LocalDateTime, now: LocalDateTime) {
+        private fun validate(
+            minOrderAmount: Long?,
+            issueStartAt: LocalDateTime,
+            issueEndAt: LocalDateTime,
+            useStartAt: LocalDateTime,
+            useEndAt: LocalDateTime,
+            now: LocalDateTime,
+        ) {
             if (minOrderAmount != null && minOrderAmount < 0L) {
                 throw CoreException(CouponErrorType.COUPON_BAD_REQUEST, "최소 주문 금액은 음수가 될 수 없다.")
             }
-            if (!expiredAt.isAfter(now)) {
-                throw CoreException(CouponErrorType.COUPON_BAD_REQUEST, "만료 시각은 미래여야 한다.")
+            if (!issueEndAt.isAfter(issueStartAt)) {
+                throw CoreException(CouponErrorType.COUPON_BAD_REQUEST, "발급 종료 시각은 발급 시작 시각 이후여야 한다.")
+            }
+            if (!useEndAt.isAfter(useStartAt)) {
+                throw CoreException(CouponErrorType.COUPON_BAD_REQUEST, "사용 종료 시각은 사용 시작 시각 이후여야 한다.")
+            }
+            if (!issueEndAt.isAfter(now)) {
+                throw CoreException(CouponErrorType.COUPON_BAD_REQUEST, "발급 종료 시각은 미래여야 한다.")
             }
         }
 
@@ -80,15 +109,21 @@ class Coupon internal constructor(
             discountType: DiscountType,
             discountValue: Long,
             minOrderAmount: Long?,
-            expiredAt: LocalDateTime,
+            issueStartAt: LocalDateTime,
+            issueEndAt: LocalDateTime,
+            useStartAt: LocalDateTime,
+            useEndAt: LocalDateTime,
             now: LocalDateTime,
         ): Coupon {
-            validate(minOrderAmount, expiredAt, now)
+            validate(minOrderAmount, issueStartAt, issueEndAt, useStartAt, useEndAt, now)
             return Coupon(
                 name = CouponName.of(name),
                 discountPolicy = DiscountPolicy.of(discountType, discountValue),
                 minOrderAmount = minOrderAmount,
-                expiredAt = expiredAt,
+                issueStartAt = issueStartAt,
+                issueEndAt = issueEndAt,
+                useStartAt = useStartAt,
+                useEndAt = useEndAt,
             )
         }
     }

@@ -10,7 +10,10 @@ data class AdminCouponResult(
     val type: DiscountType,
     val value: Long,
     val minOrderAmount: Long?,
-    val expiredAt: LocalDateTime,
+    val issueStartAt: LocalDateTime,
+    val issueEndAt: LocalDateTime,
+    val useStartAt: LocalDateTime,
+    val useEndAt: LocalDateTime,
 ) {
     companion object {
         fun from(coupon: Coupon): AdminCouponResult {
@@ -21,7 +24,10 @@ data class AdminCouponResult(
                 type = type,
                 value = value,
                 minOrderAmount = coupon.minOrderAmount,
-                expiredAt = coupon.expiredAt,
+                issueStartAt = coupon.issueStartAt,
+                issueEndAt = coupon.issueEndAt,
+                useStartAt = coupon.useStartAt,
+                useEndAt = coupon.useEndAt,
             )
         }
     }

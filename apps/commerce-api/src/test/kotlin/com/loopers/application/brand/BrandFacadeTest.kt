@@ -210,7 +210,7 @@ class BrandFacadeTest {
             val productB = ProductFixture.validProduct(name = "P2")
             every { brandRepository.findById(1L) } returns brand
             every { productRepository.findAllByBrandId(1L) } returns listOf(productA, productB)
-            every { productRepository.save(any()) } answers { firstArg() }
+            every { productRepository.saveAll(any()) } answers { firstArg() }
             every { brandRepository.save(brand) } returns brand
 
             brandFacade.deleteBrand(1L)
@@ -218,8 +218,8 @@ class BrandFacadeTest {
             assertThat(brand.isDeleted()).isTrue()
             assertThat(productA.isDeleted()).isTrue()
             assertThat(productB.isDeleted()).isTrue()
-            verify { productRepository.save(productA) }
-            verify { productRepository.save(productB) }
+            verify(exactly = 0) { productRepository.save(any()) }
+            verify { productRepository.saveAll(listOf(productA, productB)) }
             verify { brandRepository.save(brand) }
         }
 
@@ -240,6 +240,7 @@ class BrandFacadeTest {
             val brand = BrandFixture.validBrand()
             every { brandRepository.findById(1L) } returns brand
             every { productRepository.findAllByBrandId(1L) } returns emptyList()
+            every { productRepository.saveAll(emptyList()) } returns emptyList()
             every { brandRepository.save(brand) } returns brand
 
             brandFacade.deleteBrand(1L)

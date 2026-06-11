@@ -57,10 +57,16 @@ class OrderV1ApiE2ETest @Autowired constructor(
                 discountType = DiscountType.RATE,
                 discountValue = 10,
                 minOrderAmount = null,
+            ),
+        ).id
+        userCouponId = userCouponRepository.save(
+            UserCoupon.issue(
+                userId = userId,
+                couponId = couponId,
+                usableFrom = LocalDateTime.now().minusDays(1),
                 expiredAt = LocalDateTime.now().plusDays(30),
             ),
         ).id
-        userCouponId = userCouponRepository.save(UserCoupon.issue(userId = userId, couponId = couponId)).id
     }
 
     @AfterEach

@@ -27,7 +27,10 @@ class CouponEntity private constructor(
     discountType: DiscountType,
     discountValue: Long,
     minOrderAmount: Long?,
-    expiredAt: LocalDateTime,
+    issueStartAt: LocalDateTime,
+    issueEndAt: LocalDateTime,
+    useStartAt: LocalDateTime,
+    useEndAt: LocalDateTime,
 ) : BaseEntity() {
     @Column(nullable = false)
     var name: String = name
@@ -46,8 +49,20 @@ class CouponEntity private constructor(
     var minOrderAmount: Long? = minOrderAmount
         protected set
 
-    @Column(name = "expired_at", nullable = false)
-    var expiredAt: LocalDateTime = expiredAt
+    @Column(name = "issue_start_at", nullable = false)
+    var issueStartAt: LocalDateTime = issueStartAt
+        protected set
+
+    @Column(name = "issue_end_at", nullable = false)
+    var issueEndAt: LocalDateTime = issueEndAt
+        protected set
+
+    @Column(name = "use_start_at", nullable = false)
+    var useStartAt: LocalDateTime = useStartAt
+        protected set
+
+    @Column(name = "use_end_at", nullable = false)
+    var useEndAt: LocalDateTime = useEndAt
         protected set
 
     fun toDomain(): Coupon = Coupon(
@@ -55,7 +70,10 @@ class CouponEntity private constructor(
         name = CouponName.of(this.name),
         discountPolicy = DiscountPolicy.of(this.discountType, this.discountValue),
         minOrderAmount = this.minOrderAmount,
-        expiredAt = this.expiredAt,
+        issueStartAt = this.issueStartAt,
+        issueEndAt = this.issueEndAt,
+        useStartAt = this.useStartAt,
+        useEndAt = this.useEndAt,
     )
 
     fun syncFrom(coupon: Coupon) {
@@ -64,7 +82,10 @@ class CouponEntity private constructor(
         this.discountType = type
         this.discountValue = value
         this.minOrderAmount = coupon.minOrderAmount
-        this.expiredAt = coupon.expiredAt
+        this.issueStartAt = coupon.issueStartAt
+        this.issueEndAt = coupon.issueEndAt
+        this.useStartAt = coupon.useStartAt
+        this.useEndAt = coupon.useEndAt
         if (coupon.isDeleted() && this.deletedAt == null) {
             this.delete()
         }
@@ -78,13 +99,15 @@ class CouponEntity private constructor(
                 discountType = type,
                 discountValue = value,
                 minOrderAmount = coupon.minOrderAmount,
-                expiredAt = coupon.expiredAt,
+                issueStartAt = coupon.issueStartAt,
+                issueEndAt = coupon.issueEndAt,
+                useStartAt = coupon.useStartAt,
+                useEndAt = coupon.useEndAt,
             )
         }
     }
 }
 
-/** 영속(컬럼) 투영 — `DiscountPolicy.of` 의 역방향. 정책 종류가 늘면 컴파일러가 분기 누락을 강제한다. */
 private fun DiscountPolicy.toColumns(): Pair<DiscountType, Long> = when (this) {
     is FixedAmountDiscountPolicy -> DiscountType.FIXED to amount
     is PercentageDiscountPolicy -> DiscountType.RATE to percent

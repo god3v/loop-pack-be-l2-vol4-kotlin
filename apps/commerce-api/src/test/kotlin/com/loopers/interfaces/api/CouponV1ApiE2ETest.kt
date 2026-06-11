@@ -55,7 +55,6 @@ class CouponV1ApiE2ETest @Autowired constructor(
                 discountType = DiscountType.RATE,
                 discountValue = 10,
                 minOrderAmount = 10000,
-                expiredAt = LocalDateTime.now().plusDays(30),
             ),
         ).id
     }
@@ -109,7 +108,11 @@ class CouponV1ApiE2ETest @Autowired constructor(
         @Test
         fun returnsBadRequest_whenExpired() {
             val expiredId = couponRepository.save(
-                CouponFixture.coupon(name = "만료쿠폰", expiredAt = LocalDateTime.now().minusDays(1)),
+                CouponFixture.coupon(
+                    name = "만료쿠폰",
+                    issueStartAt = LocalDateTime.now().minusDays(10),
+                    issueEndAt = LocalDateTime.now().minusDays(1),
+                ),
             ).id
 
             val response = issueAny(expiredId)
@@ -156,14 +159,19 @@ class CouponV1ApiE2ETest @Autowired constructor(
             )
         }
 
-        @DisplayName("미사용 쿠폰의 템플릿이 만료되면, 노출 상태가 EXPIRED 로 파생된다.")
+        @DisplayName("미사용 쿠폰의 사용 기간이 지나면, 노출 상태가 EXPIRED 로 파생된다.")
         @Test
         fun derivesExpiredStatus() {
-            val expiredTemplateId = couponRepository.save(
-                CouponFixture.coupon(name = "만료템플릿", expiredAt = LocalDateTime.now().minusDays(1)),
-            ).id
-            // 발급 엔드포인트는 만료 템플릿을 거부하므로, 만료 전 발급된 쿠폰을 모사해 직접 저장한다.
-            userCouponRepository.save(UserCoupon.issue(userId = userId, couponId = expiredTemplateId))
+            val expiredTemplateId = couponRepository.save(CouponFixture.coupon(name = "만료템플릿")).id
+            // 노출 상태(EXPIRED) 는 발급 쿠폰의 expiredAt(스냅샷)으로 파생된다 — 사용 만료된 발급 쿠폰을 직접 저장한다.
+            userCouponRepository.save(
+                UserCoupon.issue(
+                    userId = userId,
+                    couponId = expiredTemplateId,
+                    usableFrom = LocalDateTime.now().minusDays(30),
+                    expiredAt = LocalDateTime.now().minusDays(1),
+                ),
+            )
 
             val response = getMyCoupons()
 

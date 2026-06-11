@@ -233,17 +233,22 @@ class OrderFacadeTest {
             val user = arrangeUser()
             every { userCouponRepository.findByIdForUpdate(99L) } returns
                 CouponFixture.userCoupon(id = 99L, userId = user.id, couponId = 7L, status = UserCouponStatus.USED)
+            every { couponRepository.findByIdIncludingDeleted(7L) } returns CouponFixture.coupon(id = 7L)
             assertOrderFails(CouponErrorType.ALREADY_USED_COUPON)
         }
 
         @Test
-        @DisplayName("만료된 쿠폰이면 COUPON_NOT_APPLICABLE")
+        @DisplayName("사용 기간이 지난 쿠폰이면 COUPON_NOT_APPLICABLE (발급 쿠폰의 expiredAt 으로 판정)")
         fun expiredCoupon() {
             val user = arrangeUser()
             every { userCouponRepository.findByIdForUpdate(99L) } returns
-                CouponFixture.userCoupon(id = 99L, userId = user.id, couponId = 7L)
-            every { couponRepository.findByIdIncludingDeleted(7L) } returns
-                CouponFixture.coupon(id = 7L, expiredAt = LocalDateTime.now().minusDays(1))
+                CouponFixture.userCoupon(
+                    id = 99L,
+                    userId = user.id,
+                    couponId = 7L,
+                    expiredAt = LocalDateTime.now().minusDays(1),
+                )
+            every { couponRepository.findByIdIncludingDeleted(7L) } returns CouponFixture.coupon(id = 7L)
             assertOrderFails(CouponErrorType.COUPON_NOT_APPLICABLE)
         }
     }

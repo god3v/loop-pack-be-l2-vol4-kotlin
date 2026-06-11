@@ -31,7 +31,17 @@ class CouponRepositoryImplIntegrationTest @Autowired constructor(
         type: DiscountType = DiscountType.RATE,
         value: Long = 10,
         minOrderAmount: Long? = 10000,
-    ): Coupon = Coupon.create(name, type, value, minOrderAmount, now.plusDays(30), now)
+    ): Coupon = Coupon.create(
+        name = name,
+        discountType = type,
+        discountValue = value,
+        minOrderAmount = minOrderAmount,
+        issueStartAt = now.minusDays(1),
+        issueEndAt = now.plusDays(30),
+        useStartAt = now.minusDays(1),
+        useEndAt = now.plusDays(60),
+        now = now,
+    )
 
     @DisplayName("save / findById 라운드트립")
     @Nested
@@ -47,7 +57,8 @@ class CouponRepositoryImplIntegrationTest @Autowired constructor(
             assertThat(found.name.value).isEqualTo("신규가입 10% 할인")
             assertThat(found.discountPolicy).isEqualTo(PercentageDiscountPolicy(10))
             assertThat(found.minOrderAmount).isEqualTo(10000)
-            assertThat(found.expiredAt).isEqualTo(now.plusDays(30))
+            assertThat(found.issueEndAt).isEqualTo(now.plusDays(30))
+            assertThat(found.useEndAt).isEqualTo(now.plusDays(60))
         }
 
         @DisplayName("findById 는 soft-deleted Coupon 을 null 로 반환한다.")

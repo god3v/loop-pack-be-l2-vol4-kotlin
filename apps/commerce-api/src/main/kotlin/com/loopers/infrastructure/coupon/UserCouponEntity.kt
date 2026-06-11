@@ -27,6 +27,8 @@ class UserCouponEntity private constructor(
     couponId: Long,
     status: UserCouponStatus,
     issuedAt: LocalDateTime,
+    usableFrom: LocalDateTime,
+    expiredAt: LocalDateTime,
     usedAt: LocalDateTime?,
 ) : BaseEntity() {
     @Column(name = "user_id", nullable = false)
@@ -46,6 +48,14 @@ class UserCouponEntity private constructor(
     var issuedAt: LocalDateTime = issuedAt
         protected set
 
+    @Column(name = "usable_from", nullable = false)
+    var usableFrom: LocalDateTime = usableFrom
+        protected set
+
+    @Column(name = "expired_at", nullable = false)
+    var expiredAt: LocalDateTime = expiredAt
+        protected set
+
     @Column(name = "used_at")
     var usedAt: LocalDateTime? = usedAt
         protected set
@@ -56,6 +66,8 @@ class UserCouponEntity private constructor(
         couponId = this.couponId,
         status = this.status,
         issuedAt = this.issuedAt,
+        usableFrom = this.usableFrom,
+        expiredAt = this.expiredAt,
         usedAt = this.usedAt,
     )
 
@@ -70,6 +82,8 @@ class UserCouponEntity private constructor(
             couponId = userCoupon.couponId,
             status = userCoupon.status,
             issuedAt = userCoupon.issuedAt,
+            usableFrom = userCoupon.usableFrom,
+            expiredAt = userCoupon.expiredAt,
             usedAt = userCoupon.usedAt,
         )
     }
