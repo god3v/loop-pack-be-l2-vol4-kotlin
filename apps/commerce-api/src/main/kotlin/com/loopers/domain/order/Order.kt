@@ -10,12 +10,23 @@ class Order internal constructor(
     val lines: List<OrderLine>,
     val orderedAt: LocalDateTime,
     val idempotencyKey: String,
-    val couponId: Long? = null,
+    userCouponId: Long? = null,
+    discountAmount: Long = 0L,
     status: OrderStatus = OrderStatus.PAYMENT_PENDING,
     paymentTransactionId: String? = null,
     paymentResultCode: String? = null,
 ) {
-    val totalAmount: Long get() = lines.sumOf { it.subtotal }
+    /** 할인 적용 전 라인 합계(쿠폰 최소 주문 금액 판정 기준). */
+    val originalAmount: Long get() = lines.sumOf { it.subtotal }
+
+    /** 쿠폰 할인이 반영된 최종 결제 대상 금액. 음수가 될 수 없다. */
+    val totalAmount: Long get() = (originalAmount - discountAmount).coerceAtLeast(0L)
+
+    var userCouponId: Long? = userCouponId
+        private set
+
+    var discountAmount: Long = discountAmount
+        private set
 
     var status: OrderStatus = status
         private set
@@ -37,7 +48,7 @@ class Order internal constructor(
 
     fun markPaid(transactionId: String, resultCode: String) {
         when (status) {
-            OrderStatus.PAID -> return // 중복 콜백: 멱등 no-op
+            OrderStatus.PAID -> return
             OrderStatus.PAYMENT_FAILED ->
                 throw CoreException(OrderErrorType.INVALID_PAYMENT_TRANSITION, "실패한 주문을 결제 완료로 전이할 수 없다.")
             OrderStatus.PAYMENT_PENDING -> {
@@ -61,6 +72,15 @@ class Order internal constructor(
         }
     }
 
+    /**
+     * 쿠폰을 주문에 적용한다 — 주문 1건당 1장만 적용되며, 적용된 발급 쿠폰 식별자와 계산된 할인 금액을 바인딩한다.
+     * 할인 금액은 음수가 될 수 없고 라인 합계를 초과하지 않는다.
+     */
+    fun applyCoupon(userCouponId: Long, discountAmount: Long) {
+        this.userCouponId = userCouponId
+        this.discountAmount = discountAmount.coerceIn(0L, originalAmount)
+    }
+
     companion object {
         private val SEOUL = ZoneId.of("Asia/Seoul")
 
@@ -68,13 +88,13 @@ class Order internal constructor(
             userId: Long,
             lines: List<OrderLine>,
             idempotencyKey: String,
-            couponId: Long? = null,
+            userCouponId: Long? = null,
         ): Order = Order(
             userId = userId,
             lines = lines,
             orderedAt = LocalDateTime.now(SEOUL),
             idempotencyKey = idempotencyKey,
-            couponId = couponId,
+            userCouponId = userCouponId,
         )
     }
 }

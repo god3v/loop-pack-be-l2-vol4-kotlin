@@ -37,7 +37,7 @@ class CouponFacadeTest {
         @Test
         @DisplayName("유효 템플릿으로 발급하면 AVAILABLE UserCoupon 이 저장되고 결과가 반환된다")
         fun issuesAvailable() {
-            val coupon = CouponFixture.coupon(id = 7L, expiredAt = LocalDateTime.now().plusDays(10))
+            val coupon = CouponFixture.coupon(id = 7L)
             every { couponRepository.findById(7L) } returns coupon
             every { userCouponRepository.existsByUserIdAndCouponId(1L, 7L) } returns false
             every { userCouponRepository.save(any()) } answers { firstArg() }
@@ -60,9 +60,13 @@ class CouponFacadeTest {
         }
 
         @Test
-        @DisplayName("템플릿이 만료됐으면 COUPON_NOT_APPLICABLE")
+        @DisplayName("발급 기간이 지났으면 COUPON_NOT_APPLICABLE")
         fun expired() {
-            val coupon = CouponFixture.coupon(id = 7L, expiredAt = LocalDateTime.now().minusDays(1))
+            val coupon = CouponFixture.coupon(
+                id = 7L,
+                issueStartAt = LocalDateTime.now().minusDays(10),
+                issueEndAt = LocalDateTime.now().minusDays(1),
+            )
             every { couponRepository.findById(7L) } returns coupon
 
             val ex = assertThrows<CoreException> { couponFacade.issueCoupon(1L, 7L) }
@@ -73,7 +77,7 @@ class CouponFacadeTest {
         @Test
         @DisplayName("이미 발급받았으면 ALREADY_ISSUED_COUPON")
         fun alreadyIssued() {
-            val coupon = CouponFixture.coupon(id = 7L, expiredAt = LocalDateTime.now().plusDays(10))
+            val coupon = CouponFixture.coupon(id = 7L)
             every { couponRepository.findById(7L) } returns coupon
             every { userCouponRepository.existsByUserIdAndCouponId(1L, 7L) } returns true
 
@@ -89,12 +93,19 @@ class CouponFacadeTest {
         @Test
         @DisplayName("보유 발급 쿠폰의 노출 상태가 USED/EXPIRED/AVAILABLE 로 파생된다")
         fun derivesStatus() {
-            val available = CouponFixture.coupon(id = 1L, expiredAt = LocalDateTime.now().plusDays(10))
-            val used = CouponFixture.coupon(id = 2L, expiredAt = LocalDateTime.now().plusDays(10))
-            val expired = CouponFixture.coupon(id = 3L, expiredAt = LocalDateTime.now().minusDays(1))
+            // 노출 상태(EXPIRED) 는 이제 템플릿이 아니라 발급 쿠폰 자신의 expiredAt 으로 파생된다.
+            val available = CouponFixture.coupon(id = 1L)
+            val used = CouponFixture.coupon(id = 2L)
+            val expired = CouponFixture.coupon(id = 3L)
             val ucAvailable = CouponFixture.userCoupon(id = 11L, userId = 1L, couponId = 1L, status = UserCouponStatus.AVAILABLE)
             val ucUsed = CouponFixture.userCoupon(id = 12L, userId = 1L, couponId = 2L, status = UserCouponStatus.USED, usedAt = LocalDateTime.now())
-            val ucExpired = CouponFixture.userCoupon(id = 13L, userId = 1L, couponId = 3L, status = UserCouponStatus.AVAILABLE)
+            val ucExpired = CouponFixture.userCoupon(
+                id = 13L,
+                userId = 1L,
+                couponId = 3L,
+                status = UserCouponStatus.AVAILABLE,
+                expiredAt = LocalDateTime.now().minusDays(1),
+            )
 
             every { userCouponRepository.findAllByUserId(1L, 0, 20) } returns pageOf(listOf(ucAvailable, ucUsed, ucExpired))
             every { couponRepository.findAllByIdsIncludingDeleted(listOf(1L, 2L, 3L)) } returns listOf(available, used, expired)
@@ -149,7 +160,10 @@ class CouponFacadeTest {
                     discountType = DiscountType.RATE,
                     discountValue = 10,
                     minOrderAmount = 10000,
-                    expiredAt = LocalDateTime.now().plusDays(30),
+                    issueStartAt = LocalDateTime.now().minusDays(1),
+                    issueEndAt = LocalDateTime.now().plusDays(30),
+                    useStartAt = LocalDateTime.now().minusDays(1),
+                    useEndAt = LocalDateTime.now().plusDays(60),
                 ),
             )
 
@@ -167,7 +181,10 @@ class CouponFacadeTest {
                         discountType = DiscountType.FIXED,
                         discountValue = 1000,
                         minOrderAmount = null,
-                        expiredAt = LocalDateTime.now().minusDays(1),
+                        issueStartAt = LocalDateTime.now().minusDays(10),
+                        issueEndAt = LocalDateTime.now().minusDays(1),
+                        useStartAt = LocalDateTime.now().minusDays(10),
+                        useEndAt = LocalDateTime.now().plusDays(60),
                     ),
                 )
             }
@@ -185,14 +202,35 @@ class CouponFacadeTest {
 
             val result = couponFacade.updateCoupon(
                 7L,
-                UpdateCouponCommand("변경", DiscountType.FIXED, 3000, 5000, LocalDateTime.now().plusDays(10)),
+                UpdateCouponCommand(
+                    name = "변경",
+                    discountType = DiscountType.FIXED,
+                    discountValue = 3000,
+                    minOrderAmount = 5000,
+                    issueStartAt = LocalDateTime.now().minusDays(1),
+                    issueEndAt = LocalDateTime.now().plusDays(10),
+                    useStartAt = LocalDateTime.now().minusDays(1),
+                    useEndAt = LocalDateTime.now().plusDays(20),
+                ),
             )
 
             assertThat(result.name).isEqualTo("변경")
             assertThat(
                 assertThrows<CoreException> {
-                couponFacade.updateCoupon(99L, UpdateCouponCommand("x", DiscountType.FIXED, 1, null, LocalDateTime.now().plusDays(1)))
-            }.errorType,
+                    couponFacade.updateCoupon(
+                        99L,
+                        UpdateCouponCommand(
+                            name = "x",
+                            discountType = DiscountType.FIXED,
+                            discountValue = 1,
+                            minOrderAmount = null,
+                            issueStartAt = LocalDateTime.now().minusDays(1),
+                            issueEndAt = LocalDateTime.now().plusDays(1),
+                            useStartAt = LocalDateTime.now().minusDays(1),
+                            useEndAt = LocalDateTime.now().plusDays(10),
+                        ),
+                    )
+                }.errorType,
             ).isEqualTo(CouponErrorType.COUPON_NOT_FOUND)
         }
 
@@ -220,7 +258,7 @@ class CouponFacadeTest {
         @Test
         @DisplayName("템플릿 존재 시 발급 내역이 매핑된다")
         fun listsIssues() {
-            val coupon = CouponFixture.coupon(id = 7L, expiredAt = LocalDateTime.now().plusDays(10))
+            val coupon = CouponFixture.coupon(id = 7L)
             val uc = CouponFixture.userCoupon(id = 70L, userId = 3L, couponId = 7L, status = UserCouponStatus.USED, usedAt = LocalDateTime.now())
             every { couponRepository.findById(7L) } returns coupon
             every { userCouponRepository.findAllByCouponId(7L, 0, 20) } returns pageOf(listOf(uc))
@@ -239,87 +277,6 @@ class CouponFacadeTest {
 
             assertThat(assertThrows<CoreException> { couponFacade.getCouponIssues(99L, PageQuery(0, 20)) }.errorType)
                 .isEqualTo(CouponErrorType.COUPON_NOT_FOUND)
-        }
-    }
-
-    @Nested
-    @DisplayName("applyCoupon — UC-9")
-    inner class ApplyCoupon {
-        @Test
-        @DisplayName("정상: 할인 금액을 반환하고 USED 로 저장된다 (RATE)")
-        fun appliesRate() {
-            val coupon = CouponFixture.coupon(id = 7L, discountType = DiscountType.RATE, discountValue = 10, minOrderAmount = 10000, expiredAt = LocalDateTime.now().plusDays(10))
-            val uc = CouponFixture.userCoupon(id = 70L, userId = 1L, couponId = 7L, status = UserCouponStatus.AVAILABLE)
-            every { userCouponRepository.findByIdForUpdate(70L) } returns uc
-            every { couponRepository.findByIdIncludingDeleted(7L) } returns coupon
-            every { userCouponRepository.save(uc) } returns uc
-
-            val discount = couponFacade.applyCoupon(userId = 1L, userCouponId = 70L, orderAmount = 20000)
-
-            assertThat(discount).isEqualTo(2000)
-            assertThat(uc.status).isEqualTo(UserCouponStatus.USED)
-            verify { userCouponRepository.save(uc) }
-        }
-
-        @Test
-        @DisplayName("정상: FIXED 할인 금액")
-        fun appliesFixed() {
-            val coupon = CouponFixture.coupon(id = 7L, discountType = DiscountType.FIXED, discountValue = 3000, minOrderAmount = null, expiredAt = LocalDateTime.now().plusDays(10))
-            val uc = CouponFixture.userCoupon(id = 70L, userId = 1L, couponId = 7L)
-            every { userCouponRepository.findByIdForUpdate(70L) } returns uc
-            every { couponRepository.findByIdIncludingDeleted(7L) } returns coupon
-            every { userCouponRepository.save(uc) } returns uc
-
-            assertThat(couponFacade.applyCoupon(1L, 70L, 20000)).isEqualTo(3000)
-        }
-
-        @Test
-        @DisplayName("발급 쿠폰이 없으면 USER_COUPON_NOT_FOUND")
-        fun notFound() {
-            every { userCouponRepository.findByIdForUpdate(99L) } returns null
-            assertThat(assertThrows<CoreException> { couponFacade.applyCoupon(1L, 99L, 20000) }.errorType)
-                .isEqualTo(CouponErrorType.USER_COUPON_NOT_FOUND)
-        }
-
-        @Test
-        @DisplayName("소유자가 다르면 USER_COUPON_NOT_FOUND")
-        fun wrongOwner() {
-            val uc = CouponFixture.userCoupon(id = 70L, userId = 2L, couponId = 7L)
-            every { userCouponRepository.findByIdForUpdate(70L) } returns uc
-            assertThat(assertThrows<CoreException> { couponFacade.applyCoupon(1L, 70L, 20000) }.errorType)
-                .isEqualTo(CouponErrorType.USER_COUPON_NOT_FOUND)
-        }
-
-        @Test
-        @DisplayName("이미 사용된 쿠폰이면 ALREADY_USED_COUPON")
-        fun alreadyUsed() {
-            val uc = CouponFixture.userCoupon(id = 70L, userId = 1L, couponId = 7L, status = UserCouponStatus.USED, usedAt = LocalDateTime.now())
-            every { userCouponRepository.findByIdForUpdate(70L) } returns uc
-            assertThat(assertThrows<CoreException> { couponFacade.applyCoupon(1L, 70L, 20000) }.errorType)
-                .isEqualTo(CouponErrorType.ALREADY_USED_COUPON)
-        }
-
-        @Test
-        @DisplayName("템플릿이 만료됐으면 COUPON_NOT_APPLICABLE")
-        fun expired() {
-            val coupon = CouponFixture.coupon(id = 7L, expiredAt = LocalDateTime.now().minusDays(1))
-            val uc = CouponFixture.userCoupon(id = 70L, userId = 1L, couponId = 7L)
-            every { userCouponRepository.findByIdForUpdate(70L) } returns uc
-            every { couponRepository.findByIdIncludingDeleted(7L) } returns coupon
-            assertThat(assertThrows<CoreException> { couponFacade.applyCoupon(1L, 70L, 20000) }.errorType)
-                .isEqualTo(CouponErrorType.COUPON_NOT_APPLICABLE)
-        }
-
-        @Test
-        @DisplayName("최소 주문 금액 미달이면 COUPON_NOT_APPLICABLE")
-        fun belowMin() {
-            val coupon = CouponFixture.coupon(id = 7L, discountType = DiscountType.RATE, discountValue = 10, minOrderAmount = 10000, expiredAt = LocalDateTime.now().plusDays(10))
-            val uc = CouponFixture.userCoupon(id = 70L, userId = 1L, couponId = 7L)
-            every { userCouponRepository.findByIdForUpdate(70L) } returns uc
-            every { couponRepository.findByIdIncludingDeleted(7L) } returns coupon
-            assertThat(assertThrows<CoreException> { couponFacade.applyCoupon(1L, 70L, 9999) }.errorType)
-                .isEqualTo(CouponErrorType.COUPON_NOT_APPLICABLE)
-            verify(exactly = 0) { userCouponRepository.save(any()) }
         }
     }
 }

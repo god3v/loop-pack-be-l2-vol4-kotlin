@@ -20,11 +20,8 @@ class LikeRepositoryImpl(
     override fun existsByUserIdAndProductId(userId: Long, productId: Long): Boolean =
         likeJpaRepository.existsByUserIdAndProductId(userId, productId)
 
-    // 업무 키(userId, productId) 기반 삭제로 멱등 보장 — 동시 삭제 race 로 행이 이미 사라져도
-    // 영향 행 0 으로 no-op 이 되어 deleteById 의 EmptyResultDataAccessException 전파를 막는다.
-    override fun delete(like: Like) {
-        likeJpaRepository.deleteByUserIdAndProductId(like.userId, like.productId)
-    }
+    override fun delete(like: Like): Long =
+        likeJpaRepository.deleteByUserIdAndProductId(like.userId, like.productId).toLong()
 
     override fun findAllByUserId(userId: Long, page: Int, size: Int): PageResult<Like> {
         val found = likeJpaRepository.findAllByUserId(

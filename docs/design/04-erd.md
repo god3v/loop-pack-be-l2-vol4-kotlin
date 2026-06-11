@@ -131,7 +131,10 @@ erDiagram
         VARCHAR discount_type
         BIGINT discount_value
         BIGINT min_order_amount
-        DATETIME expired_at
+        DATETIME issue_start_at
+        DATETIME issue_end_at
+        DATETIME use_start_at
+        DATETIME use_end_at
         DATETIME created_at
         DATETIME updated_at
         DATETIME deleted_at
@@ -143,6 +146,8 @@ erDiagram
         BIGINT coupon_id FK
         VARCHAR status
         DATETIME issued_at
+        DATETIME usable_from
+        DATETIME expired_at
         DATETIME used_at
         DATETIME created_at
         DATETIME updated_at
@@ -192,12 +197,14 @@ erDiagram
 - `discount_type` : `FIXED` (정액) / `RATE` (정률)
 - `discount_value` : 정액이면 할인 금액(원), 정률이면 할인 비율(%). 양수. 정률은 1~100.
 - `min_order_amount` : 적용 가능한 최소 주문 합계. 제약이 없으면 `NULL`.
-- `expired_at` : 발급·사용이 더는 허용되지 않는 절대 시각.
+- `issue_start_at` / `issue_end_at` : 템플릿을 발급할 수 있는 절대 시각 구간(경계 포함).
+- `use_start_at` / `use_end_at` : 발급된 쿠폰을 사용할 수 있는 절대 시각 구간. 발급 시점에 `user_coupons` 로 스냅샷된다.
 
 ### `user_coupons`
 회원이 템플릿으로부터 **발급받아 소유하는 쿠폰 인스턴스** 를 저장한다. `(user_id, coupon_id)` 가 활성 행에서 유일해 **1인 1매** 를 강제한다.
 - `status` : `AVAILABLE` (사용 가능) / `USED` (사용 완료) — 저장되는 값은 둘뿐이다.
-- 만료(`EXPIRED`) 는 **저장하지 않는다** — 사용되지 않은 행의 `coupons.expired_at` 이 현재 시각을 지났을 때 **조회·사용 시 파생**되는 노출 상태다.
+- `usable_from` / `expired_at` : 발급 시점에 템플릿의 사용 가능 구간(`coupons.use_start_at`/`use_end_at`) 을 복사한 **스냅샷**. 사용 가능 여부·만료 파생을 이 값만으로 판정하므로 템플릿 변경·삭제와 무관하다.
+- 만료(`EXPIRED`) 는 **저장하지 않는다** — 사용되지 않은 행의 `expired_at`(스냅샷) 이 현재 시각을 지났을 때 **조회·사용 시 파생**되는 노출 상태다.
 - `used_at` : 사용된 시각. 미사용이면 `NULL`. 사용 완료는 만료보다 우선한다(이미 사용된 쿠폰은 만료 시각을 지나도 `USED` 로 노출).
 - 주문이 이 행을 소진하면 `orders.coupon_id` 가 이 행을 가리킨다(역방향 핀은 두지 않는다 — 단일 FK 로 표현).
 
@@ -310,9 +317,9 @@ erDiagram
 
 ### 쿠폰
 
-- **정의/발급 분리**: `coupons`(템플릿) 와 `user_coupons`(발급 인스턴스) 를 분리해 정규화한다 — 할인 조건은 템플릿 한 곳에만 존재하고, 발급 쿠폰은 `coupon_id` 로 이를 참조한다(중복 컬럼 없음).
+- **정의/발급 분리**: `coupons`(템플릿) 와 `user_coupons`(발급 인스턴스) 를 분리해 정규화한다 — 할인 조건(종류·값·최소금액) 은 템플릿 한 곳에만 두고 발급 쿠폰은 `coupon_id` 로 참조한다. 다만 **사용 가능 구간(`usable_from`/`expired_at`) 은 발급 시점에 발급 쿠폰으로 스냅샷**한다 — 의도된 비정규화로, 발급분의 유효기간을 템플릿 변경·삭제로부터 고정하기 위함이다.
 - **1인 1매**: `(user_id, coupon_id)` UNIQUE 가 (회원, 템플릿) 유일성을 DB 차원에서 강제한다 — 동시 발급 시 유니크 위반은 중복 발급 실패(`409`) 로 흡수한다.
 - **단일 사용**: 발급 쿠폰은 `AVAILABLE → USED` 단방향 전이로 최대 한 번만 사용된다. 같은 발급 쿠폰에 대한 동시 사용 경합은 행 단위 락(`SELECT ... FOR UPDATE`) 또는 상태 조건부 갱신(`UPDATE ... SET status='USED' WHERE status='AVAILABLE'`) 으로 한 트랜잭션만 성공하도록 처리한다.
-- **만료 파생**: 만료는 저장 상태가 아니라 `expired_at` 경과로 조회·사용 시 판정한다 — 별도 만료 배치에 의존하지 않으므로 상태 staleness 가 없다.
+- **만료 파생**: 만료는 저장 상태가 아니라 발급 쿠폰의 `user_coupons.expired_at`(발급 시점 스냅샷) 경과로 조회·사용 시 판정한다 — 별도 만료 배치에 의존하지 않으므로 상태 staleness 가 없다.
 - **템플릿 삭제 무영향**: 템플릿 soft delete 는 이미 발급된 쿠폰의 조회·사용에 영향을 주지 않는다 — 발급 쿠폰의 템플릿 조회 경로는 삭제 마크를 무시하고 조회한다(발급 이력 보존).
 - **주문 적용·보상**: 주문이 쿠폰을 적용하면 `orders.coupon_id` 로 발급 쿠폰을 핀하고 그 쿠폰을 `USED` 로 소진한다. 결제 실패 등으로 주문이 확정되지 못하면 같은 트랜잭션/보상 안에서 사용을 원복(`USED → AVAILABLE`) 한다 — 이 결선은 [order](../domain/order/requirements.md) 책임이며 본 모델은 그 슬롯(`coupon_id` · `used_at`) 만 제공한다.

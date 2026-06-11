@@ -32,7 +32,10 @@ class CouponV1AdminApiE2ETest @Autowired constructor(
     private val couponRepository: CouponRepository,
     private val userCouponRepository: UserCouponRepository,
 ) {
-    private val expiredAt: LocalDateTime = LocalDateTime.of(2026, 12, 31, 23, 59, 59)
+    private val issueStartAt: LocalDateTime = LocalDateTime.of(2026, 1, 1, 0, 0, 0)
+    private val issueEndAt: LocalDateTime = LocalDateTime.of(2026, 12, 31, 23, 59, 59)
+    private val useStartAt: LocalDateTime = LocalDateTime.of(2026, 1, 1, 0, 0, 0)
+    private val useEndAt: LocalDateTime = LocalDateTime.of(2027, 12, 31, 23, 59, 59)
 
     @AfterEach
     fun tearDown() {
@@ -45,8 +48,8 @@ class CouponV1AdminApiE2ETest @Autowired constructor(
         @DisplayName("관리자 인증으로 조회하면, 200 과 최신순 페이지 봉투를 받는다.")
         @Test
         fun returnsPage_newestFirst() {
-            couponRepository.save(CouponFixture.coupon(name = "A", expiredAt = expiredAt))
-            couponRepository.save(CouponFixture.coupon(name = "B", expiredAt = expiredAt))
+            couponRepository.save(CouponFixture.coupon(name = "A"))
+            couponRepository.save(CouponFixture.coupon(name = "B"))
 
             val response = getCoupons()
 
@@ -60,8 +63,8 @@ class CouponV1AdminApiE2ETest @Autowired constructor(
         @DisplayName("삭제 마크된 템플릿은 목록에서 제외된다.")
         @Test
         fun excludesSoftDeleted() {
-            couponRepository.save(CouponFixture.coupon(name = "살아있음", expiredAt = expiredAt))
-            val deleted = couponRepository.save(CouponFixture.coupon(name = "삭제됨", expiredAt = expiredAt))
+            couponRepository.save(CouponFixture.coupon(name = "살아있음"))
+            val deleted = couponRepository.save(CouponFixture.coupon(name = "삭제됨"))
             deleted.softDelete()
             couponRepository.save(deleted)
 
@@ -97,7 +100,7 @@ class CouponV1AdminApiE2ETest @Autowired constructor(
         @Test
         fun returnsDetail() {
             val id = couponRepository.save(
-                CouponFixture.coupon(name = "신규가입 10% 할인", discountType = DiscountType.RATE, discountValue = 10, minOrderAmount = 10000, expiredAt = expiredAt),
+                CouponFixture.coupon(name = "신규가입 10% 할인", discountType = DiscountType.RATE, discountValue = 10, minOrderAmount = 10000),
             ).id
 
             val response = testRestTemplate.exchange(
@@ -145,7 +148,10 @@ class CouponV1AdminApiE2ETest @Autowired constructor(
                     type = "RATE",
                     value = 10,
                     minOrderAmount = 10000,
-                    expiredAt = expiredAt,
+                    issueStartAt = issueStartAt,
+                    issueEndAt = issueEndAt,
+                    useStartAt = useStartAt,
+                    useEndAt = useEndAt,
                 ),
             )
 
@@ -165,7 +171,10 @@ class CouponV1AdminApiE2ETest @Autowired constructor(
                     type = "PERCENT",
                     value = 10,
                     minOrderAmount = null,
-                    expiredAt = expiredAt,
+                    issueStartAt = issueStartAt,
+                    issueEndAt = issueEndAt,
+                    useStartAt = useStartAt,
+                    useEndAt = useEndAt,
                 ),
             )
 
@@ -184,7 +193,10 @@ class CouponV1AdminApiE2ETest @Autowired constructor(
                     type = "FIXED",
                     value = 1000,
                     minOrderAmount = null,
-                    expiredAt = LocalDateTime.now().minusDays(1),
+                    issueStartAt = LocalDateTime.now().minusDays(10),
+                    issueEndAt = LocalDateTime.now().minusDays(1),
+                    useStartAt = LocalDateTime.now().minusDays(10),
+                    useEndAt = LocalDateTime.now().plusDays(60),
                 ),
             )
 
@@ -201,7 +213,7 @@ class CouponV1AdminApiE2ETest @Autowired constructor(
         @DisplayName("정상 입력으로 수정하면, 200 과 갱신된 템플릿을 받는다.")
         @Test
         fun returnsUpdated() {
-            val id = couponRepository.save(CouponFixture.coupon(name = "기존", expiredAt = expiredAt)).id
+            val id = couponRepository.save(CouponFixture.coupon(name = "기존")).id
 
             val response = testRestTemplate.exchange(
                 "/api-admin/v1/coupons/$id",
@@ -212,7 +224,10 @@ class CouponV1AdminApiE2ETest @Autowired constructor(
                         type = "FIXED",
                         value = 3000,
                         minOrderAmount = 20000,
-                        expiredAt = expiredAt,
+                        issueStartAt = issueStartAt,
+                        issueEndAt = issueEndAt,
+                        useStartAt = useStartAt,
+                        useEndAt = useEndAt,
                     ),
                     adminJsonHeaders(),
                 ),
@@ -234,7 +249,7 @@ class CouponV1AdminApiE2ETest @Autowired constructor(
                 "/api-admin/v1/coupons/999999",
                 HttpMethod.PUT,
                 HttpEntity(
-                    CouponV1Dto.UpdateCouponRequest("x", "FIXED", 1000, null, expiredAt),
+                    CouponV1Dto.UpdateCouponRequest("x", "FIXED", 1000, null, issueStartAt, issueEndAt, useStartAt, useEndAt),
                     adminJsonHeaders(),
                 ),
                 anyResponse(),
@@ -253,7 +268,7 @@ class CouponV1AdminApiE2ETest @Autowired constructor(
         @DisplayName("삭제하면 200(data null) 과 함께 템플릿이 삭제 마크되어 상세에서 404 가 된다.")
         @Test
         fun softDeletes() {
-            val id = couponRepository.save(CouponFixture.coupon(name = "삭제대상", expiredAt = expiredAt)).id
+            val id = couponRepository.save(CouponFixture.coupon(name = "삭제대상")).id
 
             val deleteResponse = testRestTemplate.exchange(
                 "/api-admin/v1/coupons/$id",
@@ -299,10 +314,10 @@ class CouponV1AdminApiE2ETest @Autowired constructor(
         @DisplayName("발급 내역을 발급 최신순으로 받는다.")
         @Test
         fun returnsIssues_newestFirst() {
-            val id = couponRepository.save(CouponFixture.coupon(name = "쿠폰", expiredAt = expiredAt)).id
-            userCouponRepository.save(UserCoupon.issue(userId = 1L, couponId = id))
+            val id = couponRepository.save(CouponFixture.coupon(name = "쿠폰")).id
+            userCouponRepository.save(UserCoupon.issue(userId = 1L, couponId = id, usableFrom = useStartAt, expiredAt = useEndAt))
             Thread.sleep(10)
-            userCouponRepository.save(UserCoupon.issue(userId = 2L, couponId = id))
+            userCouponRepository.save(UserCoupon.issue(userId = 2L, couponId = id, usableFrom = useStartAt, expiredAt = useEndAt))
 
             val response = testRestTemplate.exchange(
                 "/api-admin/v1/coupons/$id/issues",

@@ -7,6 +7,10 @@ interface ProductRepository {
     fun saveAll(products: Collection<Product>): List<Product>
     fun findById(id: Long): Product?
     fun findAllByIds(ids: Collection<Long>): List<Product>
+    fun findAllByIdsForUpdate(ids: Collection<Long>): List<Product>
+    fun increaseLikeCount(productId: Long)
+    fun decreaseLikeCount(productId: Long)
+
     fun findAll(
         sort: ProductSortType,
         brandId: Long?,

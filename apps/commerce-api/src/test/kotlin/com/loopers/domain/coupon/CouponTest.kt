@@ -2,6 +2,7 @@ package com.loopers.domain.coupon
 
 import com.loopers.support.error.CoreException
 import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatCode
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
@@ -11,40 +12,65 @@ import java.time.LocalDateTime
 class CouponTest {
     private val now: LocalDateTime = LocalDateTime.of(2026, 6, 9, 12, 0, 0)
 
+    private fun create(
+        minOrderAmount: Long? = 10000,
+        issueStartAt: LocalDateTime = now.minusDays(1),
+        issueEndAt: LocalDateTime = now.plusDays(30),
+        useStartAt: LocalDateTime = now,
+        useEndAt: LocalDateTime = now.plusDays(60),
+    ): Coupon = Coupon.create(
+        name = "신규가입 10% 할인",
+        discountType = DiscountType.RATE,
+        discountValue = 10,
+        minOrderAmount = minOrderAmount,
+        issueStartAt = issueStartAt,
+        issueEndAt = issueEndAt,
+        useStartAt = useStartAt,
+        useEndAt = useEndAt,
+        now = now,
+    )
+
     @DisplayName("Coupon 을 생성할 때, ")
     @Nested
     inner class Create {
         @DisplayName("정상 입력으로 템플릿이 생성된다 (deletedAt 은 null).")
         @Test
         fun createsTemplate() {
-            val coupon = Coupon.create(
-                name = "신규가입 10% 할인",
-                discountType = DiscountType.RATE,
-                discountValue = 10,
-                minOrderAmount = 10000,
-                expiredAt = now.plusDays(30),
-                now = now,
-            )
+            val coupon = create(minOrderAmount = 10000)
 
             assertThat(coupon.name.value).isEqualTo("신규가입 10% 할인")
-            assertThat(coupon.discount.type).isEqualTo(DiscountType.RATE)
-            assertThat(coupon.discount.value).isEqualTo(10)
+            assertThat(coupon.discountPolicy).isEqualTo(PercentageDiscountPolicy(10))
             assertThat(coupon.minOrderAmount).isEqualTo(10000)
+            assertThat(coupon.issueStartAt).isEqualTo(now.minusDays(1))
+            assertThat(coupon.issueEndAt).isEqualTo(now.plusDays(30))
+            assertThat(coupon.useStartAt).isEqualTo(now)
+            assertThat(coupon.useEndAt).isEqualTo(now.plusDays(60))
             assertThat(coupon.isDeleted()).isFalse()
         }
 
-        @DisplayName("expiredAt 이 now 이전(과거) 이면 COUPON_BAD_REQUEST 예외가 발생한다.")
+        @DisplayName("발급 종료가 발급 시작 이후가 아니면 COUPON_BAD_REQUEST 예외가 발생한다.")
         @Test
-        fun throwsWhenExpiredAtIsPast() {
+        fun throwsWhenIssueWindowInverted() {
             val result = assertThrows<CoreException> {
-                Coupon.create(
-                    name = "만료된 쿠폰",
-                    discountType = DiscountType.FIXED,
-                    discountValue = 1000,
-                    minOrderAmount = null,
-                    expiredAt = now.minusDays(1),
-                    now = now,
-                )
+                create(issueStartAt = now.plusDays(5), issueEndAt = now.plusDays(5))
+            }
+            assertThat(result.errorType).isEqualTo(CouponErrorType.COUPON_BAD_REQUEST)
+        }
+
+        @DisplayName("사용 종료가 사용 시작 이후가 아니면 COUPON_BAD_REQUEST 예외가 발생한다.")
+        @Test
+        fun throwsWhenUseWindowInverted() {
+            val result = assertThrows<CoreException> {
+                create(useStartAt = now.plusDays(10), useEndAt = now.plusDays(1))
+            }
+            assertThat(result.errorType).isEqualTo(CouponErrorType.COUPON_BAD_REQUEST)
+        }
+
+        @DisplayName("발급 종료가 과거(now 이전) 면 COUPON_BAD_REQUEST 예외가 발생한다.")
+        @Test
+        fun throwsWhenIssueEndIsPast() {
+            val result = assertThrows<CoreException> {
+                create(issueStartAt = now.minusDays(10), issueEndAt = now.minusDays(1))
             }
             assertThat(result.errorType).isEqualTo(CouponErrorType.COUPON_BAD_REQUEST)
         }
@@ -52,31 +78,14 @@ class CouponTest {
         @DisplayName("minOrderAmount 가 음수면 COUPON_BAD_REQUEST 예외가 발생한다.")
         @Test
         fun throwsWhenMinOrderAmountNegative() {
-            val result = assertThrows<CoreException> {
-                Coupon.create(
-                    name = "쿠폰",
-                    discountType = DiscountType.FIXED,
-                    discountValue = 1000,
-                    minOrderAmount = -1,
-                    expiredAt = now.plusDays(1),
-                    now = now,
-                )
-            }
+            val result = assertThrows<CoreException> { create(minOrderAmount = -1) }
             assertThat(result.errorType).isEqualTo(CouponErrorType.COUPON_BAD_REQUEST)
         }
 
         @DisplayName("minOrderAmount 가 null 이면 생성된다.")
         @Test
         fun allowsNullMinOrderAmount() {
-            val coupon = Coupon.create(
-                name = "쿠폰",
-                discountType = DiscountType.FIXED,
-                discountValue = 1000,
-                minOrderAmount = null,
-                expiredAt = now.plusDays(1),
-                now = now,
-            )
-            assertThat(coupon.minOrderAmount).isNull()
+            assertThat(create(minOrderAmount = null).minOrderAmount).isNull()
         }
     }
 
@@ -121,17 +130,35 @@ class CouponTest {
         }
     }
 
-    @DisplayName("isExpired 는 ")
+    @DisplayName("ensureIssuable 은 ")
     @Nested
-    inner class IsExpired {
-        @DisplayName("at 이 expiredAt 이후면 true, 같거나 이전이면 false 다.")
+    inner class EnsureIssuable {
+        @DisplayName("발급 가능 구간 안(경계 포함) 이면 예외 없이 통과한다.")
         @Test
-        fun derivesByExpiredAt() {
-            val coupon = CouponFixture.coupon(expiredAt = now)
+        fun passesWithinIssueWindow() {
+            val coupon = CouponFixture.coupon(issueStartAt = now.minusDays(1), issueEndAt = now.plusDays(1))
 
-            assertThat(coupon.isExpired(now.plusSeconds(1))).isTrue()
-            assertThat(coupon.isExpired(now)).isFalse()
-            assertThat(coupon.isExpired(now.minusSeconds(1))).isFalse()
+            assertThatCode { coupon.ensureIssuable(now) }.doesNotThrowAnyException()
+            assertThatCode { coupon.ensureIssuable(now.minusDays(1)) }.doesNotThrowAnyException()
+            assertThatCode { coupon.ensureIssuable(now.plusDays(1)) }.doesNotThrowAnyException()
+        }
+
+        @DisplayName("발급 시작 전이면 COUPON_NOT_APPLICABLE 예외가 발생한다.")
+        @Test
+        fun throwsBeforeIssueStart() {
+            val coupon = CouponFixture.coupon(issueStartAt = now.plusDays(1), issueEndAt = now.plusDays(10))
+
+            val result = assertThrows<CoreException> { coupon.ensureIssuable(now) }
+            assertThat(result.errorType).isEqualTo(CouponErrorType.COUPON_NOT_APPLICABLE)
+        }
+
+        @DisplayName("발급 종료 후면 COUPON_NOT_APPLICABLE 예외가 발생한다.")
+        @Test
+        fun throwsAfterIssueEnd() {
+            val coupon = CouponFixture.coupon(issueStartAt = now.minusDays(10), issueEndAt = now.minusSeconds(1))
+
+            val result = assertThrows<CoreException> { coupon.ensureIssuable(now) }
+            assertThat(result.errorType).isEqualTo(CouponErrorType.COUPON_NOT_APPLICABLE)
         }
     }
 
@@ -148,20 +175,22 @@ class CouponTest {
                 discountType = DiscountType.FIXED,
                 discountValue = 3000,
                 minOrderAmount = 5000,
-                expiredAt = now.plusDays(10),
+                issueStartAt = now,
+                issueEndAt = now.plusDays(10),
+                useStartAt = now,
+                useEndAt = now.plusDays(20),
                 now = now,
             )
 
             assertThat(coupon.name.value).isEqualTo("변경")
-            assertThat(coupon.discount.type).isEqualTo(DiscountType.FIXED)
-            assertThat(coupon.discount.value).isEqualTo(3000)
+            assertThat(coupon.discountPolicy).isEqualTo(FixedAmountDiscountPolicy(3000))
             assertThat(coupon.minOrderAmount).isEqualTo(5000)
-            assertThat(coupon.expiredAt).isEqualTo(now.plusDays(10))
+            assertThat(coupon.useEndAt).isEqualTo(now.plusDays(20))
         }
 
-        @DisplayName("update 도 만료 시각 과거를 거부한다.")
+        @DisplayName("update 도 발급 종료 과거를 거부한다.")
         @Test
-        fun updateRejectsPastExpiredAt() {
+        fun updateRejectsPastIssueEnd() {
             val coupon = CouponFixture.coupon()
 
             val result = assertThrows<CoreException> {
@@ -170,7 +199,10 @@ class CouponTest {
                     discountType = DiscountType.FIXED,
                     discountValue = 3000,
                     minOrderAmount = null,
-                    expiredAt = now.minusDays(1),
+                    issueStartAt = now.minusDays(10),
+                    issueEndAt = now.minusDays(1),
+                    useStartAt = now,
+                    useEndAt = now.plusDays(20),
                     now = now,
                 )
             }

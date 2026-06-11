@@ -3,7 +3,7 @@ package com.loopers.application.order.command
 data class PlaceOrderCommand(
     val loginId: String,
     val idempotencyKey: String,
-    val couponId: Long? = null,
+    val userCouponId: Long? = null,
     val lines: List<OrderLineCommand>,
 )
 

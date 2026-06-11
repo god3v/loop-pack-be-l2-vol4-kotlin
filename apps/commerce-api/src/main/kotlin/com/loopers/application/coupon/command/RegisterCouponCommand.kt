@@ -8,5 +8,8 @@ data class RegisterCouponCommand(
     val discountType: DiscountType,
     val discountValue: Long,
     val minOrderAmount: Long?,
-    val expiredAt: LocalDateTime,
+    val issueStartAt: LocalDateTime,
+    val issueEndAt: LocalDateTime,
+    val useStartAt: LocalDateTime,
+    val useEndAt: LocalDateTime,
 )

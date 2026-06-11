@@ -19,24 +19,23 @@ class LikeFacade(
 ) {
     @Transactional
     fun like(userId: Long, productId: Long) {
-        val product = productRepository.findById(productId)
+        productRepository.findById(productId)
             ?: throw CoreException(ProductErrorType.PRODUCT_NOT_FOUND)
         if (likeRepository.existsByUserIdAndProductId(userId, productId)) {
             return
         }
         likeRepository.save(Like.create(userId = userId, productId = productId))
-        product.increaseLikeCount()
-        productRepository.save(product)
+        productRepository.increaseLikeCount(productId)
     }
 
     @Transactional
     fun unlike(userId: Long, productId: Long) {
-        val product = productRepository.findById(productId)
+        productRepository.findById(productId)
             ?: throw CoreException(ProductErrorType.PRODUCT_NOT_FOUND)
         val existing = likeRepository.findByUserIdAndProductId(userId, productId) ?: return
-        likeRepository.delete(existing)
-        product.decreaseLikeCount()
-        productRepository.save(product)
+        if (likeRepository.delete(existing) > 0) {
+            productRepository.decreaseLikeCount(productId)
+        }
     }
 
     @Transactional(readOnly = true)

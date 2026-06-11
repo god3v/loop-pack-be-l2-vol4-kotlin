@@ -10,6 +10,6 @@ enum class DiscountType {
     companion object {
         fun from(value: String): DiscountType =
             entries.firstOrNull { it.name == value }
-                ?: throw CoreException(CouponErrorType.COUPON_BAD_REQUEST, "지원하지 않는 할인 종류이다.")
+                ?: throw CoreException(CouponErrorType.COUPON_BAD_REQUEST, "지원하지 않는 할인 종류")
     }
 }
