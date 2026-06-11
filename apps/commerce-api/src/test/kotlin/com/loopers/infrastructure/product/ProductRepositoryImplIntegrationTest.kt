@@ -3,13 +3,16 @@ package com.loopers.infrastructure.product
 import com.loopers.domain.product.ProductRepository
 import com.loopers.config.jpa.DataSourceConfig
 import com.loopers.domain.product.Product
+import com.loopers.domain.product.ProductErrorType
 import com.loopers.domain.product.ProductFixture
 import com.loopers.domain.product.ProductSortType
+import com.loopers.support.error.CoreException
 import com.loopers.testcontainers.MySqlTestContainersConfig
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest
@@ -25,7 +28,7 @@ class ProductRepositoryImplIntegrationTest @Autowired constructor(
 ) {
     private fun persist(
         name: String = "P",
-        price: Int = 1000,
+        price: Long = 1000L,
         likeCount: Long = 0L,
         brandId: Long = 1L,
     ): Product {
@@ -48,8 +51,9 @@ class ProductRepositoryImplIntegrationTest @Autowired constructor(
             val found = productRepository.findById(saved.id)
 
             assertThat(found).isNotNull()
-            assertThat(found!!.name.value).isEqualTo("M1")
-            assertThat(found.price.value).isEqualTo(1_000_000)
+            val verifiedFound = requireNotNull(found) { "expected Product but was null (id=${saved.id})" }
+            assertThat(verifiedFound.name.value).isEqualTo("M1")
+            assertThat(verifiedFound.price.value).isEqualTo(1_000_000)
         }
 
         @DisplayName("findById 는 soft-deleted Product 를 null 로 반환한다.")
@@ -64,6 +68,16 @@ class ProductRepositoryImplIntegrationTest @Autowired constructor(
             val found = productRepository.findById(saved.id)
 
             assertThat(found).isNull()
+        }
+
+        @DisplayName("DB 에 존재하지 않는 id 로 save(update) 하면, PRODUCT_NOT_FOUND 예외가 발생한다.")
+        @Test
+        fun throwsProductNotFound_whenUpdatingNonExistentId() {
+            val ghost = ProductFixture.validProduct(id = 999L)
+
+            val ex = assertThrows<CoreException> { productRepository.save(ghost) }
+
+            assertThat(ex.errorType).isEqualTo(ProductErrorType.PRODUCT_NOT_FOUND)
         }
     }
 
@@ -82,7 +96,9 @@ class ProductRepositoryImplIntegrationTest @Autowired constructor(
 
             val result = productRepository.findAll(ProductSortType.LATEST, null, 0, 10)
 
-            assertThat(result.map { it.id }).containsExactly(c.id, b.id, a.id)
+            assertThat(result.content.map { it.id }).containsExactly(c.id, b.id, a.id)
+            assertThat(result.totalElements).isEqualTo(3L)
+            assertThat(result.totalPages).isEqualTo(1)
         }
 
         @DisplayName("sort=PRICE_ASC 는 price asc 로 정렬한다.")
@@ -95,7 +111,7 @@ class ProductRepositoryImplIntegrationTest @Autowired constructor(
 
             val result = productRepository.findAll(ProductSortType.PRICE_ASC, null, 0, 10)
 
-            assertThat(result.map { it.price.value }).containsExactly(1000, 5000, 9000)
+            assertThat(result.content.map { it.price.value }).containsExactly(1000, 5000, 9000)
         }
 
         @DisplayName("sort=LIKES_DESC 는 likeCount desc 로 정렬한다.")
@@ -108,7 +124,7 @@ class ProductRepositoryImplIntegrationTest @Autowired constructor(
 
             val result = productRepository.findAll(ProductSortType.LIKES_DESC, null, 0, 10)
 
-            assertThat(result.map { it.likeCount }).containsExactly(100L, 30L, 1L)
+            assertThat(result.content.map { it.likeCount }).containsExactly(100L, 30L, 1L)
         }
 
         @DisplayName("soft-deleted Product 를 제외한다.")
@@ -123,7 +139,9 @@ class ProductRepositoryImplIntegrationTest @Autowired constructor(
 
             val result = productRepository.findAll(ProductSortType.LATEST, null, 0, 10)
 
-            assertThat(result.map { it.name.value }).containsExactly("live")
+            assertThat(result.content.map { it.name.value }).containsExactly("live")
+            // @SQLRestriction(deleted_at IS NULL) 이 count 쿼리에도 적용되어 삭제분이 totalElements 에서 제외된다.
+            assertThat(result.totalElements).isEqualTo(1L)
         }
 
         @DisplayName("brandId 필터가 적용된다.")
@@ -136,8 +154,9 @@ class ProductRepositoryImplIntegrationTest @Autowired constructor(
 
             val result = productRepository.findAll(ProductSortType.LATEST, 2L, 0, 10)
 
-            assertThat(result).hasSize(1)
-            assertThat(result[0].brandId).isEqualTo(2L)
+            assertThat(result.content).hasSize(1)
+            assertThat(result.content[0].brandId).isEqualTo(2L)
+            assertThat(result.totalElements).isEqualTo(1L)
         }
 
         @DisplayName("page / size 페이징이 적용된다.")
@@ -152,9 +171,11 @@ class ProductRepositoryImplIntegrationTest @Autowired constructor(
             val page0 = productRepository.findAll(ProductSortType.LATEST, null, 0, 2)
             val page1 = productRepository.findAll(ProductSortType.LATEST, null, 1, 2)
 
-            assertThat(page0).hasSize(2)
-            assertThat(page1).hasSize(2)
-            assertThat(page0[0].id).isNotEqualTo(page1[0].id)
+            assertThat(page0.content).hasSize(2)
+            assertThat(page1.content).hasSize(2)
+            assertThat(page0.content[0].id).isNotEqualTo(page1.content[0].id)
+            assertThat(page0.totalElements).isEqualTo(5L)
+            assertThat(page0.totalPages).isEqualTo(3)
         }
     }
 
@@ -177,8 +198,10 @@ class ProductRepositoryImplIntegrationTest @Autowired constructor(
             val all = productRepository.findAllForAdmin(null, 0, 10)
             val brandOne = productRepository.findAllForAdmin(1L, 0, 10)
 
-            assertThat(all.map { it.id }).containsExactly(c.id, a.id)
-            assertThat(brandOne.map { it.id }).containsExactly(a.id)
+            assertThat(all.content.map { it.id }).containsExactly(c.id, a.id)
+            assertThat(all.totalElements).isEqualTo(2L)
+            assertThat(brandOne.content.map { it.id }).containsExactly(a.id)
+            assertThat(brandOne.totalElements).isEqualTo(1L)
         }
     }
 

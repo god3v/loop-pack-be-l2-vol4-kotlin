@@ -10,7 +10,7 @@ import java.time.LocalDateTime
 import java.time.ZoneId
 
 class OrderTest {
-    private fun line(productId: Long = 1L, price: Int = 1000, qty: Int = 1) =
+    private fun line(productId: Long = 1L, price: Long = 1000L, qty: Int = 1) =
         OrderLine.create(productId = productId, productName = "P-$productId", unitPrice = price, quantity = qty)
 
     @DisplayName("Order 를 생성할 때, ")
@@ -106,6 +106,54 @@ class OrderTest {
             assertThat(order.status).isEqualTo(OrderStatus.PAYMENT_FAILED)
             assertThat(order.paymentTransactionId).isNull()
             assertThat(order.paymentResultCode).isEqualTo("DECLINED")
+        }
+
+        @DisplayName("이미 PAID 인데 markPaid 를 다시 호출하면 멱등하게 통과한다 (중복 콜백).")
+        @Test
+        fun markPaidIsIdempotent() {
+            val order = Order.create(userId = 42L, lines = listOf(line()), idempotencyKey = "abc")
+            order.markPaid("tx-1", "APPROVED")
+
+            order.markPaid("tx-2", "APPROVED")
+
+            assertThat(order.status).isEqualTo(OrderStatus.PAID)
+            assertThat(order.paymentTransactionId).isEqualTo("tx-1")
+        }
+
+        @DisplayName("PAID 인 주문을 markPaymentFailed 로 전이하면 INVALID_PAYMENT_TRANSITION 예외가 발생한다.")
+        @Test
+        fun cannotTransitPaidToFailed() {
+            val order = Order.create(userId = 42L, lines = listOf(line()), idempotencyKey = "abc")
+            order.markPaid("tx-1", "APPROVED")
+
+            val ex = assertThrows<CoreException> { order.markPaymentFailed(null, "DECLINED") }
+
+            assertThat(ex.errorType).isEqualTo(OrderErrorType.INVALID_PAYMENT_TRANSITION)
+            assertThat(order.status).isEqualTo(OrderStatus.PAID)
+        }
+
+        @DisplayName("이미 PAYMENT_FAILED 인데 markPaymentFailed 를 다시 호출하면 멱등하게 통과한다.")
+        @Test
+        fun markPaymentFailedIsIdempotent() {
+            val order = Order.create(userId = 42L, lines = listOf(line()), idempotencyKey = "abc")
+            order.markPaymentFailed("tx-1", "DECLINED")
+
+            order.markPaymentFailed("tx-2", "OTHER")
+
+            assertThat(order.status).isEqualTo(OrderStatus.PAYMENT_FAILED)
+            assertThat(order.paymentResultCode).isEqualTo("DECLINED")
+        }
+
+        @DisplayName("PAYMENT_FAILED 인 주문을 markPaid 로 전이하면 INVALID_PAYMENT_TRANSITION 예외가 발생한다.")
+        @Test
+        fun cannotTransitFailedToPaid() {
+            val order = Order.create(userId = 42L, lines = listOf(line()), idempotencyKey = "abc")
+            order.markPaymentFailed(null, "DECLINED")
+
+            val ex = assertThrows<CoreException> { order.markPaid("tx-1", "APPROVED") }
+
+            assertThat(ex.errorType).isEqualTo(OrderErrorType.INVALID_PAYMENT_TRANSITION)
+            assertThat(order.status).isEqualTo(OrderStatus.PAYMENT_FAILED)
         }
     }
 }

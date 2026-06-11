@@ -17,11 +17,11 @@ class LikeEntity private constructor(
     userId: Long,
     productId: Long,
 ) : BaseEntity() {
-    @Column(name = "user_id")
+    @Column(name = "user_id", nullable = false)
     var userId: Long = userId
         protected set
 
-    @Column(name = "product_id")
+    @Column(name = "product_id", nullable = false)
     var productId: Long = productId
         protected set
 

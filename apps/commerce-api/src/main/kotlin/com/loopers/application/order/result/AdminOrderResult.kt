@@ -10,7 +10,7 @@ data class AdminOrderResult(
     val userId: Long,
     val userMaskedName: String,
     val orderedAt: LocalDateTime,
-    val totalAmount: Int,
+    val totalAmount: Long,
     val status: OrderStatus,
     val paymentTransactionId: String?,
     val paymentResultCode: String?,

@@ -70,7 +70,7 @@ class BrandTest {
             brand.update(name = "Adidas")
 
             // then
-            assertThat(brand.name).isEqualTo("Adidas")
+            assertThat(brand.name.value).isEqualTo("Adidas")
         }
     }
 }

@@ -1,21 +1,13 @@
 package com.loopers.infrastructure.product
 
+import org.springframework.data.domain.Page
 import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.JpaRepository
-import org.springframework.data.jpa.repository.Query
-import org.springframework.data.repository.query.Param
 
 interface ProductJpaRepository : JpaRepository<ProductEntity, Long> {
-    @Query(
-        """
-        SELECT p FROM ProductEntity p
-        WHERE (:brandId IS NULL OR p.brandId = :brandId)
-        """,
-    )
-    fun findAllBy(
-        @Param("brandId") brandId: Long?,
-        pageable: Pageable,
-    ): List<ProductEntity>
+    // 브랜드 필터가 있는 목록 조회. 전체 조회는 JpaRepository.findAll(Pageable) 을 그대로 쓴다.
+    // 두 경로 모두 @SQLRestriction(deleted_at IS NULL) 이 본문·count 쿼리에 적용된다.
+    fun findAllByBrandId(brandId: Long, pageable: Pageable): Page<ProductEntity>
 
     fun findAllByBrandId(brandId: Long): List<ProductEntity>
 

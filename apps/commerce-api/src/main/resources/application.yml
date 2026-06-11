@@ -29,6 +29,10 @@ springdoc:
   swagger-ui:
     path: /swagger-ui.html
 
+loopers:
+  admin:
+    ldap-id: loopers.admin # 관리자 채널(api-admin) 식별 헤더(X-Loopers-Ldap) 기대값
+
 ---
 spring:
   config:

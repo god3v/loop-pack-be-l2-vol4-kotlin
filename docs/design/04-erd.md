@@ -19,6 +19,9 @@ erDiagram
     ORDERS ||--o{ ORDER_LINES : "order_id"
     ORDERS ||--o{ PAYMENTS : "order_id"
     ORDERS ||--o{ ORDER_EVENT_OUTBOX : "order_id"
+    USERS ||--o{ USER_COUPONS : "user_id"
+    COUPONS ||--o{ USER_COUPONS : "coupon_id"
+    USER_COUPONS ||--o| ORDERS : "coupon_id"
 
     USERS {
         BIGINT id PK
@@ -72,7 +75,9 @@ erDiagram
     ORDERS {
         BIGINT id PK
         BIGINT user_id FK
+        BIGINT coupon_id FK
         BIGINT total_price
+        BIGINT discount_amount
         VARCHAR status
         DATETIME ordered_at
         DATETIME created_at
@@ -119,6 +124,30 @@ erDiagram
         DATETIME updated_at
         DATETIME deleted_at
     }
+
+    COUPONS {
+        BIGINT id PK
+        VARCHAR name
+        VARCHAR discount_type
+        BIGINT discount_value
+        BIGINT min_order_amount
+        DATETIME expired_at
+        DATETIME created_at
+        DATETIME updated_at
+        DATETIME deleted_at
+    }
+
+    USER_COUPONS {
+        BIGINT id PK
+        BIGINT user_id FK
+        BIGINT coupon_id FK
+        VARCHAR status
+        DATETIME issued_at
+        DATETIME used_at
+        DATETIME created_at
+        DATETIME updated_at
+        DATETIME deleted_at
+    }
 ```
 
 ---
@@ -144,6 +173,8 @@ erDiagram
 ### `orders`
 주문 헤더를 저장한다. `total_price` 는 주문 시점 스냅샷이다.
 - `status` : `PAYMENT_PENDING` (결제 대기) / `PAID` (결제 완료) / `CANCELLED` (취소)
+- `coupon_id` : 주문에 적용한 **발급 쿠폰**(`user_coupons.id`) 을 가리키는 선택 FK. 쿠폰 미사용 주문은 `NULL`. 템플릿(`coupons`) 이 아니라 발급 인스턴스를 핀한다 — 한 주문은 최대 한 매의 발급 쿠폰을 소진한다(주문 1건당 1장).
+- `discount_amount` : 쿠폰 적용으로 차감된 금액(원). 미사용이면 `0`. 최종 결제 대상 금액은 `total_price`(스냅샷 합계) 에서 본 값을 뺀 것이며 음수가 될 수 없다.
 
 ### `order_lines`
 주문 항목을 저장한다. 주문 당시 상품명과 단가를 함께 저장해 상품 정보가 변경되어도 주문 내역이 변하지 않게 한다.
@@ -155,6 +186,20 @@ erDiagram
 ### `order_event_outbox`
 주문 도메인의 상태 변화 이벤트를 같은 트랜잭션으로 기록한다. 별도 워커가 `PENDING` 행을 읽어 재시도한다.
 - `status` : `PENDING` (발행 대기) / `PUBLISHED` (발행 완료) / `FAILED` (발행 실패)
+
+### `coupons`
+관리자가 정의·관리하는 **쿠폰 템플릿(할인 정책)** 을 저장한다. 발급·사용 인스턴스는 `user_coupons` 가 별도로 보유한다(정규화 — 정의와 발급 분리).
+- `discount_type` : `FIXED` (정액) / `RATE` (정률)
+- `discount_value` : 정액이면 할인 금액(원), 정률이면 할인 비율(%). 양수. 정률은 1~100.
+- `min_order_amount` : 적용 가능한 최소 주문 합계. 제약이 없으면 `NULL`.
+- `expired_at` : 발급·사용이 더는 허용되지 않는 절대 시각.
+
+### `user_coupons`
+회원이 템플릿으로부터 **발급받아 소유하는 쿠폰 인스턴스** 를 저장한다. `(user_id, coupon_id)` 가 활성 행에서 유일해 **1인 1매** 를 강제한다.
+- `status` : `AVAILABLE` (사용 가능) / `USED` (사용 완료) — 저장되는 값은 둘뿐이다.
+- 만료(`EXPIRED`) 는 **저장하지 않는다** — 사용되지 않은 행의 `coupons.expired_at` 이 현재 시각을 지났을 때 **조회·사용 시 파생**되는 노출 상태다.
+- `used_at` : 사용된 시각. 미사용이면 `NULL`. 사용 완료는 만료보다 우선한다(이미 사용된 쿠폰은 만료 시각을 지나도 `USED` 로 노출).
+- 주문이 이 행을 소진하면 `orders.coupon_id` 가 이 행을 가리킨다(역방향 핀은 두지 않는다 — 단일 FK 로 표현).
 
 ---
 
@@ -169,6 +214,9 @@ erDiagram
 - `product_likes.product_id → products.id` &nbsp;&nbsp; 상품 hard delete 차단 (좋아요 행은 가려진 상품을 가리킨 채 유지)
 - `orders.user_id → users.id` &nbsp;&nbsp; 회원 hard delete 차단 (주문 이력 보존)
 - `order_lines.product_id → products.id` &nbsp;&nbsp; 상품 hard delete 차단 (상품 종료는 `status=STOPPED` 로 처리)
+- `user_coupons.user_id → users.id` &nbsp;&nbsp; 회원 hard delete 차단 (발급·사용 이력 보존)
+- `user_coupons.coupon_id → coupons.id` &nbsp;&nbsp; 템플릿 hard delete 차단 (발급 내역이 가리키는 템플릿 유지 — 템플릿 종료는 soft delete 로 처리)
+- `orders.coupon_id → user_coupons.id` &nbsp;&nbsp; 발급 쿠폰 hard delete 차단 (어느 주문이 어느 쿠폰을 소진했는지 보존)
 
 **CASCADE — 부모와 함께 정리**
 
@@ -193,8 +241,10 @@ erDiagram
 
 **UNIQUE × soft delete**
 
-- 활성 행(`deleted_at IS NULL`) 한정 유일 : `brands.name`, `(products.brand_id, products.name)`, `payments.transaction_id`
+- 활성 행(`deleted_at IS NULL`) 한정 유일 : `brands.name`, `(products.brand_id, products.name)`, `payments.transaction_id`, `user_coupons(user_id, coupon_id)`
 - 복합 PK 가 그대로 유일성 보장 : `product_likes(user_id, product_id)` *(hard delete 이므로 활성 한정 처리 불필요)*
+
+> `coupons` 는 관리자 삭제를 soft delete 로 처리한다(`brands` 와 동일). `user_coupons` 는 정상 경로에 삭제가 없고 상태(`AVAILABLE`/`USED`) 전이만 일어나므로 `deleted_at` 은 사실상 미사용이다 — 다만 `(user_id, coupon_id)` 유일성은 1인 1매를 위해 활성 행 한정으로 강제한다.
 
 ---
 
@@ -219,6 +269,10 @@ erDiagram
 | **UNIQUE** `(transaction_id)` | `payments`           | 외부 결제 거래 ID 유일성(비-NULL 행 한정). |
 | `(status, created_at)` | `payments`           | 미확정 결제 모니터링. |
 | `(status, created_at)` | `order_event_outbox` | PENDING 이벤트를 발행 워커가 시간 순서대로 스캔. |
+| `(created_at DESC)` | `coupons`            | 관리자 쿠폰 템플릿 목록 최신순. |
+| **UNIQUE** `(user_id, coupon_id)` | `user_coupons`       | 1인 1매 강제(활성 행 한정) + 동시 발급의 유니크 위반 흡수. |
+| `(user_id, issued_at DESC)` | `user_coupons`       | 내 쿠폰 목록 발급 최신순. |
+| `(coupon_id, issued_at DESC)` | `user_coupons`       | 특정 템플릿의 발급 내역 조회(관리자). |
 
 ---
 
@@ -253,3 +307,12 @@ erDiagram
 - 외부 결제 호출 직후 네트워크 단절·타임아웃으로 결과가 불확실한 경우, `transaction_id` 로 **조회(reconcile)** 해 상태를 정렬한다 — 임의 재시도로 이중 매입이 발생하지 않는다.
 - 이벤트 발행은 **`order_event_outbox` 패턴** 으로 트랜잭션 안에서 이벤트를 기록하고, 별도 워커가 `PAYMENT_PENDING` 행을 읽어 발행 후 `PUBLISHED` 로 갱신한다 — 발행 중 실패는 `FAILED` 로 마크하고 재시도 큐로 회수한다.
 - 외부 호출은 모두 타임아웃을 명시하며, 동일 요청 키(`transaction_id` / `event_id`) 로 멱등 처리한다.
+
+### 쿠폰
+
+- **정의/발급 분리**: `coupons`(템플릿) 와 `user_coupons`(발급 인스턴스) 를 분리해 정규화한다 — 할인 조건은 템플릿 한 곳에만 존재하고, 발급 쿠폰은 `coupon_id` 로 이를 참조한다(중복 컬럼 없음).
+- **1인 1매**: `(user_id, coupon_id)` UNIQUE 가 (회원, 템플릿) 유일성을 DB 차원에서 강제한다 — 동시 발급 시 유니크 위반은 중복 발급 실패(`409`) 로 흡수한다.
+- **단일 사용**: 발급 쿠폰은 `AVAILABLE → USED` 단방향 전이로 최대 한 번만 사용된다. 같은 발급 쿠폰에 대한 동시 사용 경합은 행 단위 락(`SELECT ... FOR UPDATE`) 또는 상태 조건부 갱신(`UPDATE ... SET status='USED' WHERE status='AVAILABLE'`) 으로 한 트랜잭션만 성공하도록 처리한다.
+- **만료 파생**: 만료는 저장 상태가 아니라 `expired_at` 경과로 조회·사용 시 판정한다 — 별도 만료 배치에 의존하지 않으므로 상태 staleness 가 없다.
+- **템플릿 삭제 무영향**: 템플릿 soft delete 는 이미 발급된 쿠폰의 조회·사용에 영향을 주지 않는다 — 발급 쿠폰의 템플릿 조회 경로는 삭제 마크를 무시하고 조회한다(발급 이력 보존).
+- **주문 적용·보상**: 주문이 쿠폰을 적용하면 `orders.coupon_id` 로 발급 쿠폰을 핀하고 그 쿠폰을 `USED` 로 소진한다. 결제 실패 등으로 주문이 확정되지 못하면 같은 트랜잭션/보상 안에서 사용을 원복(`USED → AVAILABLE`) 한다 — 이 결선은 [order](../domain/order/requirements.md) 책임이며 본 모델은 그 슬롯(`coupon_id` · `used_at`) 만 제공한다.

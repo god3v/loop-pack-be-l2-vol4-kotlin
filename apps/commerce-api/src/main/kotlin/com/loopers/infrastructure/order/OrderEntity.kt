@@ -11,6 +11,7 @@ import jakarta.persistence.Enumerated
 import jakarta.persistence.OneToMany
 import jakarta.persistence.Table
 import jakarta.persistence.UniqueConstraint
+import org.hibernate.annotations.BatchSize
 import java.time.LocalDateTime
 
 @Entity
@@ -58,7 +59,10 @@ class OrderEntity private constructor(
     var paymentResultCode: String? = paymentResultCode
         protected set
 
+    // 목록 조회 시 주문별 lines 지연 로딩이 N+1 이 되지 않도록, 페이지의 주문들을 모아
+    // IN 절로 한 번에 적재한다 (페이징과 호환 — fetch join 과 달리 메모리 페이징을 유발하지 않음).
     @OneToMany(mappedBy = "order", cascade = [CascadeType.ALL], orphanRemoval = true)
+    @BatchSize(size = 100)
     var lines: MutableList<OrderLineEntity> = mutableListOf()
         protected set
 

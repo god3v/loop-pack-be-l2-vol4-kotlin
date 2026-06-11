@@ -3,13 +3,17 @@ package com.loopers.infrastructure.order
 import com.loopers.domain.order.OrderRepository
 import com.loopers.config.jpa.DataSourceConfig
 import com.loopers.domain.order.Order
+import com.loopers.domain.order.OrderErrorType
 import com.loopers.domain.order.OrderLine
 import com.loopers.domain.order.OrderStatus
+import com.loopers.support.error.CoreException
 import com.loopers.testcontainers.MySqlTestContainersConfig
+import org.hibernate.SessionFactory
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest
@@ -24,7 +28,7 @@ class OrderRepositoryImplIntegrationTest @Autowired constructor(
     private val orderRepository: OrderRepository,
     private val testEntityManager: TestEntityManager,
 ) {
-    private fun line(productId: Long = 1L, price: Int = 1000, qty: Int = 1) =
+    private fun line(productId: Long = 1L, price: Long = 1000L, qty: Int = 1) =
         OrderLine.create(productId = productId, productName = "P-$productId", unitPrice = price, quantity = qty)
 
     private fun persistPaid(
@@ -57,12 +61,29 @@ class OrderRepositoryImplIntegrationTest @Autowired constructor(
             val found = orderRepository.findById(saved.id)
 
             assertThat(found).isNotNull()
-            assertThat(found!!.status).isEqualTo(OrderStatus.PAID)
-            assertThat(found.paymentTransactionId).isEqualTo("tx-1")
-            assertThat(found.paymentResultCode).isEqualTo("APPROVED")
-            assertThat(found.totalAmount).isEqualTo(1000 * 2 + 2000 * 3)
-            assertThat(found.lines).hasSize(2)
-            assertThat(found.lines.map { it.productName }).containsExactlyInAnyOrder("P-1", "P-2")
+            val verifiedFound = requireNotNull(found) { "expected Order but was null (id=${saved.id})" }
+            assertThat(verifiedFound.status).isEqualTo(OrderStatus.PAID)
+            assertThat(verifiedFound.paymentTransactionId).isEqualTo("tx-1")
+            assertThat(verifiedFound.paymentResultCode).isEqualTo("APPROVED")
+            assertThat(verifiedFound.totalAmount).isEqualTo(1000 * 2 + 2000 * 3)
+            assertThat(verifiedFound.lines).hasSize(2)
+            assertThat(verifiedFound.lines.map { it.productName }).containsExactlyInAnyOrder("P-1", "P-2")
+        }
+
+        @DisplayName("DB 에 존재하지 않는 id 로 save(update) 하면, ORDER_NOT_FOUND 예외가 발생한다.")
+        @Test
+        fun throwsOrderNotFound_whenUpdatingNonExistentId() {
+            val ghost = Order(
+                id = 999L,
+                userId = 1L,
+                lines = listOf(line()),
+                orderedAt = LocalDateTime.now(),
+                idempotencyKey = "ghost",
+            )
+
+            val ex = assertThrows<CoreException> { orderRepository.save(ghost) }
+
+            assertThat(ex.errorType).isEqualTo(OrderErrorType.ORDER_NOT_FOUND)
         }
     }
 
@@ -123,6 +144,43 @@ class OrderRepositoryImplIntegrationTest @Autowired constructor(
 
             assertThat(page0.map { it.id }).containsExactly(c.id, b.id)
             assertThat(page1.map { it.id }).containsExactly(a.id)
+        }
+    }
+
+    @DisplayName("lines 패치 — N+1 방지")
+    @Nested
+    inner class LinesFetch {
+        @DisplayName("주문 20건(각 2라인) 목록 조회 시 lines 가 배치 로딩되어 주문 수에 비례한 쿼리가 발생하지 않는다.")
+        @Test
+        fun listQueryBatchLoadsLines() {
+            val userId = 7L
+            repeat(20) { i ->
+                persistPaid(
+                    userId = userId,
+                    idempotencyKey = "idem-$i",
+                    lines = listOf(line(productId = 1L), line(productId = 2L)),
+                )
+            }
+            testEntityManager.clear()
+
+            val statistics = testEntityManager.entityManager.entityManagerFactory
+                .unwrap(SessionFactory::class.java).statistics
+            statistics.isStatisticsEnabled = true
+            statistics.clear()
+
+            val orders = orderRepository.findAllByUserIdAndOrderedAtBetween(
+                userId = userId,
+                start = LocalDateTime.now().minusDays(1),
+                end = LocalDateTime.now().plusDays(1),
+                page = 0,
+                size = 50,
+            )
+
+            // toDomain() 이 lines 를 순회하므로 조회 시점에 lines 가 적재된다.
+            assertThat(orders).hasSize(20)
+            assertThat(orders.flatMap { it.lines }).hasSize(40)
+            // 주문 1회 + lines 배치(IN) 1회 수준. 주문 건수(20)에 비례한 N+1 이면 20+ 가 된다.
+            assertThat(statistics.prepareStatementCount).isLessThanOrEqualTo(3)
         }
     }
 }

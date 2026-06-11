@@ -2,7 +2,11 @@ package com.loopers.infrastructure.product
 
 import com.loopers.domain.product.ProductRepository
 import com.loopers.domain.product.Product
+import com.loopers.domain.product.ProductErrorType
 import com.loopers.domain.product.ProductSortType
+import com.loopers.support.error.CoreException
+import com.loopers.support.page.PageResult
+import org.springframework.data.domain.Page
 import org.springframework.data.domain.PageRequest
 import org.springframework.data.domain.Sort
 import org.springframework.stereotype.Component
@@ -16,7 +20,7 @@ class ProductRepositoryImpl(
             ProductEntity.from(product)
         } else {
             productJpaRepository.findById(product.id)
-                .orElseThrow { IllegalStateException("product with id=${product.id} not found while updating") }
+                .orElseThrow { CoreException(ProductErrorType.PRODUCT_NOT_FOUND) }
                 .apply { syncFrom(product) }
         }
         return productJpaRepository.save(entity).toDomain()
@@ -35,19 +39,18 @@ class ProductRepositoryImpl(
         brandId: Long?,
         page: Int,
         size: Int,
-    ): List<Product> = productJpaRepository.findAllBy(
-        brandId,
-        PageRequest.of(page, size, sort.toJpaSort()),
-    ).map { it.toDomain() }
+    ): PageResult<Product> =
+        findPage(brandId, PageRequest.of(page, size, sort.toJpaSort())).toPageResult()
 
     override fun findAllForAdmin(
         brandId: Long?,
         page: Int,
         size: Int,
-    ): List<Product> = productJpaRepository.findAllBy(
-        brandId,
-        PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt")),
-    ).map { it.toDomain() }
+    ): PageResult<Product> =
+        findPage(
+            brandId,
+            PageRequest.of(page, size, Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"))),
+        ).toPageResult()
 
     override fun findAllByBrandId(brandId: Long): List<Product> =
         productJpaRepository.findAllByBrandId(brandId).map { it.toDomain() }
@@ -55,9 +58,28 @@ class ProductRepositoryImpl(
     override fun existsByBrandIdAndName(brandId: Long, name: String): Boolean =
         productJpaRepository.existsByBrandIdAndName(brandId, name)
 
-    private fun ProductSortType.toJpaSort(): Sort = when (this) {
-        ProductSortType.LATEST -> Sort.by(Sort.Direction.DESC, "createdAt")
-        ProductSortType.PRICE_ASC -> Sort.by(Sort.Direction.ASC, "price")
-        ProductSortType.LIKES_DESC -> Sort.by(Sort.Direction.DESC, "likeCount")
+    private fun ProductSortType.toJpaSort(): Sort {
+        val primary = when (this) {
+            ProductSortType.LATEST -> Sort.Order.desc("createdAt")
+            ProductSortType.PRICE_ASC -> Sort.Order.asc("price")
+            ProductSortType.LIKES_DESC -> Sort.Order.desc("likeCount")
+        }
+        return Sort.by(primary, Sort.Order.desc("id"))
     }
+
+    // brandId 가 없으면 전체(JpaRepository.findAll), 있으면 파생 쿼리로 분기한다 — @Query 없이 동적 필터를 표현한다.
+    private fun findPage(brandId: Long?, pageRequest: PageRequest): Page<ProductEntity> =
+        if (brandId == null) {
+            productJpaRepository.findAll(pageRequest)
+        } else {
+            productJpaRepository.findAllByBrandId(brandId, pageRequest)
+        }
+
+    private fun Page<ProductEntity>.toPageResult(): PageResult<Product> = PageResult(
+        content = content.map { it.toDomain() },
+        page = number,
+        size = size,
+        totalElements = totalElements,
+        totalPages = totalPages,
+    )
 }

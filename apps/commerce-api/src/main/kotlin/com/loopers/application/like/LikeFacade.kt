@@ -1,12 +1,14 @@
 package com.loopers.application.like
 
 import com.loopers.domain.like.LikeRepository
+import com.loopers.application.like.query.GetMyLikesQuery
 import com.loopers.application.like.result.LikedProductResult
 import com.loopers.domain.product.ProductRepository
 import com.loopers.domain.like.Like
 import com.loopers.domain.like.LikeErrorType
 import com.loopers.domain.product.ProductErrorType
 import com.loopers.support.error.CoreException
+import com.loopers.support.page.PageResult
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
 
@@ -38,17 +40,21 @@ class LikeFacade(
     }
 
     @Transactional(readOnly = true)
-    fun getMyLikes(
-        authedUserId: Long,
-        requestedUserId: Long,
-        page: Int,
-        size: Int,
-    ): List<LikedProductResult> {
-        if (authedUserId != requestedUserId) {
+    fun getMyLikes(authedUserId: Long, query: GetMyLikesQuery): PageResult<LikedProductResult> {
+        if (authedUserId != query.userId) {
             throw CoreException(LikeErrorType.LIKE_FORBIDDEN)
         }
-        return likeRepository.findAllByUserId(requestedUserId, page, size)
-            .mapNotNull { productRepository.findById(it.productId) }
+        val likes = likeRepository.findAllByUserId(query.userId, query.paging.page, query.paging.size)
+        val products = productRepository.findAllByIds(likes.content.map { it.productId })
+            .associateBy { it.id }
+        val content = likes.content.mapNotNull { products[it.productId] }
             .map { LikedProductResult.from(it) }
+        return PageResult(
+            content = content,
+            page = likes.page,
+            size = likes.size,
+            totalElements = likes.totalElements,
+            totalPages = likes.totalPages,
+        )
     }
 }

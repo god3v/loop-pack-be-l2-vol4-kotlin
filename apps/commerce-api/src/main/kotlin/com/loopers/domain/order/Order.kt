@@ -15,7 +15,7 @@ class Order internal constructor(
     paymentTransactionId: String? = null,
     paymentResultCode: String? = null,
 ) {
-    val totalAmount: Int get() = lines.sumOf { it.subtotal }
+    val totalAmount: Long get() = lines.sumOf { it.subtotal }
 
     var status: OrderStatus = status
         private set
@@ -36,15 +36,29 @@ class Order internal constructor(
     }
 
     fun markPaid(transactionId: String, resultCode: String) {
-        this.status = OrderStatus.PAID
-        this.paymentTransactionId = transactionId
-        this.paymentResultCode = resultCode
+        when (status) {
+            OrderStatus.PAID -> return // 중복 콜백: 멱등 no-op
+            OrderStatus.PAYMENT_FAILED ->
+                throw CoreException(OrderErrorType.INVALID_PAYMENT_TRANSITION, "실패한 주문을 결제 완료로 전이할 수 없다.")
+            OrderStatus.PAYMENT_PENDING -> {
+                this.status = OrderStatus.PAID
+                this.paymentTransactionId = transactionId
+                this.paymentResultCode = resultCode
+            }
+        }
     }
 
     fun markPaymentFailed(transactionId: String?, resultCode: String?) {
-        this.status = OrderStatus.PAYMENT_FAILED
-        this.paymentTransactionId = transactionId
-        this.paymentResultCode = resultCode
+        when (status) {
+            OrderStatus.PAYMENT_FAILED -> return // 중복 콜백: 멱등 no-op
+            OrderStatus.PAID ->
+                throw CoreException(OrderErrorType.INVALID_PAYMENT_TRANSITION, "결제 완료된 주문을 실패로 전이할 수 없다.")
+            OrderStatus.PAYMENT_PENDING -> {
+                this.status = OrderStatus.PAYMENT_FAILED
+                this.paymentTransactionId = transactionId
+                this.paymentResultCode = resultCode
+            }
+        }
     }
 
     companion object {
