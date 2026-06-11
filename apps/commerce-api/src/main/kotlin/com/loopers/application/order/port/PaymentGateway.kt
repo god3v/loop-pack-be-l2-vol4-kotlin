@@ -6,6 +6,9 @@ package com.loopers.application.order.port
  */
 interface PaymentGateway {
     fun charge(orderId: Long, amount: Long): PaymentResult
+
+    /** 승인된 결제를 환불(취소)한다 — 외부 거래 식별자로 멱등 처리한다(재시도 시 이중 환불 방지). */
+    fun refund(transactionId: String, amount: Long): PaymentResult
 }
 
 /** 결제 결과 — 외부 게이트웨이의 응답 값 객체. 영속 애그리거트가 아니다. */

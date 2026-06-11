@@ -204,4 +204,52 @@ class OrderTest {
             assertThat(order.status).isEqualTo(OrderStatus.PAYMENT_FAILED)
         }
     }
+
+    @DisplayName("cancel")
+    @Nested
+    inner class Cancel {
+        @DisplayName("결제 대기(PAYMENT_PENDING) 주문을 취소하면 status=CANCELED 가 된다.")
+        @Test
+        fun cancelsPendingOrder() {
+            val order = Order.create(userId = 42L, lines = listOf(line()), idempotencyKey = "abc")
+
+            order.cancel()
+
+            assertThat(order.status).isEqualTo(OrderStatus.CANCELED)
+        }
+
+        @DisplayName("결제 완료(PAID) 주문을 취소하면 status=CANCELED 가 된다 (환불).")
+        @Test
+        fun cancelsPaidOrder() {
+            val order = Order.create(userId = 42L, lines = listOf(line()), idempotencyKey = "abc")
+            order.markPaid("tx-1", "APPROVED")
+
+            order.cancel()
+
+            assertThat(order.status).isEqualTo(OrderStatus.CANCELED)
+        }
+
+        @DisplayName("이미 CANCELED 인 주문을 다시 취소하면 멱등하게 통과한다.")
+        @Test
+        fun cancelIsIdempotent() {
+            val order = Order.create(userId = 42L, lines = listOf(line()), idempotencyKey = "abc")
+            order.cancel()
+
+            order.cancel()
+
+            assertThat(order.status).isEqualTo(OrderStatus.CANCELED)
+        }
+
+        @DisplayName("결제 실패(PAYMENT_FAILED) 주문은 취소할 수 없다 (이미 보상 완료 — INVALID_PAYMENT_TRANSITION).")
+        @Test
+        fun cannotCancelFailedOrder() {
+            val order = Order.create(userId = 42L, lines = listOf(line()), idempotencyKey = "abc")
+            order.markPaymentFailed(null, "DECLINED")
+
+            val ex = assertThrows<CoreException> { order.cancel() }
+
+            assertThat(ex.errorType).isEqualTo(OrderErrorType.INVALID_PAYMENT_TRANSITION)
+            assertThat(order.status).isEqualTo(OrderStatus.PAYMENT_FAILED)
+        }
+    }
 }

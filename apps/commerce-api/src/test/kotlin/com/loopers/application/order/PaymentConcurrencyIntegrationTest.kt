@@ -2,6 +2,7 @@ package com.loopers.application.order
 
 import com.loopers.application.order.port.PaymentGateway
 import com.loopers.application.order.port.PaymentResult
+import com.loopers.application.payment.PaymentFacade
 import com.loopers.domain.order.Order
 import com.loopers.domain.order.OrderLine
 import com.loopers.domain.order.OrderRepository

@@ -1,5 +1,6 @@
 package com.loopers.application.order
 
+import com.loopers.application.payment.PaymentFacade
 import org.springframework.stereotype.Component
 import org.springframework.transaction.event.TransactionPhase
 import org.springframework.transaction.event.TransactionalEventListener

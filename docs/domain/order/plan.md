@@ -165,7 +165,39 @@
 - [x] requirements v0.4 — A 조율 주체 명시, userCouponId 전면, PG 커밋 후 2단계 (2026-06-10)
 - [x] api-spec — userCouponId 와이어, 상태/결제 메타, PG 부록 (2026-06-10)
 - [x] plan v0.4 — A/전면개명/PG + Tidy-First 순서 (2026-06-10)
-- [ ] 구현 후 코드 ↔ api-spec 정합 재확인, ERD 3금액·user_coupon_id·결제 메타 컬럼 반영
+- [ ] 구현 후 코드 ↔ api-spec 정합 재확인, ERD 3금액·user_coupon_id 반영
+- [x] ERD `payments`/`orders` 코드 동기화 (2026-06-12) — 상태명 APPROVED/CANCELED, `canceled_at` 추가, `method` 제거, 결제 정합성 매핑·요청-전-영속 노트 반영
+
+---
+
+## 8. Phase 8 — Payment 애그리거트 (결제 생애주기 분리) — ✅ (2026-06-12)
+
+> **구조 결정 = Payment 를 독립 애그리거트로.** 그동안 `Order.status`/`paymentTransactionId` 에 묻어 있던 결제 상태를 `domain.payment.Payment`(REQUESTED/APPROVED/FAILED/CANCELED) 로 분리하고, "외부 호출 *전* `REQUESTED` 영속 → 락 밖 charge → 정산" 2.5구간으로 재구성했다. 멱등키는 별도로 두지 않고(주문 키 재사용) ERD `payments` 와 정렬. 도메인 명명(APPROVED/CANCELED)은 유지하고 ERD 문서를 코드에 맞췄다.
+
+### 8.1 도메인 (전이 규칙) — ✅
+- [x] `Payment`(`request` 팩토리 · `approve`/`fail`/`cancel` 전이, Tell-Don't-Ask · 평탄한 시각 필드) · `PaymentStatus` · `PaymentErrorType`
+- [x] `PaymentTest` 12건 — request/approve/fail(멱등)/cancel(멱등) 전이 + 금지 전이 `INVALID_PAYMENT_TRANSITION`
+
+### 8.2 인프라 — ✅
+- [x] `PaymentEntity`(`order_id` 비유니크=1:N · `transaction_id` UNIQUE · `failure_reason` · `requested_at`/`paid_at`/`canceled_at` · soft delete) · `PaymentJpaRepository`(`@Lock` `findByIdForUpdate` · `findFirstByOrderIdOrderByIdDesc`) · `PaymentRepository`/`Impl`
+- [x] `PaymentRepositoryImplIntegrationTest` — REQUESTED 라운드트립 · APPROVED/FAILED 영속 · `findByIdForUpdate` 락 조회
+
+### 8.3 흐름 분리 (Initiator/Settler) — ✅
+- [x] `PaymentFacade.pay` = 비-트랜잭션 오케스트레이터(요청→락 밖 charge→정산). `PaymentInitiator`(REQUIRES_NEW: 주문 락 + 진행중 결제 dedupe → REQUESTED 커밋) · `PaymentSettler`(REQUIRES_NEW: 결제 락 + REQUESTED 일 때만 정산=멱등, 성공 approve+PAID / 실패 fail+보상+PAYMENT_FAILED)
+- [x] 중복 트리거는 `order_id` UNIQUE 아니라 주문 락 + dedupe 로 단 1건만 REQUESTED → charge 정확히 1회. 기존 통합(OrderCoupon·OrderPaymentFailure·PaymentConcurrency·OrderConcurrency) 전부 그린(행위 보존 + Payment 레코드 추가)
+- [x] `PaymentInitiatorTest`·`PaymentSettlerTest`·`PaymentFacadeTest`(오케스트레이션)
+
+### 8.4 취소(환불) — ✅
+- [x] `OrderStatus.CANCELED` + `Order.cancel()`(PENDING/PAID→CANCELED, FAILED 거절, 멱등) — `OrderTest` cancel 4건
+- [x] `PaymentGateway.refund`(멱등 계약) + `AlwaysSuccessPaymentGateway`
+- [x] `OrderCompensator` 추출(재고·쿠폰 보상 — Settler·Canceler 공유, 중복 제거) + `OrderCompensatorTest`
+- [x] `PaymentCanceler`(REQUIRES_NEW: 결제 락 + CANCELED 아닐 때만, payment.cancel+order.cancel+보상) · `PaymentFacade.cancel`(승인분 락 밖 refund → 취소 정산)
+- [x] `PaymentCancelerTest` · `PaymentFacadeTest` cancel · `PaymentCancelIntegrationTest`(PAID 주문 취소 → 결제·주문 CANCELED + 재고·쿠폰 원복)
+
+### 8.5 향후 과제
+- [ ] 인터페이스(취소 트리거 — 사용자/어드민 엔드포인트) 미구현 — 현재 애플리케이션 레벨 커맨드(`PaymentFacade.cancel`)만
+- [ ] 실제 PG 연동(현재 `AlwaysSuccess`) + 요청-전-영속 기반 reconcile/스윕(고아 PENDING·미정산 결제)
+- [ ] 동시 cancel 시 락 밖 refund 이중 호출 가능성 — PG 환불 멱등키로 대응(현재 트리거 1회라 비활성)
 
 ---
 

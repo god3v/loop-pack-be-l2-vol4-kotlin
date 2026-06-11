@@ -51,6 +51,8 @@ class Order internal constructor(
             OrderStatus.PAID -> return
             OrderStatus.PAYMENT_FAILED ->
                 throw CoreException(OrderErrorType.INVALID_PAYMENT_TRANSITION, "실패한 주문을 결제 완료로 전이할 수 없다.")
+            OrderStatus.CANCELED ->
+                throw CoreException(OrderErrorType.INVALID_PAYMENT_TRANSITION, "취소된 주문을 결제 완료로 전이할 수 없다.")
             OrderStatus.PAYMENT_PENDING -> {
                 this.status = OrderStatus.PAID
                 this.paymentTransactionId = transactionId
@@ -64,11 +66,23 @@ class Order internal constructor(
             OrderStatus.PAYMENT_FAILED -> return // 중복 콜백: 멱등 no-op
             OrderStatus.PAID ->
                 throw CoreException(OrderErrorType.INVALID_PAYMENT_TRANSITION, "결제 완료된 주문을 실패로 전이할 수 없다.")
+            OrderStatus.CANCELED ->
+                throw CoreException(OrderErrorType.INVALID_PAYMENT_TRANSITION, "취소된 주문을 실패로 전이할 수 없다.")
             OrderStatus.PAYMENT_PENDING -> {
                 this.status = OrderStatus.PAYMENT_FAILED
                 this.paymentTransactionId = transactionId
                 this.paymentResultCode = resultCode
             }
+        }
+    }
+
+    /** 주문 취소(환불 포함) — 결제 대기·완료 주문을 취소한다. 실패 주문은 이미 보상 완료라 취소 대상이 아니다. 멱등. */
+    fun cancel() {
+        when (status) {
+            OrderStatus.CANCELED -> return
+            OrderStatus.PAYMENT_PENDING, OrderStatus.PAID -> this.status = OrderStatus.CANCELED
+            OrderStatus.PAYMENT_FAILED ->
+                throw CoreException(OrderErrorType.INVALID_PAYMENT_TRANSITION, "실패한 주문은 취소할 수 없다.")
         }
     }
 
