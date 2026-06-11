@@ -48,7 +48,7 @@ class PaymentFacade(
         productRepository.saveAll(products.values)
 
         order.userCouponId?.let { userCouponId ->
-            userCouponRepository.findById(userCouponId)?.let { userCoupon ->
+            userCouponRepository.findByIdForUpdate(userCouponId)?.let { userCoupon ->
                 userCoupon.cancelUse()
                 userCouponRepository.save(userCoupon)
             }
