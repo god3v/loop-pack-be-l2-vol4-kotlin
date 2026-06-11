@@ -79,6 +79,32 @@ class UserCouponTest {
         }
     }
 
+    @DisplayName("사용을 취소할 때, ")
+    @Nested
+    inner class CancelUse {
+        @DisplayName("USED 쿠폰의 cancelUse() 는 AVAILABLE 로 되돌리고 usedAt 을 비운다.")
+        @Test
+        fun revertsUsedToAvailable() {
+            val userCoupon = CouponFixture.userCoupon(status = UserCouponStatus.USED, usedAt = now)
+
+            userCoupon.cancelUse()
+
+            assertThat(userCoupon.status).isEqualTo(UserCouponStatus.AVAILABLE)
+            assertThat(userCoupon.usedAt).isNull()
+        }
+
+        @DisplayName("AVAILABLE 쿠폰의 cancelUse() 는 멱등 no-op 이다.")
+        @Test
+        fun idempotentWhenNotUsed() {
+            val userCoupon = CouponFixture.userCoupon(status = UserCouponStatus.AVAILABLE)
+
+            userCoupon.cancelUse()
+
+            assertThat(userCoupon.status).isEqualTo(UserCouponStatus.AVAILABLE)
+            assertThat(userCoupon.usedAt).isNull()
+        }
+    }
+
     @DisplayName("노출 상태를 파생할 때, ")
     @Nested
     inner class ViewStatus {
