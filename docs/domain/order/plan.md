@@ -126,7 +126,7 @@
 
 ### 6.0 기존 동시성 가드
 - [x] 동일 발급 쿠폰 N 동시 주문 → 정확히 1건 성공, 나머지 `ALREADY_USED_COUPON` (`OrderCouponIntegrationTest.concurrentOrdersConsumeCouponOnce` — Coupon 비관 락 직렬화)
-- [ ] 동일 상품 재고 K 에 N(>K) 동시 주문 → 정확히 K건 성공, 재고 음수 없음 (forward deduct 락 — 가드 테스트 추가 여지)
+- [x] 동일 상품 재고 K 에 N 동시 주문 → 정확히 차감·전건 성공 (forward deduct 락 — §6.3 `[5]` 가 K=N 경계로 커버)
 
 ### 6.1 재고 복원 비관 락 (보상 ↔ 신규 차감 경합) — 행위 커밋
 
@@ -135,7 +135,7 @@
 
 - [x] (Red·단위) `PaymentFacadeTest` OnFailure 2건의 stub 을 `findAllByIds` → `findAllByIdsForUpdate` 로 교체 + `verify` → MockKException 으로 Red 확인 (2026-06-12)
 - [x] (Green) `compensate` 의 `findAllByIds` → `findAllByIdsForUpdate` (id ASC 락으로 차감과 동일 직렬화)
-- [x] (행위 가드·통합) `OrderPaymentFailureIntegrationTest.concurrentCompensationsPreserveStock` — N(4) 동시 결제 실패 주문(각 1 차감 후 보상 +1) → 최종 재고 보존·전건 PAYMENT_FAILED. 스레드 수는 풀(10)·REQUIRES_NEW 2커넥션 고려해 보수적
+- [x] (행위 가드·통합) `OrderConcurrencyIntegrationTest` `[7]` — N 동시 결제 실패 주문(각 1 차감 후 보상 +1) → 최종 재고 보존·전건 PAYMENT_FAILED (§6.3 으로 이관)
 - [x] `PaymentFacadeTest` · `OrderPaymentFailureIntegrationTest` 그린 (ktlint 최종 일괄 확인)
 
 ### 6.2 결제 트리거 이후 주문 비관 락 (동시 pay 직렬화) — 구조 + 행위 커밋
@@ -148,6 +148,15 @@
 - [x] (Green) `pay` 의 `findById` → `findByIdForUpdate`
 - [x] (행위 가드·통합) `PaymentConcurrencyIntegrationTest.concurrentPayChargesExactlyOnce` — 단일 PENDING 주문에 4 동시 `pay()`(charge 150ms 지연 mock) → `charge` 정확히 1회·주문 PAID
 - [x] `PaymentFacadeTest` · 신규 통합 그린 (ktlint 최종 일괄 확인)
+
+### 6.3 동시성 통합 스펙 8종 + unlike 게이팅 버그 수정 (2026-06-12)
+
+> **커넥션 풀 주의:** test 프로파일 풀은 10([jpa.yml](../../../modules/jpa/src/main/resources/jpa.yml)). 비관 락 대기 스레드가 커넥션을 점유하고, `pay()` 가 AFTER_COMMIT 안 REQUIRES_NEW 라 결제 구간에서 스레드당 2커넥션을 쓴다. 동시성 스펙은 `@SpringBootTest(properties=[maximum-pool-size=32, minimum-idle=10])` 로 풀을 키워 스레드 8~16 을 돌린다(CPU 무관, 풀 한계 회피).
+
+- [x] `LikeConcurrencyIntegrationTest` — [1] 다수 사용자 동시 like → 카운트 = 인원수 / [2] 다수 사용자 동시 unlike → 0 / [3] 동일 사용자 동시 like → +1 / [4] 동일 사용자 동시 unlike → -1
+- [x] `OrderConcurrencyIntegrationTest` — [5] 다수 사용자 동시 주문(성공) → 재고 정확 차감·전건 PAID / [6] 동일 사용자 동일 쿠폰 동시 주문 → 1건만 성공·나머지 ALREADY_USED·쿠폰 1회 소진 / [7] 다수 사용자 동시 주문 결제 전부 실패 → 재고 전량 원복·전건 PAYMENT_FAILED / [8] 동일 사용자 동일 쿠폰 동시 주문 결제 실패 → 소진 쿠폰 AVAILABLE 로 롤백
+- [x] **버그 수정**: unlike 감소 게이트(`if delete > 0`) 가 동시성 하에서 무력화돼 있었다. `LikeJpaRepository.deleteByUserIdAndProductId` 가 **파생(derived) delete** 라 "조회 후 제거" 로 동작해 반환값이 *조회 행 수*(동시 요청은 모두 1)였다 → 모두 게이트 통과·중복 감소([4] 재현, 5→0). **벌크 `@Modifying @Query` DELETE + `Int` 반환**으로 교체해 실제 삭제 행 수(패자 0)를 돌려주게 했다. (`@Modifying` 은 `Long` 반환 시 0 으로 매핑되므로 `Int` 필수.)
+- [x] §6.0 의 "재고 K 에 N 동시 주문 → 정확히 K 성공" 은 [5] 가 K=N 경계로 커버
 
 ---
 

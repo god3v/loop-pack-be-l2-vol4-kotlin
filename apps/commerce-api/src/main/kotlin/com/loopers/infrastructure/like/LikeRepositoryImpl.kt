@@ -21,7 +21,7 @@ class LikeRepositoryImpl(
         likeJpaRepository.existsByUserIdAndProductId(userId, productId)
 
     override fun delete(like: Like): Long =
-        likeJpaRepository.deleteByUserIdAndProductId(like.userId, like.productId)
+        likeJpaRepository.deleteByUserIdAndProductId(like.userId, like.productId).toLong()
 
     override fun findAllByUserId(userId: Long, page: Int, size: Int): PageResult<Like> {
         val found = likeJpaRepository.findAllByUserId(
