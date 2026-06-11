@@ -102,12 +102,12 @@ erDiagram
         BIGINT id PK
         BIGINT order_id FK
         BIGINT amount
-        VARCHAR method
         VARCHAR status
         VARCHAR transaction_id
         VARCHAR failure_reason
         DATETIME requested_at
         DATETIME paid_at
+        DATETIME canceled_at
         DATETIME created_at
         DATETIME updated_at
         DATETIME deleted_at
@@ -177,7 +177,7 @@ erDiagram
 
 ### `orders`
 주문 헤더를 저장한다. `total_price` 는 주문 시점 스냅샷이다.
-- `status` : `PAYMENT_PENDING` (결제 대기) / `PAID` (결제 완료) / `CANCELLED` (취소)
+- `status` : `PAYMENT_PENDING` (결제 대기) / `PAID` (결제 완료) / `PAYMENT_FAILED` (결제 실패) / `CANCELED` (취소)
 - `coupon_id` : 주문에 적용한 **발급 쿠폰**(`user_coupons.id`) 을 가리키는 선택 FK. 쿠폰 미사용 주문은 `NULL`. 템플릿(`coupons`) 이 아니라 발급 인스턴스를 핀한다 — 한 주문은 최대 한 매의 발급 쿠폰을 소진한다(주문 1건당 1장).
 - `discount_amount` : 쿠폰 적용으로 차감된 금액(원). 미사용이면 `0`. 최종 결제 대상 금액은 `total_price`(스냅샷 합계) 에서 본 값을 뺀 것이며 음수가 될 수 없다.
 
@@ -185,8 +185,10 @@ erDiagram
 주문 항목을 저장한다. 주문 당시 상품명과 단가를 함께 저장해 상품 정보가 변경되어도 주문 내역이 변하지 않게 한다.
 
 ### `payments`
-주문에 대한 결제 시도를 저장한다. 한 주문에 여러 시도(재시도·취소 등) 가 누적될 수 있으며, `transaction_id` 는 외부 결제사 거래 식별자다.
-- `status` : `REQUESTED` (결제 요청) / `CAPTURED` (결제 완료) / `FAILED` (실패) / `CANCELLED` (취소)
+주문에 대한 결제 시도를 저장한다. 한 주문에 여러 시도(재시도·취소 등) 가 누적될 수 있으며(주문 1 : 결제 N — `order_id` 는 유니크 아님), `transaction_id` 는 외부 결제사 거래 식별자다(승인 전 `REQUESTED` 행은 NULL).
+- `status` : `REQUESTED` (결제 요청) / `APPROVED` (결제 완료) / `FAILED` (실패) / `CANCELED` (취소)
+- `failure_reason` : 결제 거절 사유(실패 시에만 기록). `paid_at` · `canceled_at` 은 각각 승인·취소 시각.
+- 멱등키 컬럼은 두지 않는다 — 외부 호출의 멱등 레퍼런스는 주문 식별자/주문 멱등키를 재사용한다(1주문 1결제 기준).
 
 ### `order_event_outbox`
 주문 도메인의 상태 변화 이벤트를 같은 트랜잭션으로 기록한다. 별도 워커가 `PENDING` 행을 읽어 재시도한다.
@@ -302,9 +304,11 @@ erDiagram
 ### 주문 / 결제
 
 - 주문 생성과 결제 시도는 **별도 트랜잭션** 이다 — 주문은 `status=PAYMENT_PENDING` 으로 시작한다.
-- 결제 결과(`payments.status`) 변화를  관찰해 `orders.status` 를 동기화한다.
-  - `Payment.CAPTURED` → `Order.PAID`
-  - `Payment.CANCELLED` / `Payment.FAILED` → `Order.CANCELLED`
+- 결제 결과(`payments.status`) 변화를 관찰해 `orders.status` 를 동기화한다.
+  - `Payment.APPROVED` → `Order.PAID`
+  - `Payment.FAILED` → `Order.PAYMENT_FAILED` (보상으로 차감 재고·소진 쿠폰 원복 후)
+  - `Payment.CANCELED` → `Order.CANCELED` (환불 후 — 결제 취소 경로)
+- 결제는 외부 호출 *전에* `REQUESTED` 로 먼저 영속(커밋)한다 — 호출 중 단절 시 `transaction_id` reconcile 의 기준 레코드가 된다. 정산은 결제 행을 비관 락으로 잡아 `REQUESTED` 일 때만 1회 반영(멱등)하고, 동시·중복 트리거는 주문 락 + 진행 중 결제 dedupe 로 단 하나만 요청을 만든다.
 - 주문 상태 변화는 같은 트랜잭션 안에서 `order_event_outbox` 에 이벤트 행으로 함께 기록한다 — 상태 변경과 이벤트 발행의 누락을 막는다.
 - 만료 주문(결제 대기 상태가 일정 시간 이상 지속) 은 배치가 스캔해 `CANCELLED` 로 전이하고 재고를 복원한다.
 
