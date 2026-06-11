@@ -1,6 +1,6 @@
 # order 도메인 — TDD 진척 체크리스트
 
-> 본 plan 은 [requirements.md (v0.4)](./requirements.md) 와 [api-spec.md](./api-spec.md) 의 UC-1 ~ UC-5 를 포괄한다.
+> 본 plan 은 [requirements.md (v0.5)](./requirements.md) 와 [api-spec.md](./api-spec.md) 의 UC-1 ~ UC-5 를 포괄한다.
 > 데이터 모델: [docs/design/04-erd.md](../../design/04-erd.md) 의 `orders` · `order_lines` · `coupons` · `user_coupons`.
 > 회원 인증은 `loginId` 헤더 → `UserRepository.findByLoginId`. 어드민 인증(LDAP)은 interfaces 레이어 책임.
 
@@ -75,8 +75,8 @@
 
 ## 4. Phase 4 — PaymentGateway 도입 (커밋 후 결제, 이벤트 방식) — ✅ (2026-06-10)
 
-> **구조 결정 = 도메인 이벤트 + AFTER_COMMIT 리스너.** `placeOrder`(tx1) 가 재고·쿠폰·주문 PENDING 저장 후 `OrderPlacedEvent` 발행 → 커밋 → `@TransactionalEventListener(AFTER_COMMIT)` + `@Transactional(REQUIRES_NEW)` 가 PG 호출·markPaid·저장(tx2). 외부 호출이 주문 트랜잭션 밖.
-> **생성 응답은 `PAYMENT_PENDING`** (응답값이 리스너 실행 전에 조립됨 — 리스너가 응답을 주지 못하는 구조). 리스너는 커밋 직후 동기 실행되어 DB 는 즉시 `PAID`, 이후 조회는 `PAID`.
+> **구조 결정 = 도메인 이벤트 + AFTER_COMMIT 리스너 + PaymentFacade 오케스트레이션.** `placeOrder`(tx1) 가 재고·쿠폰·주문 PENDING 저장 후 `OrderPlacedEvent` 발행 → 커밋 → `@TransactionalEventListener(AFTER_COMMIT)` 리스너가 `PaymentFacade.pay(orderId)`(`@Transactional(REQUIRES_NEW)`) 를 트리거(tx2). 트랜잭션 경계·결제 조율은 `PaymentFacade` 가 소유하고 리스너는 위임만 한다. 외부 호출이 주문 트랜잭션 밖.
+> **생성 응답은 `PAYMENT_PENDING`** (응답값이 리스너 실행 전에 조립됨 — 리스너가 응답을 주지 못하는 구조). 운영 게이트웨이가 항상 성공(`AlwaysSuccessPaymentGateway`)이라 정상 경로에서는 리스너가 커밋 직후 동기 실행되어 DB 는 즉시 `PAID`, 이후 조회는 `PAID`. 결제 실패 시에는 보상 후 `PAYMENT_FAILED` 로 마감되어 이후 조회에 그 상태로 드러난다(§4.3).
 
 ### 4.1 port / VO / adapter
 - [x] `application.order.port.PaymentGateway` — `charge(orderId, amount): PaymentResult`
@@ -85,10 +85,21 @@
 
 ### 4.2 이벤트 흐름
 - [x] `application.order.OrderPlacedEvent(orderId)` + `OrderFacade` 가 새 주문 저장 후 `ApplicationEventPublisher` 로 발행 (멱등 재요청·검증 실패 시 미발행)
-- [x] `application.order.OrderPaymentEventListener` — AFTER_COMMIT + REQUIRES_NEW, PG 호출 → 성공 시 `markPaid` / 실패 시 `markPaymentFailed`(항상 성공이라 미발火) → save
+- [x] `application.order.OrderPaymentEventListener` — AFTER_COMMIT 시점만 책임지는 **얇은 트리거**(`paymentFacade.pay(event.orderId)` 위임, 비즈니스 로직 0). 결제 오케스트레이션(로드→PG charge→성공 `markPaid`/실패 보상+`markPaymentFailed`→save)은 `application.order.PaymentFacade.pay(orderId)`(`@Transactional(REQUIRES_NEW)`)로 이주. (REQUIRES_NEW 인 이유: AFTER_COMMIT 콜백은 이미 커밋된 원 트랜잭션이 바인딩돼 있어 평범한 `@Transactional` 은 조인만 하고 커밋되지 않는다.) 운영 게이트웨이는 여전히 `AlwaysSuccessPaymentGateway` 라 정상 실행에서는 실패 분기를 타지 않는다.
 - [x] 정상(통합): `placeOrder` 응답 `PAYMENT_PENDING`, 커밋 후 리스너가 주문을 `PAID` + `paymentTransactionId` 박음 (OrderCouponIntegrationTest 검증)
 - [x] 멱등(단위): 재요청 시 기존 주문 반환, 이벤트 미발행(`verify(exactly=0)`)
 - [x] 컴파일·OrderFacadeTest·OrderCouponIntegrationTest(동시성 포함)·ktlint 그린
+
+### 4.3 결제 실패 보상 + PaymentFacade 추출 ✅ (2026-06-11)
+
+> 결제 오케스트레이션을 리스너에서 `application.order.PaymentFacade.pay(orderId)`(`@Transactional(REQUIRES_NEW)`) 로 추출하고, 실패 분기 보상(차감 재고 원복 + 소진 쿠폰 복원 + `PAYMENT_FAILED` 전이)을 구현했다. 리스너는 트리거만 하는 얇은 위임으로 슬림화했다. `PAYMENT_FAILED` 는 이제 도달 가능한 상태다 — 단 운영 게이트웨이는 여전히 `AlwaysSuccessPaymentGateway`(항상 성공)라 정상 실행에서는 실패가 나지 않고, 실패 경로·보상은 테스트로만 커버된다. **실제 외부 PG 연동(mock 교체)** 만 향후 과제로 남는다.
+
+- [x] `PaymentFacade.pay(orderId)` 추출 — 로드 → `order.status != PAYMENT_PENDING` 이면 early-return(멱등 가드: 중복 트리거 시 이중 청구·이중 보상 방지) → PG `charge` → 성공 `markPaid` / 실패 `compensate` + `markPaymentFailed` → save. 리스너는 `paymentFacade.pay` 위임만 하는 얇은 트리거로 슬림화
+- [x] 실패 보상(같은 REQUIRES_NEW 트랜잭션): 주문 라인별 `Product.restoreStock(quantity)` → `saveAll`, 소진 쿠폰 `UserCoupon.cancelUse()`(USED→AVAILABLE, usedAt=null; 사용 전이면 멱등 no-op) → save
+- [x] `UserCoupon.cancelUse()` 도메인 메서드 추가(결제 실패 보상용, 멱등)
+- [x] `PaymentFacadeTest`(단위) — 성공 markPaid / 실패 보상·전이 / 멱등 가드(PENDING 아니면 no-op)
+- [x] `OrderPaymentFailureIntegrationTest` — `@MockkBean` 으로 실패 게이트웨이 주입, 실제 DB 로 재고(10 원복)·쿠폰(AVAILABLE 원복)·주문상태(`PAYMENT_FAILED`) 보상 검증
+- [x] 컴파일·PaymentFacadeTest·OrderPaymentFailureIntegrationTest·기존 order 테스트·ktlint 전체 그린
 
 ---
 
@@ -112,7 +123,7 @@
 
 - [ ] 동일 발급 쿠폰 N 동시 주문 → 정확히 1건 성공, 나머지 `ALREADY_USED_COUPON` (Coupon 비관 락 `findByIdForUpdate` 가 직렬화 — 검증)
 - [ ] 동일 상품 재고 K 에 N(>K) 동시 주문 → 정확히 K건 성공, 재고 음수 없음
-- [ ] **TBD**: 재고 차감 락 — 비관 vs 낙관(`@Version`) vs 조건부 UPDATE 선택·적용
+- [ ] **TBD**: 재고 차감 락 — 비관 vs 낙관(`@Version`) vs 조건부 UPDATE 선택·적용. 결제 실패 보상의 `Product.restoreStock` 도 차감과 같은 read-modify-write 라 동일한 락 TBD 선상에 있다(보상 트랜잭션과 신규 차감의 경합).
 
 ---
 
@@ -130,3 +141,4 @@
 - 2026-05-28 ~ 05-29: 초기 plan, UC-1~5 베이스라인 구현 (당시 PaymentGateway 드리프트).
 - 2026-06-09: v0.3 — 쿠폰 사용 흡수·단일 트랜잭션 롤백·3금액(문서만). (당시 Q3=직접 조율 메모, PG 차주 이관.)
 - 2026-06-10: **v0.4 — 코드 리뷰 후 재결정.** 다관점 워크플로(7 에이전트) + 적대적 검증으로 (1) 쿠폰 연동 A 확정(requirements §5 개정), (2) userCouponId 전면 개명, (3) 최소 PG 커밋 후 도입 결정. Tidy-First 구현 순서 수립(구조 개명 → A 전환 → 3금액 → PG → interfaces → 동시성).
+- 2026-06-11: **결제 실패 보상 + PaymentFacade 추출(§4.3).** 결제 오케스트레이션을 리스너에서 `PaymentFacade.pay(orderId)`(`@Transactional(REQUIRES_NEW)`) 로 이주하고 리스너를 얇은 트리거로 슬림화. REQUIRES_NEW 가 필수인 이유: AFTER_COMMIT 콜백은 이미 커밋된 원 트랜잭션이 바인딩돼 있어 평범한 `@Transactional` 은 조인만 하고 커밋되지 않는다. 실패 분기 보상 구현(차감 재고 `restoreStock` 원복 + 소진 쿠폰 `cancelUse` 복원 + `PAYMENT_FAILED` 전이, 멱등 가드로 이중 청구·이중 보상 방지). `PAYMENT_FAILED` 가 도달 가능 상태가 됨(운영 게이트웨이는 여전히 항상 성공 mock — 실제 PG 연동만 향후 과제). `PaymentFacadeTest`(단위) + `OrderPaymentFailureIntegrationTest`(실패 게이트웨이 `@MockkBean` → DB 재고·쿠폰·주문상태 보상 검증) 추가, 전체 그린.

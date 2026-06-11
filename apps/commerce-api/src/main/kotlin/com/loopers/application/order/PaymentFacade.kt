@@ -24,7 +24,6 @@ class PaymentFacade(
     private val userCouponRepository: UserCouponRepository,
     private val paymentGateway: PaymentGateway,
 ) {
-    // AFTER_COMMIT 리스너에서 호출된다 — 이미 커밋된 원 트랜잭션에 조인하지 않도록 REQUIRES_NEW 로 새 트랜잭션을 연다.
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     fun pay(orderId: Long) {
         val order = orderRepository.findById(orderId) ?: return
@@ -40,7 +39,6 @@ class PaymentFacade(
         orderRepository.save(order)
     }
 
-    /** 결제 실패 보상 — placeOrder 트랜잭션에서 이미 커밋된 재고 차감·쿠폰 소진을 되돌린다. */
     private fun compensate(order: Order) {
         val products = productRepository.findAllByIds(order.lines.map { it.productId }).associateBy { it.id }
         order.lines.forEach { line -> products[line.productId]?.restoreStock(line.quantity.value) }

@@ -67,7 +67,6 @@ class ProductRepositoryImpl(
         return Sort.by(primary, Sort.Order.desc("id"))
     }
 
-    // brandId 가 없으면 전체(JpaRepository.findAll), 있으면 파생 쿼리로 분기한다 — @Query 없이 동적 필터를 표현한다.
     private fun findPage(brandId: Long?, pageRequest: PageRequest): Page<ProductEntity> =
         if (brandId == null) {
             productJpaRepository.findAll(pageRequest)
