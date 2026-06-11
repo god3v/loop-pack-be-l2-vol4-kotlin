@@ -68,7 +68,7 @@ class OrderFacadeTest {
             val productB = ProductFixture.validProduct(id = 2L, name = "B", price = 2000, stock = 5)
             every { userRepository.findByLoginId(loginId) } returns user
             every { orderRepository.findByUserIdAndIdempotencyKey(user.id, idempotencyKey) } returns null
-            every { productRepository.findAllByIds(any()) } returns listOf(productA, productB)
+            every { productRepository.findAllByIdsForUpdate(any()) } returns listOf(productA, productB)
             every { productRepository.saveAll(any()) } answers { firstArg<Collection<com.loopers.domain.product.Product>>().toList() }
             val savedOrder = slot<Order>()
             every { orderRepository.save(capture(savedOrder)) } answers { savedOrder.captured }
@@ -84,7 +84,7 @@ class OrderFacadeTest {
 
             assertThat(productA.stock.value).isEqualTo(8)
             assertThat(productB.stock.value).isEqualTo(2)
-            verify(exactly = 1) { productRepository.findAllByIds(any()) }
+            verify(exactly = 1) { productRepository.findAllByIdsForUpdate(any()) }
             verify(exactly = 1) { productRepository.saveAll(any()) }
         }
 
@@ -95,7 +95,7 @@ class OrderFacadeTest {
             val product = ProductFixture.validProduct(id = 1L, name = "맥북", price = 1_000_000, stock = 10)
             every { userRepository.findByLoginId(loginId) } returns user
             every { orderRepository.findByUserIdAndIdempotencyKey(user.id, idempotencyKey) } returns null
-            every { productRepository.findAllByIds(any()) } returns listOf(product)
+            every { productRepository.findAllByIdsForUpdate(any()) } returns listOf(product)
             every { productRepository.saveAll(any()) } answers { firstArg<Collection<com.loopers.domain.product.Product>>().toList() }
             val savedOrder = slot<Order>()
             every { orderRepository.save(capture(savedOrder)) } answers { savedOrder.captured }
@@ -116,7 +116,7 @@ class OrderFacadeTest {
             val productB = ProductFixture.validProduct(id = 2L, name = "B", price = 2000, stock = 5)
             every { userRepository.findByLoginId(loginId) } returns user
             every { orderRepository.findByUserIdAndIdempotencyKey(user.id, idempotencyKey) } returns null
-            every { productRepository.findAllByIds(any()) } returns listOf(productA, productB)
+            every { productRepository.findAllByIdsForUpdate(any()) } returns listOf(productA, productB)
             every { productRepository.saveAll(any()) } answers { firstArg<Collection<com.loopers.domain.product.Product>>().toList() }
             val savedOrder = slot<Order>()
             every { orderRepository.save(capture(savedOrder)) } answers { savedOrder.captured }
@@ -140,7 +140,7 @@ class OrderFacadeTest {
             val product = ProductFixture.validProduct(id = 1L, name = "A", price = 1000, stock = 10)
             every { userRepository.findByLoginId(loginId) } returns user
             every { orderRepository.findByUserIdAndIdempotencyKey(user.id, idempotencyKey) } returns null
-            every { productRepository.findAllByIds(any()) } returns listOf(product)
+            every { productRepository.findAllByIdsForUpdate(any()) } returns listOf(product)
             every { productRepository.saveAll(any()) } answers { firstArg<Collection<com.loopers.domain.product.Product>>().toList() }
             // 원 합계 2000 에 대해 정액 500 할인 쿠폰을 보유한 상황을 모사한다.
             val userCoupon = CouponFixture.userCoupon(id = 99L, userId = user.id, couponId = 7L)
@@ -172,7 +172,7 @@ class OrderFacadeTest {
             val product = ProductFixture.validProduct(id = 1L, name = "A", price = 1000, stock = 10)
             every { userRepository.findByLoginId(loginId) } returns user
             every { orderRepository.findByUserIdAndIdempotencyKey(user.id, idempotencyKey) } returns null
-            every { productRepository.findAllByIds(any()) } returns listOf(product)
+            every { productRepository.findAllByIdsForUpdate(any()) } returns listOf(product)
             every { productRepository.saveAll(any()) } answers { firstArg<Collection<com.loopers.domain.product.Product>>().toList() }
             val savedOrder = slot<Order>()
             every { orderRepository.save(capture(savedOrder)) } answers { savedOrder.captured }
@@ -195,7 +195,7 @@ class OrderFacadeTest {
             val product = ProductFixture.validProduct(id = 1L, name = "A", price = 1000, stock = 10)
             every { userRepository.findByLoginId(loginId) } returns user
             every { orderRepository.findByUserIdAndIdempotencyKey(user.id, idempotencyKey) } returns null
-            every { productRepository.findAllByIds(any()) } returns listOf(product)
+            every { productRepository.findAllByIdsForUpdate(any()) } returns listOf(product)
             return user
         }
 
@@ -316,7 +316,7 @@ class OrderFacadeTest {
             val user = UserFixture.validUser()
             every { userRepository.findByLoginId(loginId) } returns user
             every { orderRepository.findByUserIdAndIdempotencyKey(user.id, idempotencyKey) } returns null
-            every { productRepository.findAllByIds(any()) } returns emptyList()
+            every { productRepository.findAllByIdsForUpdate(any()) } returns emptyList()
 
             val ex = assertThrows<CoreException> {
                 orderFacade.placeOrder(
@@ -335,7 +335,7 @@ class OrderFacadeTest {
             val product = ProductFixture.validProduct(id = 1L, name = "A", price = 1000, stock = 1)
             every { userRepository.findByLoginId(loginId) } returns user
             every { orderRepository.findByUserIdAndIdempotencyKey(user.id, idempotencyKey) } returns null
-            every { productRepository.findAllByIds(any()) } returns listOf(product)
+            every { productRepository.findAllByIdsForUpdate(any()) } returns listOf(product)
 
             val ex = assertThrows<CoreException> {
                 orderFacade.placeOrder(
@@ -354,7 +354,7 @@ class OrderFacadeTest {
             val product = ProductFixture.validProduct(id = 1L, name = "A", price = 1000, stock = 10)
             every { userRepository.findByLoginId(loginId) } returns user
             every { orderRepository.findByUserIdAndIdempotencyKey(user.id, "") } returns null
-            every { productRepository.findAllByIds(any()) } returns listOf(product)
+            every { productRepository.findAllByIdsForUpdate(any()) } returns listOf(product)
             every { productRepository.saveAll(any()) } answers { firstArg<Collection<com.loopers.domain.product.Product>>().toList() }
 
             val ex = assertThrows<CoreException> {

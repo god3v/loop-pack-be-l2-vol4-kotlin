@@ -29,6 +29,9 @@ class OrderRepositoryImpl(
     override fun findById(id: Long): Order? =
         orderJpaRepository.findById(id).orElse(null)?.toDomain()
 
+    override fun findByIdForUpdate(id: Long): Order? =
+        orderJpaRepository.findByIdForUpdate(id)?.toDomain()
+
     override fun findByUserIdAndIdempotencyKey(userId: Long, idempotencyKey: String): Order? =
         orderJpaRepository.findByUserIdAndIdempotencyKey(userId, idempotencyKey)?.toDomain()
 

@@ -26,6 +26,9 @@ import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import java.time.LocalDateTime
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 /**
  * 결제 실패 보상 통합 — PaymentGateway 를 실패로 모킹해, 커밋 후 결제가 실패하면
@@ -86,5 +89,53 @@ class OrderPaymentFailureIntegrationTest @Autowired constructor(
         assertThat(persisted.status).isEqualTo(OrderStatus.PAYMENT_FAILED)
         assertThat(productRepository.findById(product.id)!!.stock.value).isEqualTo(10)
         assertThat(userCouponRepository.findById(userCoupon.id)!!.status).isEqualTo(UserCouponStatus.AVAILABLE)
+    }
+
+    @DisplayName("같은 상품에 결제 실패 주문 N건을 동시에 처리해도, 보상 재고 복원이 신규 차감과 경합하지 않고 재고가 보존된다.")
+    @Test
+    fun concurrentCompensationsPreserveStock() {
+        val user = userRepository.save(UserFixture.validUser())
+        // 각 주문이 1 차감 후(결제 실패) 1 복원 → 순효과 0. 재고는 넉넉히 둬 차감 실패(INSUFFICIENT_STOCK) 변수를 배제하고
+        // 복원↔차감 경합(직렬화) 자체에 집중한다.
+        val initialStock = 10
+        val product = productRepository.save(
+            ProductFixture.validProduct(name = "운동화", price = 1000, stock = initialStock),
+        )
+
+        // pay() 가 AFTER_COMMIT 안에서 REQUIRES_NEW 로 실행돼 스레드당 커넥션 2개(보류 tx1 + 보상 tx2)를
+        // 점유하므로, 풀(10) 고갈을 피하도록 스레드 수를 보수적으로 잡는다.
+        val threads = 4
+        val startLatch = CountDownLatch(1)
+        val doneLatch = CountDownLatch(threads)
+        val executor = Executors.newFixedThreadPool(threads)
+
+        repeat(threads) { i ->
+            executor.submit {
+                try {
+                    startLatch.await()
+                    // 결제는 @MockkBean 으로 항상 실패 → tx1 에서 1 차감, AFTER_COMMIT 보상 tx 에서 1 복원.
+                    orderFacade.placeOrder(
+                        PlaceOrderCommand(
+                            loginId = user.loginId,
+                            idempotencyKey = "concurrent-fail-$i",
+                            userCouponId = null,
+                            lines = listOf(OrderLineCommand(productId = product.id, quantity = 1)),
+                        ),
+                    )
+                } finally {
+                    doneLatch.countDown()
+                }
+            }
+        }
+
+        startLatch.countDown()
+        doneLatch.await(30, TimeUnit.SECONDS)
+        executor.shutdown()
+
+        // 차감과 복원이 같은 비관 락으로 직렬화되므로, lost update 없이 재고가 초기값으로 보존된다.
+        assertThat(productRepository.findById(product.id)!!.stock.value).isEqualTo(initialStock)
+        // N건 모두 주문은 생성되고 결제 실패로 마감된다.
+        assertThat(orderJpaRepository.count()).isEqualTo(threads.toLong())
+        assertThat(orderJpaRepository.findAll()).allMatch { it.status == OrderStatus.PAYMENT_FAILED }
     }
 }

@@ -48,7 +48,7 @@ class Order internal constructor(
 
     fun markPaid(transactionId: String, resultCode: String) {
         when (status) {
-            OrderStatus.PAID -> return // 중복 콜백: 멱등 no-op
+            OrderStatus.PAID -> return
             OrderStatus.PAYMENT_FAILED ->
                 throw CoreException(OrderErrorType.INVALID_PAYMENT_TRANSITION, "실패한 주문을 결제 완료로 전이할 수 없다.")
             OrderStatus.PAYMENT_PENDING -> {

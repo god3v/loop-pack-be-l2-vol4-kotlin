@@ -34,6 +34,17 @@ class ProductRepositoryImpl(
     override fun findAllByIds(ids: Collection<Long>): List<Product> =
         if (ids.isEmpty()) emptyList() else productJpaRepository.findAllById(ids).map { it.toDomain() }
 
+    override fun findAllByIdsForUpdate(ids: Collection<Long>): List<Product> =
+        if (ids.isEmpty()) emptyList() else productJpaRepository.findAllByIdInForUpdate(ids).map { it.toDomain() }
+
+    override fun increaseLikeCount(productId: Long) {
+        productJpaRepository.increaseLikeCount(productId)
+    }
+
+    override fun decreaseLikeCount(productId: Long) {
+        productJpaRepository.decreaseLikeCount(productId)
+    }
+
     override fun findAll(
         sort: ProductSortType,
         brandId: Long?,

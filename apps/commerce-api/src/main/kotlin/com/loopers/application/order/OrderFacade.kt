@@ -38,7 +38,7 @@ class OrderFacade(
         }
 
         val productIds = command.lines.map { it.productId }.distinct()
-        val products = productRepository.findAllByIds(productIds).associateBy { it.id }
+        val products = productRepository.findAllByIdsForUpdate(productIds).associateBy { it.id }
         val quantities = command.lines.associate { it.productId to it.quantity }
         val order = OrderService.createOrder(
             userId = user.id,

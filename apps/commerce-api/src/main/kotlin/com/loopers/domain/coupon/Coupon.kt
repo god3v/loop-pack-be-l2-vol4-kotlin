@@ -37,18 +37,17 @@ class Coupon internal constructor(
     var deletedAt: LocalDateTime? = null
         private set
 
-    /** 주문 합계에 적용할 할인 금액을 계산한다. 최소 주문 금액 미달이면 사용 불가다. */
     fun calculateDiscount(orderAmount: Long): Long {
         val min = minOrderAmount
         if (min != null && orderAmount < min) {
-            throw CoreException(CouponErrorType.COUPON_NOT_APPLICABLE, "최소 주문 금액에 못 미친다.")
+            throw CoreException(CouponErrorType.COUPON_NOT_APPLICABLE, "최소 주문 금액 미달")
         }
         return discountPolicy.discountFor(orderAmount)
     }
 
     fun ensureIssuable(now: LocalDateTime) {
         if (now.isBefore(issueStartAt) || now.isAfter(issueEndAt)) {
-            throw CoreException(CouponErrorType.COUPON_NOT_APPLICABLE, "발급 가능 기간이 아니다.")
+            throw CoreException(CouponErrorType.COUPON_NOT_APPLICABLE, "발급 가능 기간 아님")
         }
     }
 

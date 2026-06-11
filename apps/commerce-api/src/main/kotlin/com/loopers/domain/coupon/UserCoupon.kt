@@ -22,10 +22,10 @@ class UserCoupon internal constructor(
 
     fun use(at: LocalDateTime) {
         if (isUsed()) {
-            throw CoreException(CouponErrorType.ALREADY_USED_COUPON, "이미 사용된 쿠폰이다.")
+            throw CoreException(CouponErrorType.ALREADY_USED_COUPON, "이미 사용된 쿠폰")
         }
         if (at.isBefore(usableFrom) || at.isAfter(expiredAt)) {
-            throw CoreException(CouponErrorType.COUPON_NOT_APPLICABLE, "사용 가능 기간이 아니다.")
+            throw CoreException(CouponErrorType.COUPON_NOT_APPLICABLE, "사용 가능 기간이 아님")
         }
         status = UserCouponStatus.USED
         usedAt = at
@@ -33,7 +33,6 @@ class UserCoupon internal constructor(
 
     fun isUsed(): Boolean = status == UserCouponStatus.USED
 
-    /** 사용을 취소해 다시 사용 가능 상태로 되돌린다(결제 실패 보상 등). 사용 전이면 멱등 no-op. */
     fun cancelUse() {
         if (isUsed()) {
             status = UserCouponStatus.AVAILABLE
