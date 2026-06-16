@@ -72,9 +72,9 @@ class Coupon internal constructor(
         this.useEndAt = useEndAt
     }
 
-    fun softDelete() {
+    fun softDelete(now: LocalDateTime) {
         if (deletedAt == null) {
-            deletedAt = LocalDateTime.now()
+            deletedAt = now
         }
     }
 
