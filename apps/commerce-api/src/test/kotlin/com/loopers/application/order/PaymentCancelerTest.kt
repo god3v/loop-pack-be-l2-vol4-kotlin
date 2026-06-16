@@ -67,4 +67,17 @@ class PaymentCancelerTest {
 
         verify(exactly = 0) { orderRepository.findByIdForUpdate(any()) }
     }
+
+    @DisplayName("결제는 있으나 주문이 없으면(정합성 손상) 보상·저장 없이 중단한다.")
+    @Test
+    fun skipsWhenOrderMissing() {
+        val payment = Payment.request(orderId = 999L, amount = 2000L).also { it.approve("tx-1", LocalDateTime.now()) }
+        every { paymentRepository.findByIdForUpdate(10L) } returns payment
+        every { orderRepository.findByIdForUpdate(999L) } returns null
+
+        canceler.cancel(10L)
+
+        verify(exactly = 0) { orderCompensator.restore(any()) }
+        verify(exactly = 0) { paymentRepository.save(any()) }
+    }
 }

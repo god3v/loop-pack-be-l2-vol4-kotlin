@@ -66,7 +66,7 @@ class CouponRepositoryImplIntegrationTest @Autowired constructor(
         fun findByIdExcludesDeleted() {
             val saved = couponRepository.save(newCoupon())
             testEntityManager.flush()
-            saved.softDelete()
+            saved.softDelete(now)
             couponRepository.save(saved)
             testEntityManager.flush()
             testEntityManager.clear()
@@ -79,7 +79,7 @@ class CouponRepositoryImplIntegrationTest @Autowired constructor(
         fun includingDeletedReturnsDeleted() {
             val saved = couponRepository.save(newCoupon())
             testEntityManager.flush()
-            saved.softDelete()
+            saved.softDelete(now)
             couponRepository.save(saved)
             testEntityManager.flush()
             testEntityManager.clear()
@@ -103,7 +103,7 @@ class CouponRepositoryImplIntegrationTest @Autowired constructor(
             couponRepository.save(newCoupon(name = "C"))
             testEntityManager.flush()
             // A 를 삭제 → 결과에서 제외되어야 한다.
-            a.softDelete()
+            a.softDelete(now)
             couponRepository.save(a)
             testEntityManager.flush()
             testEntityManager.clear()
@@ -124,7 +124,7 @@ class CouponRepositoryImplIntegrationTest @Autowired constructor(
             val a = couponRepository.save(newCoupon(name = "A"))
             val b = couponRepository.save(newCoupon(name = "B"))
             testEntityManager.flush()
-            a.softDelete()
+            a.softDelete(now)
             couponRepository.save(a)
             testEntityManager.flush()
             testEntityManager.clear()

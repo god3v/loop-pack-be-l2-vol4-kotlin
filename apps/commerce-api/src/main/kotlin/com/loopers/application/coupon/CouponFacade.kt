@@ -105,7 +105,7 @@ class CouponFacade(
     fun deleteCoupon(couponId: Long) {
         val coupon = couponRepository.findById(couponId)
             ?: throw CoreException(CouponErrorType.COUPON_NOT_FOUND)
-        coupon.softDelete()
+        coupon.softDelete(LocalDateTime.now())
         couponRepository.save(coupon)
     }
 

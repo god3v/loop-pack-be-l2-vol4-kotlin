@@ -1,19 +1,23 @@
 package com.loopers.application.order
 
+import com.loopers.domain.coupon.CouponErrorType
 import com.loopers.domain.coupon.CouponFixture
 import com.loopers.domain.coupon.UserCouponRepository
 import com.loopers.domain.coupon.UserCouponStatus
 import com.loopers.domain.order.Order
 import com.loopers.domain.order.OrderLine
 import com.loopers.domain.product.Product
+import com.loopers.domain.product.ProductErrorType
 import com.loopers.domain.product.ProductFixture
 import com.loopers.domain.product.ProductRepository
+import com.loopers.support.error.CoreException
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 
 @DisplayName("OrderCompensator — 재고·쿠폰 보상")
 class OrderCompensatorTest {
@@ -33,9 +37,9 @@ class OrderCompensatorTest {
     fun restoresStockAndCoupon() {
         val product = ProductFixture.validProduct(id = 1L, name = "운동화", price = 1000, stock = 10)
         val userCoupon = CouponFixture.userCoupon(id = 99L, userId = 1L, couponId = 7L, status = UserCouponStatus.USED)
-        every { productRepository.findAllByIdsForUpdate(listOf(1L)) } returns listOf(product)
+        every { productRepository.findAllByIdsForUpdateIncludingDeleted(listOf(1L)) } returns listOf(product)
         every { productRepository.saveAll(any()) } answers { firstArg<Collection<Product>>().toList() }
-        every { userCouponRepository.findById(99L) } returns userCoupon
+        every { userCouponRepository.findByIdForUpdate(99L) } returns userCoupon
         every { userCouponRepository.save(any()) } answers { firstArg() }
 
         compensator.restore(order(userCouponId = 99L))
@@ -48,12 +52,38 @@ class OrderCompensatorTest {
     @Test
     fun restoresStockOnlyWhenNoCoupon() {
         val product = ProductFixture.validProduct(id = 1L, name = "운동화", price = 1000, stock = 10)
-        every { productRepository.findAllByIdsForUpdate(listOf(1L)) } returns listOf(product)
+        every { productRepository.findAllByIdsForUpdateIncludingDeleted(listOf(1L)) } returns listOf(product)
         every { productRepository.saveAll(any()) } answers { firstArg<Collection<Product>>().toList() }
 
         compensator.restore(order(userCouponId = null))
 
         assertThat(product.stock.value).isEqualTo(12)
-        verify(exactly = 0) { userCouponRepository.findById(any()) }
+        verify(exactly = 0) { userCouponRepository.findByIdForUpdate(any()) }
+    }
+
+    @DisplayName("주문 라인의 상품이 조회되지 않으면 PRODUCT_NOT_FOUND 로 실패하고, 어떤 재고도 저장하지 않는다.")
+    @Test
+    fun failsWhenProductMissing() {
+        // 삭제 마크 포함 조회로도 행이 없는 상황(진짜 정합성 손상) — 조용히 건너뛰면 부분 보상이 된다.
+        every { productRepository.findAllByIdsForUpdateIncludingDeleted(listOf(1L)) } returns emptyList()
+
+        val ex = assertThrows<CoreException> { compensator.restore(order()) }
+
+        assertThat(ex.errorType).isEqualTo(ProductErrorType.PRODUCT_NOT_FOUND)
+        verify(exactly = 0) { productRepository.saveAll(any()) }
+    }
+
+    @DisplayName("적용 쿠폰이 조회되지 않으면 USER_COUPON_NOT_FOUND 로 실패하고, 쿠폰을 저장하지 않는다.")
+    @Test
+    fun failsWhenCouponMissing() {
+        val product = ProductFixture.validProduct(id = 1L, name = "운동화", price = 1000, stock = 10)
+        every { productRepository.findAllByIdsForUpdateIncludingDeleted(listOf(1L)) } returns listOf(product)
+        every { productRepository.saveAll(any()) } answers { firstArg<Collection<Product>>().toList() }
+        every { userCouponRepository.findByIdForUpdate(99L) } returns null
+
+        val ex = assertThrows<CoreException> { compensator.restore(order(userCouponId = 99L)) }
+
+        assertThat(ex.errorType).isEqualTo(CouponErrorType.USER_COUPON_NOT_FOUND)
+        verify(exactly = 0) { userCouponRepository.save(any()) }
     }
 }

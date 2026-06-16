@@ -123,7 +123,7 @@ class CouponFacadeTest {
         @Test
         @DisplayName("삭제된 템플릿의 발급 쿠폰도 includingDeleted 조회로 노출된다")
         fun includesDeletedTemplate() {
-            val deletedTemplate = CouponFixture.coupon(id = 5L).also { it.softDelete() }
+            val deletedTemplate = CouponFixture.coupon(id = 5L).also { it.softDelete(LocalDateTime.now()) }
             val uc = CouponFixture.userCoupon(id = 50L, userId = 1L, couponId = 5L)
             every { userCouponRepository.findAllByUserId(1L, 0, 20) } returns pageOf(listOf(uc))
             every { couponRepository.findAllByIdsIncludingDeleted(listOf(5L)) } returns listOf(deletedTemplate)

@@ -65,7 +65,7 @@ class CouponV1AdminApiE2ETest @Autowired constructor(
         fun excludesSoftDeleted() {
             couponRepository.save(CouponFixture.coupon(name = "살아있음"))
             val deleted = couponRepository.save(CouponFixture.coupon(name = "삭제됨"))
-            deleted.softDelete()
+            deleted.softDelete(LocalDateTime.now())
             couponRepository.save(deleted)
 
             val response = getCoupons()

@@ -209,27 +209,28 @@ class CouponTest {
             assertThat(result.errorType).isEqualTo(CouponErrorType.COUPON_BAD_REQUEST)
         }
 
-        @DisplayName("softDelete() 호출 시 deletedAt 이 설정되고 isDeleted() 가 true 다.")
+        @DisplayName("softDelete(now) 호출 시 deletedAt 이 주입된 시각으로 설정되고 isDeleted() 가 true 다.")
         @Test
         fun softDeletes() {
             val coupon = CouponFixture.coupon()
+            val deletedAt = now.plusDays(3)
 
-            coupon.softDelete()
+            coupon.softDelete(deletedAt)
 
-            assertThat(coupon.deletedAt).isNotNull()
+            assertThat(coupon.deletedAt).isEqualTo(deletedAt)
             assertThat(coupon.isDeleted()).isTrue()
         }
 
-        @DisplayName("이미 삭제된 Coupon 의 softDelete() 재호출은 멱등이다.")
+        @DisplayName("이미 삭제된 Coupon 의 softDelete() 재호출은 멱등이다 — deletedAt 이 변하지 않는다.")
         @Test
         fun softDeleteIsIdempotent() {
             val coupon = CouponFixture.coupon()
-            coupon.softDelete()
-            val first = coupon.deletedAt
+            val firstDeletedAt = now.plusDays(1)
+            coupon.softDelete(firstDeletedAt)
 
-            coupon.softDelete()
+            coupon.softDelete(now.plusDays(2))
 
-            assertThat(coupon.deletedAt).isEqualTo(first)
+            assertThat(coupon.deletedAt).isEqualTo(firstDeletedAt)
         }
     }
 }
