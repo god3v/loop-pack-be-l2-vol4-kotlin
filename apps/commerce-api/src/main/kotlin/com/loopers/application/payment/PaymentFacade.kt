@@ -29,6 +29,8 @@ class PaymentFacade(
     }
 
     fun cancel(paymentId: Long) {
+        // 락/트랜잭션 없이 payment 를 읽어 refund 필요 여부만 판단한다 — 외부 환불을 락 밖에서 호출하기 위함.
+        // 실제 상태 전이·보상의 락·트랜잭션 경계는 PaymentCanceler.cancel(REQUIRES_NEW) 이 소유한다.
         val payment = paymentRepository.findById(paymentId)
             ?: throw CoreException(PaymentErrorType.PAYMENT_NOT_FOUND)
         // 승인된 결제만 외부 환불이 필요하다(REQUESTED 는 청구 전이라 환불 불필요). 환불은 락 밖에서 호출한다.

@@ -37,6 +37,15 @@ class ProductRepositoryImpl(
     override fun findAllByIdsForUpdate(ids: Collection<Long>): List<Product> =
         if (ids.isEmpty()) emptyList() else productJpaRepository.findAllByIdInForUpdate(ids).map { it.toDomain() }
 
+    override fun findAllByIdsForUpdateIncludingDeleted(ids: Collection<Long>): List<Product> =
+        if (ids.isEmpty()) {
+            emptyList()
+        } else {
+            // native FOR UPDATE 로 (삭제 마크 포함) 엔티티를 영속성 컨텍스트에 적재·잠근다.
+            // 이후 saveAll → save 의 findById(em.find) 는 1차 캐시 히트로 @SQLRestriction SQL 필터를 우회해 삭제 행도 갱신된다.
+            productJpaRepository.findAllByIdInForUpdateIncludingDeleted(ids).map { it.toDomain() }
+        }
+
     override fun increaseLikeCount(productId: Long) {
         productJpaRepository.increaseLikeCount(productId)
     }
