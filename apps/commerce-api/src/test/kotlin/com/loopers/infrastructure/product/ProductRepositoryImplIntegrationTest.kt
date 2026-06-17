@@ -127,6 +127,30 @@ class ProductRepositoryImplIntegrationTest @Autowired constructor(
             assertThat(result.content.map { it.likeCount }).containsExactly(100L, 30L, 1L)
         }
 
+        @DisplayName("sort=PRICE_ASC 동점 시 id asc 로 정렬한다. (타이브레이크 방향을 주 정렬과 통일 → 평범한 오름차순 인덱스로 filesort 회피)")
+        @Test
+        fun priceAscTiebreakIsIdAsc() {
+            val first = persist(name = "p1", price = 5000)
+            val second = persist(name = "p2", price = 5000)
+            testEntityManager.clear()
+
+            val result = productRepository.findAll(ProductSortType.PRICE_ASC, null, 0, 10)
+
+            assertThat(result.content.map { it.id }).containsExactly(first.id, second.id)
+        }
+
+        @DisplayName("sort=LIKES_DESC 동점 시 id desc 로 정렬한다. (주 정렬이 desc 라 타이브레이크도 desc)")
+        @Test
+        fun likesDescTiebreakIsIdDesc() {
+            val first = persist(name = "l1", likeCount = 10)
+            val second = persist(name = "l2", likeCount = 10)
+            testEntityManager.clear()
+
+            val result = productRepository.findAll(ProductSortType.LIKES_DESC, null, 0, 10)
+
+            assertThat(result.content.map { it.id }).containsExactly(second.id, first.id)
+        }
+
         @DisplayName("soft-deleted Product 를 제외한다.")
         @Test
         fun excludesSoftDeleted() {
