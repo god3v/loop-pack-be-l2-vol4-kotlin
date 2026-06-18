@@ -1,4 +1,4 @@
-# Round5 읽기 성능 — before/after 측정 기록
+# 읽기 성능 — before/after 측정 기록
 
 - 환경: MySQL 8.0.42 (docker `docker-mysql-1`), `products` 30만 건(293,875 alive, ~2% soft-delete), 100 브랜드
 - 측정: `EXPLAIN ANALYZE` 의 actual time (쿼리 실제 실행). 워밍업 후 대표값. 페이지 크기 20.
@@ -28,7 +28,7 @@
 - 300만~1000만으로 늘거나 동시 요청이 쌓이면 위 ms 는 선형 이상으로 악화(버퍼풀 압박·정렬 메모리·CPU). 단건 69~180ms 도 목록 API 로는 이미 느림.
 - 가장 손댈 가치가 큰 지점: **filter(brand_id) + sort(컬럼) 을 인덱스로 커버**해 (a) 풀스캔 제거 (b) filesort 제거.
 
-## Phase 2 — 인덱스 설계 실험 (토론 근거)
+## Phase 2 — 인덱스 설계 실험
 
 페이지 20, brand_id=7(≈2,884 alive). 인덱스 1개씩 만들며 EXPLAIN.
 
@@ -41,7 +41,7 @@
 | D | (like_count, id) only | brand=7 인기순 | filesort 없음이나 brand 찾으려 **1,936행 훑음 → 4.33ms** |
 | E | (brand_id, like_count, id) | brand=7 인기순 | brand seek → **20행, 0.46ms** (≈9배) |
 
-→ 전역 정렬엔 전역 인덱스, 브랜드 필터엔 brand 선두 인덱스가 별도로 필요. 전역 인덱스로 브랜드 필터를 대신하면 비용이 분포에 휘둘림(최악 unbounded).
+→ 전역 정렬엔 전역 인덱스, 브랜드 필터엔 brand 선두 인덱스가 별도로 필요. 전역 인덱스로 브랜드 필터를 대신하면 비용이 분포에 휘둘림.
 
 ### Decision 3 — ASC/DESC + id 타이브레이크
 | 실험 | 인덱스 | 정렬 | filesort? |
@@ -58,8 +58,6 @@
 | I | (brand_id, like_count, id) | deleted_at 은 `Using where` post-filter, 2% 삭제율이라 비용 무시 |
 | J | (brand_id, like_count, id, deleted_at) | (I)과 플랜 동일, ICP 안 붙음 — 이득 없이 인덱스만 넓어짐 |
 | K | (deleted_at, brand_id, like_count, id) | `ref=const,const` 동작하나 98% NULL near-constant 선두라 비대 |
-
-→ 현재 삭제율(2%)에선 deleted_at 미포함. 삭제율이 커지면 재고.
 
 ## Phase 2 — 인덱스 적용 후 (확정 셋)
 
@@ -82,7 +80,36 @@
 ### 해석
 - 필터+정렬+얕은 페이지: `type=ALL+filesort` → `ref/index + reverse scan` 으로 **풀스캔·filesort 동시 제거**, LIMIT 만큼(20여 행)만 읽음. 1000배 내외.
 - (4) `price ASC, id ASC` 로 통일하니 평범한 `(brand_id, price, id)` 인덱스로 filesort 제거 확인.
-- **(2) deep offset 만 여전히 느림(120ms)**: 인덱스로 순서는 잡혔지만 `LIMIT 20 OFFSET 100000` 은 버릴 10만 행을 인덱스에서 그대로 walk. → **인덱스로 안 풀리는 문제 = Phase 3 커서(keyset) 페이징 대상.**
+- **(2) deep offset 만 여전히 느림(120ms)**: 인덱스로 순서는 잡혔지만 `LIMIT 20 OFFSET 100000` 은 버릴 10만 행을 인덱스에서 그대로 walk.
 
 ## Phase 3 — 정렬/필터 최적화 (커서 페이징)
 > (작성 예정)
+
+## Phase 5 — Redis 캐시
+
+구조: `application.product.port.ProductCache`(outbound) ← `infrastructure.product.RedisProductCache`(어댑터). Facade read-through.
+
+| 항목 | 상세(`/products/{id}`) | 목록(`/products`) |
+|---|---|---|
+| 키 | `product:detail:v1:{id}` | `product:list:v1:{brandId\|all}:{sort}:{page}:{size}` |
+| 캐시 내용 | 공유 본문(product+brand), likedByMe 는 매 요청 합성 | `PageResult<ProductSummaryResult>` |
+| 범위 | 전체 | `page < 5` 만 |
+| TTL | 5분 | 60초 |
+| 무효화 | TTL + 상품 수정/삭제 시 evict (좋아요는 TTL 감내) | TTL-only |
+| 직렬화 | Jackson JSON(String value) | 〃 |
+
+### 장애/미스 안전성
+- 어댑터가 모든 Redis 호출을 `runCatching` 으로 감싸 **get=null(miss) / put·evict=no-op** 로 폴백 → Redis 다운에도 Facade 가 DB 로 정상 동작.
+
+### 검증 (테스트)
+- `RedisProductCacheTest` — Redis 예외 시 get=null, put/evict 무예외 (장애 흡수)
+- `RedisProductCacheIntegrationTest` (Testcontainer) — 상세/목록 put→get 라운드트립, evict, 키 격리(다른 sort/brand=miss)
+- `ProductFacadeTest` — 캐시 히트 시 DB 미조회, 미스 시 적재, page≥5 캐시 스킵, 수정/삭제 시 evict
+- `ProductV1ApiE2ETest` — 캐시 활성 상태로 전 시나리오 통과(테스트 간 Redis flush)
+
+### 로컬 캐시(L1) 보류
+- 다중 인스턴스 정합성 비용(evict 전파에 Redis pub/sub 필요) + 상세 카디널리티 높아 적중률 낮음. 핫 목록 키 한정으로 측정 후 도입..
+
+### 남은 정합성 트레이드오프
+- 좋아요 수는 TTL(상세 5분/목록 60초) 내 stale 가능 — 인기 카운트는 근사 허용.
+- 목록은 정밀 무효화 불가(어떤 페이지에 상품 X 가 있는지 모름) → TTL-only.

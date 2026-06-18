@@ -8,7 +8,9 @@ import com.loopers.domain.user.UserFixture
 import com.loopers.domain.user.UserRepository
 import com.loopers.interfaces.api.product.ProductV1Dto
 import com.loopers.interfaces.api.user.UserV1Dto
+import com.loopers.testcontainers.RedisTestContainersConfig
 import com.loopers.utils.DatabaseCleanUp
+import com.loopers.utils.RedisCleanUp
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
@@ -19,6 +21,7 @@ import org.junit.jupiter.api.assertAll
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.web.client.TestRestTemplate
+import org.springframework.context.annotation.Import
 import org.springframework.core.ParameterizedTypeReference
 import org.springframework.http.HttpEntity
 import org.springframework.http.HttpHeaders
@@ -27,9 +30,11 @@ import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@Import(RedisTestContainersConfig::class)
 class ProductV1ApiE2ETest @Autowired constructor(
     private val testRestTemplate: TestRestTemplate,
     private val databaseCleanUp: DatabaseCleanUp,
+    private val redisCleanUp: RedisCleanUp,
     private val brandRepository: BrandRepository,
     private val productRepository: ProductRepository,
     private val userRepository: UserRepository,
@@ -53,6 +58,8 @@ class ProductV1ApiE2ETest @Autowired constructor(
     @AfterEach
     fun tearDown() {
         databaseCleanUp.truncateAllTables()
+        // 캐시 계층이 read-through 로 활성화돼 있어, TRUNCATE 후 id 재사용으로 인한 stale 캐시 오염을 막는다.
+        redisCleanUp.truncateAll()
     }
 
     @DisplayName("GET /api/v1/products 상품 목록 조회 (인증 불필요)")
@@ -191,10 +198,10 @@ class ProductV1ApiE2ETest @Autowired constructor(
             )
         }
 
-        @DisplayName("정렬 키가 동률이면 id 내림차순 tie-breaker 로 페이지 간 중복/누락 없이 결정적으로 정렬된다.")
+        @DisplayName("정렬 키가 동률이면 타이브레이커로 페이지 간 중복/누락 없이 결정적으로 정렬된다.")
         @Test
-        fun appliesIdDescTieBreaker_onEqualSortKey() {
-            // 가격이 모두 동일 → price_asc 의 2차 정렬은 id desc.
+        fun appliesIdTieBreaker_onEqualSortKey() {
+            // 가격이 모두 동일 → price_asc 의 2차 정렬은 id asc (주 정렬 방향과 통일해 filesort 회피).
             val p1 = productRepository.save(ProductFixture.validProduct(name = "p1", price = 5_000L, brandId = brandId)).id
             val p2 = productRepository.save(ProductFixture.validProduct(name = "p2", price = 5_000L, brandId = brandId)).id
             val p3 = productRepository.save(ProductFixture.validProduct(name = "p3", price = 5_000L, brandId = brandId)).id
@@ -203,8 +210,8 @@ class ProductV1ApiE2ETest @Autowired constructor(
             val page1 = getProducts(sort = "price_asc", page = 1, size = 2)
 
             assertAll(
-                { assertThat(page0.body?.data?.content?.map { it.id }).containsExactly(p3, p2) },
-                { assertThat(page1.body?.data?.content?.map { it.id }).containsExactly(p1) },
+                { assertThat(page0.body?.data?.content?.map { it.id }).containsExactly(p1, p2) },
+                { assertThat(page1.body?.data?.content?.map { it.id }).containsExactly(p3) },
             )
         }
 
