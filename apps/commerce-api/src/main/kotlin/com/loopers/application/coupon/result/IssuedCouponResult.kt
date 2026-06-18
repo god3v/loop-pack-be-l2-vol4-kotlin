@@ -13,21 +13,26 @@ data class IssuedCouponResult(
     val type: DiscountType,
     val value: Long,
     val minOrderAmount: Long?,
+    val usableFrom: LocalDateTime,
     val expiredAt: LocalDateTime,
     val status: UserCouponStatus,
     val issuedAt: LocalDateTime,
 ) {
     companion object {
-        fun of(userCoupon: UserCoupon, coupon: Coupon): IssuedCouponResult = IssuedCouponResult(
-            userCouponId = userCoupon.id,
-            couponId = coupon.id,
-            name = coupon.name.value,
-            type = coupon.discount.type,
-            value = coupon.discount.value,
-            minOrderAmount = coupon.minOrderAmount,
-            expiredAt = coupon.expiredAt,
-            status = userCoupon.status,
-            issuedAt = userCoupon.issuedAt,
-        )
+        fun of(userCoupon: UserCoupon, coupon: Coupon): IssuedCouponResult {
+            val (type, value) = coupon.discountPolicy.toTypeValue()
+            return IssuedCouponResult(
+                userCouponId = userCoupon.id,
+                couponId = coupon.id,
+                name = coupon.name.value,
+                type = type,
+                value = value,
+                minOrderAmount = coupon.minOrderAmount,
+                usableFrom = userCoupon.usableFrom,
+                expiredAt = userCoupon.expiredAt,
+                status = userCoupon.status,
+                issuedAt = userCoupon.issuedAt,
+            )
+        }
     }
 }

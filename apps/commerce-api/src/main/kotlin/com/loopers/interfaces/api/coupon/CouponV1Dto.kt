@@ -11,27 +11,26 @@ import com.loopers.domain.coupon.UserCouponStatus
 import com.loopers.support.page.PageResult
 import java.time.LocalDateTime
 
-/**
- * 쿠폰 API DTO.
- *
- * 와이어의 `type`(FIXED/RATE) · `status`(AVAILABLE/USED/EXPIRED) 는 도메인 enum 이름(대문자) 을 그대로 쓴다.
- * - 응답: enum 을 그대로 노출해 Jackson 이 이름으로 직렬화한다.
- * - 요청: `type` 은 String 으로 받아 [DiscountType.from] 으로 역매핑한다(미지원 값 → `COUPON_BAD_REQUEST`).
- */
 class CouponV1Dto {
     data class RegisterCouponRequest(
         val name: String,
         val type: String,
         val value: Long,
         val minOrderAmount: Long?,
-        val expiredAt: LocalDateTime,
+        val issueStartAt: LocalDateTime,
+        val issueEndAt: LocalDateTime,
+        val useStartAt: LocalDateTime,
+        val useEndAt: LocalDateTime,
     ) {
         fun toCommand(): RegisterCouponCommand = RegisterCouponCommand(
             name = name,
             discountType = DiscountType.from(type),
             discountValue = value,
             minOrderAmount = minOrderAmount,
-            expiredAt = expiredAt,
+            issueStartAt = issueStartAt,
+            issueEndAt = issueEndAt,
+            useStartAt = useStartAt,
+            useEndAt = useEndAt,
         )
     }
 
@@ -40,14 +39,20 @@ class CouponV1Dto {
         val type: String,
         val value: Long,
         val minOrderAmount: Long?,
-        val expiredAt: LocalDateTime,
+        val issueStartAt: LocalDateTime,
+        val issueEndAt: LocalDateTime,
+        val useStartAt: LocalDateTime,
+        val useEndAt: LocalDateTime,
     ) {
         fun toCommand(): UpdateCouponCommand = UpdateCouponCommand(
             name = name,
             discountType = DiscountType.from(type),
             discountValue = value,
             minOrderAmount = minOrderAmount,
-            expiredAt = expiredAt,
+            issueStartAt = issueStartAt,
+            issueEndAt = issueEndAt,
+            useStartAt = useStartAt,
+            useEndAt = useEndAt,
         )
     }
 
@@ -58,6 +63,7 @@ class CouponV1Dto {
         val type: DiscountType,
         val value: Long,
         val minOrderAmount: Long?,
+        val usableFrom: LocalDateTime,
         val expiredAt: LocalDateTime,
         val status: UserCouponStatus,
         val issuedAt: LocalDateTime,
@@ -70,6 +76,7 @@ class CouponV1Dto {
                 type = result.type,
                 value = result.value,
                 minOrderAmount = result.minOrderAmount,
+                usableFrom = result.usableFrom,
                 expiredAt = result.expiredAt,
                 status = result.status,
                 issuedAt = result.issuedAt,
@@ -84,6 +91,7 @@ class CouponV1Dto {
         val type: DiscountType,
         val value: Long,
         val minOrderAmount: Long?,
+        val usableFrom: LocalDateTime,
         val expiredAt: LocalDateTime,
         val status: UserCouponStatus,
         val issuedAt: LocalDateTime,
@@ -97,6 +105,7 @@ class CouponV1Dto {
                 type = result.type,
                 value = result.value,
                 minOrderAmount = result.minOrderAmount,
+                usableFrom = result.usableFrom,
                 expiredAt = result.expiredAt,
                 status = result.status,
                 issuedAt = result.issuedAt,
@@ -129,7 +138,10 @@ class CouponV1Dto {
         val type: DiscountType,
         val value: Long,
         val minOrderAmount: Long?,
-        val expiredAt: LocalDateTime,
+        val issueStartAt: LocalDateTime,
+        val issueEndAt: LocalDateTime,
+        val useStartAt: LocalDateTime,
+        val useEndAt: LocalDateTime,
     ) {
         companion object {
             fun from(result: AdminCouponResult): AdminCouponResponse = AdminCouponResponse(
@@ -138,7 +150,10 @@ class CouponV1Dto {
                 type = result.type,
                 value = result.value,
                 minOrderAmount = result.minOrderAmount,
-                expiredAt = result.expiredAt,
+                issueStartAt = result.issueStartAt,
+                issueEndAt = result.issueEndAt,
+                useStartAt = result.useStartAt,
+                useEndAt = result.useEndAt,
             )
         }
     }

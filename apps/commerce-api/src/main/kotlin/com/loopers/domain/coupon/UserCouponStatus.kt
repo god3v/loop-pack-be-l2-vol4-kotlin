@@ -2,10 +2,6 @@ package com.loopers.domain.coupon
 
 import com.loopers.support.error.CoreException
 
-/**
- * 발급 쿠폰의 상태.
- * 저장되는 값은 [AVAILABLE] · [USED] 둘뿐이며, [EXPIRED] 는 만료 시각 경과로 조회·사용 시 파생되는 노출 상태다.
- */
 enum class UserCouponStatus {
     AVAILABLE,
     USED,

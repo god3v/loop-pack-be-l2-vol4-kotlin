@@ -62,10 +62,8 @@ class BrandFacade(
         val brand = brandRepository.findById(brandId)
             ?: throw CoreException(BrandErrorType.BRAND_NOT_FOUND)
         val products = productRepository.findAllByBrandId(brandId)
-        products.forEach {
-            it.softDelete()
-            productRepository.save(it)
-        }
+        products.forEach { it.softDelete() }
+        productRepository.saveAll(products)
         brand.softDelete()
         brandRepository.save(brand)
     }

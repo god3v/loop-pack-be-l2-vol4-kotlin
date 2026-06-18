@@ -1,15 +1,20 @@
 package com.loopers.application.order
 
 import com.loopers.application.order.command.PlaceOrderCommand
-import com.loopers.domain.order.OrderRepository
-import com.loopers.domain.order.OrderService
 import com.loopers.application.order.result.AdminOrderResult
 import com.loopers.application.order.result.OrderResult
-import com.loopers.domain.product.ProductRepository
-import com.loopers.domain.user.UserRepository
+import com.loopers.domain.coupon.CouponErrorType
+import com.loopers.domain.coupon.CouponRepository
+import com.loopers.domain.coupon.UserCouponRepository
 import com.loopers.domain.order.OrderErrorType
+import com.loopers.domain.order.OrderRepository
+import com.loopers.domain.order.OrderService
+import com.loopers.domain.product.ProductRepository
 import com.loopers.domain.user.UserErrorType
+import com.loopers.domain.user.UserRepository
 import com.loopers.support.error.CoreException
+import com.loopers.support.page.PageResult
+import org.springframework.context.ApplicationEventPublisher
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
 import java.time.LocalDateTime
@@ -19,6 +24,9 @@ class OrderFacade(
     private val userRepository: UserRepository,
     private val productRepository: ProductRepository,
     private val orderRepository: OrderRepository,
+    private val couponRepository: CouponRepository,
+    private val userCouponRepository: UserCouponRepository,
+    private val eventPublisher: ApplicationEventPublisher,
 ) {
     @Transactional
     fun placeOrder(command: PlaceOrderCommand): OrderResult {
@@ -30,7 +38,7 @@ class OrderFacade(
         }
 
         val productIds = command.lines.map { it.productId }.distinct()
-        val products = productRepository.findAllByIds(productIds).associateBy { it.id }
+        val products = productRepository.findAllByIdsForUpdate(productIds).associateBy { it.id }
         val quantities = command.lines.associate { it.productId to it.quantity }
         val order = OrderService.createOrder(
             userId = user.id,
@@ -39,8 +47,26 @@ class OrderFacade(
             idempotencyKey = command.idempotencyKey,
         )
 
+        command.userCouponId?.let { userCouponId ->
+            val userCoupon = userCouponRepository.findByIdForUpdate(userCouponId)
+                ?: throw CoreException(CouponErrorType.USER_COUPON_NOT_FOUND)
+            if (userCoupon.userId != user.id) {
+                throw CoreException(CouponErrorType.USER_COUPON_NOT_FOUND)
+            }
+            val coupon = couponRepository.findByIdIncludingDeleted(userCoupon.couponId)
+                ?: throw CoreException(CouponErrorType.COUPON_NOT_FOUND)
+            val now = LocalDateTime.now()
+            val discount = coupon.calculateDiscount(order.originalAmount)
+            userCoupon.use(now)
+            userCouponRepository.save(userCoupon)
+            order.applyCoupon(userCouponId, discount)
+        }
+
         productRepository.saveAll(products.values)
-        return OrderResult.from(orderRepository.save(order))
+        val saved = orderRepository.save(order)
+        // 커밋 후 결제 처리(PG → PAID)를 트리거한다. 외부 결제 호출은 이 트랜잭션 밖(AFTER_COMMIT)에서 일어난다.
+        eventPublisher.publishEvent(OrderPlacedEvent(saved.id))
+        return OrderResult.from(saved)
     }
 
     @Transactional(readOnly = true)
@@ -50,17 +76,14 @@ class OrderFacade(
         endAt: LocalDateTime?,
         page: Int,
         size: Int,
-    ): List<OrderResult> {
+    ): PageResult<OrderResult> {
         val user = userRepository.findByLoginId(loginId)
             ?: throw CoreException(UserErrorType.UNAUTHORIZED)
+        if (startAt != null && endAt != null && startAt.isAfter(endAt)) {
+            throw CoreException(OrderErrorType.INVALID_DATE_RANGE)
+        }
         return orderRepository
-            .findAllByUserIdAndOrderedAtBetween(
-                user.id,
-                startAt ?: LocalDateTime.MIN,
-                endAt ?: LocalDateTime.MAX,
-                page,
-                size,
-            )
+            .findAllByUserIdInPeriod(user.id, startAt, endAt, page, size)
             .map { OrderResult.from(it) }
     }
 
@@ -77,9 +100,9 @@ class OrderFacade(
     }
 
     @Transactional(readOnly = true)
-    fun getOrdersForAdmin(page: Int, size: Int): List<AdminOrderResult> {
+    fun getOrdersForAdmin(page: Int, size: Int): PageResult<AdminOrderResult> {
         val orders = orderRepository.findAllForAdmin(page, size)
-        val usersById = userRepository.findAllByIds(orders.map { it.userId }).associateBy { it.id }
+        val usersById = userRepository.findAllByIds(orders.content.map { it.userId }).associateBy { it.id }
         return orders.map { order ->
             val user = usersById[order.userId]
                 ?: throw CoreException(UserErrorType.UNAUTHORIZED)

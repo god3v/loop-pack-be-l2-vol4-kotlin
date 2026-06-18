@@ -242,4 +242,60 @@ class ProductRepositoryImplIntegrationTest @Autowired constructor(
             assertThat(result.map { it.id }).containsExactly(a.id)
         }
     }
+
+    @DisplayName("saveAll — 배치 저장")
+    @Nested
+    inner class SaveAll {
+        @DisplayName("여러 기존 Product 의 변경(soft delete) 을 한 번에 반영한다.")
+        @Test
+        fun batchUpdatesExistingProducts() {
+            val a = persist(name = "A")
+            val b = persist(name = "B")
+            testEntityManager.clear()
+            a.softDelete()
+            b.softDelete()
+
+            productRepository.saveAll(listOf(a, b))
+            testEntityManager.flush()
+            testEntityManager.clear()
+
+            assertThat(productRepository.findById(a.id)).isNull()
+            assertThat(productRepository.findById(b.id)).isNull()
+        }
+
+        @DisplayName("신규(id=0) Product 들을 insert 하고 식별자가 부여된 도메인을 반환한다.")
+        @Test
+        fun batchInsertsNewProducts() {
+            val news = listOf(
+                ProductFixture.validProduct(name = "N1"),
+                ProductFixture.validProduct(name = "N2"),
+            )
+
+            val result = productRepository.saveAll(news)
+            testEntityManager.flush()
+            testEntityManager.clear()
+
+            assertThat(result).hasSize(2)
+            assertThat(result.map { it.id }).allMatch { it > 0L }
+            assertThat(productRepository.findById(result.first().id)).isNotNull()
+        }
+
+        @DisplayName("존재하지 않는 id 가 섞이면 PRODUCT_NOT_FOUND 예외가 발생한다.")
+        @Test
+        fun throwsProductNotFound_whenAnyIdMissing() {
+            val live = persist(name = "L")
+            testEntityManager.clear()
+            val ghost = ProductFixture.validProduct(id = 999L)
+
+            val ex = assertThrows<CoreException> { productRepository.saveAll(listOf(live, ghost)) }
+
+            assertThat(ex.errorType).isEqualTo(ProductErrorType.PRODUCT_NOT_FOUND)
+        }
+
+        @DisplayName("빈 컬렉션이면 조회 없이 빈 리스트를 반환한다.")
+        @Test
+        fun returnsEmptyForEmptyInput() {
+            assertThat(productRepository.saveAll(emptyList())).isEmpty()
+        }
+    }
 }

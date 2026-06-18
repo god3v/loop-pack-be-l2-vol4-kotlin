@@ -15,13 +15,19 @@ object CouponFixture {
         discountType: DiscountType = DiscountType.RATE,
         discountValue: Long = 10,
         minOrderAmount: Long? = null,
-        expiredAt: LocalDateTime = LocalDateTime.now().plusDays(30),
+        issueStartAt: LocalDateTime = LocalDateTime.now().minusDays(1),
+        issueEndAt: LocalDateTime = LocalDateTime.now().plusDays(30),
+        useStartAt: LocalDateTime = LocalDateTime.now().minusDays(1),
+        useEndAt: LocalDateTime = LocalDateTime.now().plusDays(30),
     ): Coupon = Coupon(
         id = id,
         name = CouponName.of(name),
-        discount = Discount.of(discountType, discountValue),
+        discountPolicy = DiscountPolicy.of(discountType, discountValue),
         minOrderAmount = minOrderAmount,
-        expiredAt = expiredAt,
+        issueStartAt = issueStartAt,
+        issueEndAt = issueEndAt,
+        useStartAt = useStartAt,
+        useEndAt = useEndAt,
     )
 
     fun userCoupon(
@@ -30,6 +36,8 @@ object CouponFixture {
         couponId: Long = 1L,
         status: UserCouponStatus = UserCouponStatus.AVAILABLE,
         issuedAt: LocalDateTime = LocalDateTime.now(),
+        usableFrom: LocalDateTime = LocalDateTime.now().minusDays(1),
+        expiredAt: LocalDateTime = LocalDateTime.now().plusDays(30),
         usedAt: LocalDateTime? = null,
     ): UserCoupon = UserCoupon(
         id = id,
@@ -37,6 +45,8 @@ object CouponFixture {
         couponId = couponId,
         status = status,
         issuedAt = issuedAt,
+        usableFrom = usableFrom,
+        expiredAt = expiredAt,
         usedAt = usedAt,
     )
 }

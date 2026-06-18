@@ -27,13 +27,19 @@ class CouponFacade(
     fun issueCoupon(userId: Long, couponId: Long): IssuedCouponResult {
         val coupon = couponRepository.findById(couponId)
             ?: throw CoreException(CouponErrorType.COUPON_NOT_FOUND)
-        if (coupon.isExpired(LocalDateTime.now())) {
-            throw CoreException(CouponErrorType.COUPON_NOT_APPLICABLE, "만료된 쿠폰은 발급할 수 없다.")
-        }
+        coupon.ensureIssuable(LocalDateTime.now())
         if (userCouponRepository.existsByUserIdAndCouponId(userId, couponId)) {
             throw CoreException(CouponErrorType.ALREADY_ISSUED_COUPON)
         }
-        val saved = userCouponRepository.save(UserCoupon.issue(userId = userId, couponId = couponId))
+        // 발급 시점에 템플릿의 사용 가능 구간을 발급 쿠폰으로 스냅샷한다 — 이후 템플릿이 바뀌어도 발급분 유효기간은 고정.
+        val saved = userCouponRepository.save(
+            UserCoupon.issue(
+                userId = userId,
+                couponId = couponId,
+                usableFrom = coupon.useStartAt,
+                expiredAt = coupon.useEndAt,
+            ),
+        )
         return IssuedCouponResult.of(saved, coupon)
     }
 
@@ -68,7 +74,10 @@ class CouponFacade(
             discountType = command.discountType,
             discountValue = command.discountValue,
             minOrderAmount = command.minOrderAmount,
-            expiredAt = command.expiredAt,
+            issueStartAt = command.issueStartAt,
+            issueEndAt = command.issueEndAt,
+            useStartAt = command.useStartAt,
+            useEndAt = command.useEndAt,
             now = LocalDateTime.now(),
         )
         return AdminCouponResult.from(couponRepository.save(coupon))
@@ -83,7 +92,10 @@ class CouponFacade(
             discountType = command.discountType,
             discountValue = command.discountValue,
             minOrderAmount = command.minOrderAmount,
-            expiredAt = command.expiredAt,
+            issueStartAt = command.issueStartAt,
+            issueEndAt = command.issueEndAt,
+            useStartAt = command.useStartAt,
+            useEndAt = command.useEndAt,
             now = LocalDateTime.now(),
         )
         return AdminCouponResult.from(couponRepository.save(coupon))
@@ -93,43 +105,16 @@ class CouponFacade(
     fun deleteCoupon(couponId: Long) {
         val coupon = couponRepository.findById(couponId)
             ?: throw CoreException(CouponErrorType.COUPON_NOT_FOUND)
-        coupon.softDelete()
+        coupon.softDelete(LocalDateTime.now())
         couponRepository.save(coupon)
     }
 
     @Transactional(readOnly = true)
     fun getCouponIssues(couponId: Long, pageQuery: PageQuery): PageResult<CouponIssueResult> {
-        val coupon = couponRepository.findById(couponId)
+        couponRepository.findById(couponId)
             ?: throw CoreException(CouponErrorType.COUPON_NOT_FOUND)
         val now = LocalDateTime.now()
         return userCouponRepository.findAllByCouponId(couponId, pageQuery.page, pageQuery.size)
-            .map { CouponIssueResult.of(it, coupon, now) }
-    }
-
-    /**
-     * 쿠폰 사용(UC-9). 주문 흐름이 위임하는 능력 — 할인 금액을 계산하고 발급 쿠폰을 소진한다.
-     * 본 도메인은 진입점만 제공하며, 주문(order) 연동·결제 실패 보상은 범위 밖이다.
-     */
-    @Transactional
-    fun applyCoupon(userId: Long, userCouponId: Long, orderAmount: Long): Long {
-        // 비관적 쓰기 락으로 조회 — 같은 발급 쿠폰에 대한 동시 사용을 직렬화해 이중 소진을 막는다.
-        val userCoupon = userCouponRepository.findByIdForUpdate(userCouponId)
-            ?: throw CoreException(CouponErrorType.USER_COUPON_NOT_FOUND)
-        if (userCoupon.userId != userId) {
-            throw CoreException(CouponErrorType.USER_COUPON_NOT_FOUND)
-        }
-        if (userCoupon.isUsed()) {
-            throw CoreException(CouponErrorType.ALREADY_USED_COUPON)
-        }
-        val coupon = couponRepository.findByIdIncludingDeleted(userCoupon.couponId)
-            ?: throw CoreException(CouponErrorType.COUPON_NOT_FOUND)
-        val now = LocalDateTime.now()
-        if (coupon.isExpired(now)) {
-            throw CoreException(CouponErrorType.COUPON_NOT_APPLICABLE, "만료된 쿠폰이다.")
-        }
-        val discount = coupon.calculateDiscount(orderAmount)
-        userCoupon.use(now)
-        userCouponRepository.save(userCoupon)
-        return discount
+            .map { CouponIssueResult.of(it, now) }
     }
 }

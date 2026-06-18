@@ -18,6 +18,7 @@
 - **계층 경계**: `interfaces → application ← infrastructure`, `application → domain`. `domain` 은 스프링/JPA 를 모른다.
 - **트랜잭션 경계 & 조율**: `application.Facade` 가 Repository 호출과 `@Transactional` 을 단일 소유.
 - **순수 도메인 헬퍼는 허용**: 정책/계산기/스펙(예: `PasswordPolicy`, `OrderPriceCalculator`) 은 무상태·인자 기반이면 `domain` 에 둔다.
+- **Tell, Don't Ask**: 도메인 상태를 밖에서 묻고(`isXxx()`) `if` 로 분기하기보다, 규칙과 그 위반 예외를 도메인 객체의 행위 메서드로 캡슐화한다. (예: `if (coupon.isExpired(now)) throw …` → `coupon.ensureIssuable(now)`)
 - **null-safety 최우선**. `!!` 는 근거 코멘트와 함께만.
 - **라이브러리 버전**은 `gradle.properties` 단일 출처.
 
