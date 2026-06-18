@@ -29,7 +29,7 @@ class ProductV1Controller(
         val query = GetProductsQuery(
             sort = ProductSortType.from(sort),
             brandId = brandId,
-            paging = PageQuery(page = pageable.pageNumber, size = pageable.pageSize),
+            paging = PageQuery(page = pageable.pageNumber, size = pageable.pageSize.coerceAtMost(MAX_PAGE_SIZE)),
         )
         val result = productFacade.getProducts(query)
         return ApiResponse.success(ProductV1Dto.ProductsResponse.from(result))
@@ -43,5 +43,9 @@ class ProductV1Controller(
     ): ApiResponse<ProductV1Dto.ProductDetailResponse> {
         val result = productFacade.getProductDetail(productId, user?.id)
         return ApiResponse.success(ProductV1Dto.ProductDetailResponse.from(result))
+    }
+
+    companion object {
+        private const val MAX_PAGE_SIZE = 100
     }
 }

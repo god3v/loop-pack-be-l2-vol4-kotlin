@@ -18,13 +18,14 @@ import org.springframework.data.redis.core.RedisTemplate
  */
 @DisplayName("RedisProductCache — 저장소 장애 흡수")
 class RedisProductCacheTest {
-    private val redisTemplate: RedisTemplate<String, String> = mockk()
-    private val cache = RedisProductCache(redisTemplate, ObjectMapper())
+    private val readTemplate: RedisTemplate<String, String> = mockk()
+    private val writeTemplate: RedisTemplate<String, String> = mockk()
+    private val cache = RedisProductCache(readTemplate, writeTemplate, ObjectMapper())
 
     @Test
     @DisplayName("get 중 Redis 예외가 나면 null(miss) 로 폴백한다")
     fun getSwallowsFailure() {
-        every { redisTemplate.opsForValue() } throws RuntimeException("redis down")
+        every { readTemplate.opsForValue() } throws RuntimeException("redis down")
 
         assertThat(cache.getDetail(1L)).isNull()
         assertThat(cache.getList(null, ProductSortType.LATEST, 0, 20)).isNull()
@@ -33,8 +34,8 @@ class RedisProductCacheTest {
     @Test
     @DisplayName("put / evict 중 Redis 예외가 나도 예외를 던지지 않는다(no-op)")
     fun writeAndEvictSwallowFailure() {
-        every { redisTemplate.opsForValue() } throws RuntimeException("redis down")
-        every { redisTemplate.delete(any<String>()) } throws RuntimeException("redis down")
+        every { writeTemplate.opsForValue() } throws RuntimeException("redis down")
+        every { writeTemplate.delete(any<String>()) } throws RuntimeException("redis down")
 
         assertThatCode {
             cache.putDetail(CachedProductDetail(1L, "n", 1000L, 0L, 9L, "b"))

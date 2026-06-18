@@ -147,6 +147,19 @@ class ProductV1ApiE2ETest @Autowired constructor(
             )
         }
 
+        @DisplayName("size 가 상한(100)을 초과하면 100 으로 캡된다.")
+        @Test
+        fun capsPageSizeToMax() {
+            productRepository.save(ProductFixture.validProduct(name = "p", brandId = brandId))
+
+            val response = getProducts(size = 1000)
+
+            assertAll(
+                { assertThat(response.statusCode).isEqualTo(HttpStatus.OK) },
+                { assertThat(response.body?.data?.size).isEqualTo(100) },
+            )
+        }
+
         @DisplayName("삭제 마크된 상품은 목록에서 제외된다.")
         @Test
         fun excludesSoftDeleted() {

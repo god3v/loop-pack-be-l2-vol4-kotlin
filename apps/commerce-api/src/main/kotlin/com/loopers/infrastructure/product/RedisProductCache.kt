@@ -1,5 +1,6 @@
 package com.loopers.infrastructure.product
 
+import com.fasterxml.jackson.core.type.TypeReference
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.loopers.application.product.port.CachedProductDetail
 import com.loopers.application.product.port.ProductCache
@@ -14,51 +15,39 @@ import org.springframework.stereotype.Component
 import java.time.Duration
 
 /**
- * 상품 조회 Redis 캐시 어댑터.
+ * 상품 조회 Redis 캐시 어댑터. 직렬화는 Jackson JSON, 키에 버전(v1)을 둔다.
  *
- * - 직렬화: Jackson JSON (String value). 키에 버전(v1) 을 넣어 스키마 변경 시 롤오버 가능.
- * - 장애 흡수: 모든 Redis 호출을 runCatching 으로 감싸 get 은 null(miss), put/evict 은 no-op 로 폴백한다.
- *   → Redis 가 죽어도 Facade 는 캐시 미스로 보고 DB 로 정상 동작한다.
- * - 무효화: 상세는 TTL + 상품 수정/삭제 시 evict, 목록은 정밀 무효화가 불가능해 TTL-only.
+ * 모든 Redis 호출은 read/write/evict 헬퍼를 거치며 저장소 장애를 흡수한다 —
+ * 읽기는 null(miss), 쓰기/삭제는 no-op 로 폴백해 Redis 다운에도 Facade 가 DB 로 정상 동작한다.
  */
 @Component
 class RedisProductCache(
+    // 읽기: @Primary(ReadFrom.REPLICA_PREFERRED) 템플릿 — read 트래픽을 replica 로 분산해 master 단일 천장을 완화한다.
+    private val readTemplate: RedisTemplate<String, String>,
+    // 쓰기/삭제: master — 복제 지연 없이 즉시 반영.
     @Qualifier(RedisConfig.REDIS_TEMPLATE_MASTER)
-    private val redisTemplate: RedisTemplate<String, String>,
+    private val writeTemplate: RedisTemplate<String, String>,
     private val objectMapper: ObjectMapper,
 ) : ProductCache {
     private val log = LoggerFactory.getLogger(javaClass)
-    private val listType = objectMapper.typeFactory
-        .constructParametricType(PageResult::class.java, ProductSummaryResult::class.java)
+    private val listType = object : TypeReference<PageResult<ProductSummaryResult>>() {}
 
-    override fun getDetail(productId: Long): CachedProductDetail? = runCatching {
-        redisTemplate.opsForValue().get(detailKey(productId))
-            ?.let { objectMapper.readValue(it, CachedProductDetail::class.java) }
-    }.getOrElse {
-        log.warn("product detail cache get 실패 (productId={})", productId, it)
-        null
-    }
+    override fun getDetail(productId: Long): CachedProductDetail? =
+        read(detailKey(productId)) { objectMapper.readValue(it, CachedProductDetail::class.java) }
 
-    override fun putDetail(detail: CachedProductDetail) = write(detailKey(detail.id), detail, DETAIL_TTL)
+    override fun putDetail(detail: CachedProductDetail) =
+        write(detailKey(detail.id), detail, DETAIL_TTL)
 
-    override fun evictDetail(productId: Long) {
-        runCatching { redisTemplate.delete(detailKey(productId)) }
-            .onFailure { log.warn("product detail cache evict 실패 (productId={})", productId, it) }
-    }
+    override fun evictDetail(productId: Long) =
+        evict(detailKey(productId))
 
     override fun getList(
         brandId: Long?,
         sort: ProductSortType,
         page: Int,
         size: Int,
-    ): PageResult<ProductSummaryResult>? = runCatching {
-        val json = redisTemplate.opsForValue().get(listKey(brandId, sort, page, size)) ?: return@runCatching null
-        @Suppress("UNCHECKED_CAST")
-        objectMapper.readValue(json, listType) as PageResult<ProductSummaryResult>
-    }.getOrElse {
-        log.warn("product list cache get 실패 (brandId={}, sort={}, page={})", brandId, sort, page, it)
-        null
-    }
+    ): PageResult<ProductSummaryResult>? =
+        read(listKey(brandId, sort, page, size)) { objectMapper.readValue(it, listType) }
 
     override fun putList(
         brandId: Long?,
@@ -68,10 +57,21 @@ class RedisProductCache(
         result: PageResult<ProductSummaryResult>,
     ) = write(listKey(brandId, sort, page, size), result, LIST_TTL)
 
+    private fun <T> read(key: String, deserialize: (String) -> T): T? = runCatching {
+        readTemplate.opsForValue().get(key)?.let(deserialize)
+    }.getOrElse {
+        log.warn("cache get 실패 (key={})", key, it)
+        null
+    }
+
     private fun write(key: String, value: Any, ttl: Duration) {
-        runCatching {
-            redisTemplate.opsForValue().set(key, objectMapper.writeValueAsString(value), ttl)
-        }.onFailure { log.warn("cache put 실패 (key={})", key, it) }
+        runCatching { writeTemplate.opsForValue().set(key, objectMapper.writeValueAsString(value), ttl) }
+            .onFailure { log.warn("cache put 실패 (key={})", key, it) }
+    }
+
+    private fun evict(key: String) {
+        runCatching { writeTemplate.delete(key) }
+            .onFailure { log.warn("cache evict 실패 (key={})", key, it) }
     }
 
     private fun detailKey(productId: Long): String = "product:detail:v1:$productId"
