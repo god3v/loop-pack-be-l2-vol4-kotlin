@@ -4,7 +4,10 @@ import com.loopers.domain.brand.BrandRepository
 import com.loopers.domain.like.LikeRepository
 import com.loopers.application.product.command.RegisterProductCommand
 import com.loopers.application.product.command.UpdateProductCommand
+import com.loopers.application.product.port.CachedProductDetail
+import com.loopers.application.product.port.ProductCache
 import com.loopers.application.product.query.GetProductsQuery
+import com.loopers.application.product.result.ProductSummaryResult
 import com.loopers.domain.product.ProductRepository
 import com.loopers.domain.brand.BrandErrorType
 import com.loopers.domain.brand.BrandFixture
@@ -31,7 +34,15 @@ class ProductFacadeTest {
     private val productRepository: ProductRepository = mockk()
     private val brandRepository: BrandRepository = mockk()
     private val likeRepository: LikeRepository = mockk()
-    private val productFacade = ProductFacade(productRepository, brandRepository, likeRepository)
+
+    // relaxed: put/evict(Unit) 은 no-op. get 은 기본 null(miss) 로 명시해 DB 경로로 폴백시킨다.
+    private val productCache: ProductCache = mockk(relaxed = true)
+    private val productFacade = ProductFacade(productRepository, brandRepository, likeRepository, productCache)
+
+    init {
+        every { productCache.getDetail(any()) } returns null
+        every { productCache.getList(any(), any(), any(), any()) } returns null
+    }
 
     private fun pageOf(
         vararg products: Product,
@@ -447,6 +458,108 @@ class ProductFacadeTest {
             val ex = assertThrows<CoreException> { productFacade.deleteProduct(99L) }
             assertThat(ex.errorType).isEqualTo(ProductErrorType.PRODUCT_NOT_FOUND)
             verify(exactly = 0) { productRepository.save(any()) }
+        }
+    }
+
+    @Nested
+    @DisplayName("캐시 read-through / 무효화")
+    inner class Caching {
+        @Test
+        @DisplayName("상세 캐시 히트 시 DB 를 조회하지 않고 캐시 본문 + 합성한 likedByMe 로 응답한다")
+        fun detailCacheHitSkipsDb() {
+            val cached = CachedProductDetail(
+                id = 1L,
+                name = "운동화",
+                price = 59_000L,
+                likeCount = 3L,
+                brandId = 9L,
+                brandName = "나이키",
+            )
+            every { productCache.getDetail(1L) } returns cached
+            every { likeRepository.existsByUserIdAndProductId(7L, 1L) } returns true
+
+            val result = productFacade.getProductDetail(productId = 1L, userId = 7L)
+
+            assertThat(result.name).isEqualTo("운동화")
+            assertThat(result.brandName).isEqualTo("나이키")
+            assertThat(result.likedByMe).isTrue()
+            verify(exactly = 0) { productRepository.findById(any()) }
+            verify(exactly = 0) { brandRepository.findById(any()) }
+        }
+
+        @Test
+        @DisplayName("상세 캐시 미스 시 DB 로 적재하고 캐시에 put 한다")
+        fun detailCacheMissLoadsAndPuts() {
+            val product = ProductFixture.validProduct()
+            val brand = BrandFixture.validBrand()
+            every { productCache.getDetail(1L) } returns null
+            every { productRepository.findById(1L) } returns product
+            every { brandRepository.findById(product.brandId) } returns brand
+
+            productFacade.getProductDetail(productId = 1L, userId = null)
+
+            verify { productCache.putDetail(any()) }
+        }
+
+        @Test
+        @DisplayName("목록 캐시 히트 시 DB 를 조회하지 않는다")
+        fun listCacheHitSkipsDb() {
+            val cachedPage = PageResult(
+                content = listOf(ProductSummaryResult(1L, "운동화", 59_000L, 3L, 9L)),
+                page = 0,
+                size = 20,
+                totalElements = 1L,
+                totalPages = 1,
+            )
+            every { productCache.getList(null, ProductSortType.LATEST, 0, 20) } returns cachedPage
+
+            val result = productFacade.getProducts(productsQuery(sort = ProductSortType.LATEST))
+
+            assertThat(result.content.map { it.name }).containsExactly("운동화")
+            verify(exactly = 0) { productRepository.findAll(any(), any(), any(), any()) }
+        }
+
+        @Test
+        @DisplayName("캐시 상한(page>=5) 페이지는 캐시를 조회/저장하지 않고 DB 를 조회한다")
+        fun deepPageSkipsCache() {
+            every { productRepository.findAll(ProductSortType.LATEST, null, 5, 20) } returns emptyPage(page = 5)
+
+            productFacade.getProducts(productsQuery(sort = ProductSortType.LATEST, page = 5))
+
+            verify(exactly = 0) { productCache.getList(any(), any(), any(), any()) }
+            verify(exactly = 0) { productCache.putList(any(), any(), any(), any(), any()) }
+            verify { productRepository.findAll(ProductSortType.LATEST, null, 5, 20) }
+        }
+
+        @Test
+        @DisplayName("상품 수정 시 상세 캐시를 무효화한다")
+        fun updateEvictsDetail() {
+            val product = ProductFixture.validProduct()
+            val command = UpdateProductCommand(
+                name = "맥북 프로 16인치",
+                price = 3_300_000,
+                salesStatus = SalesStatus.OFF_SALE,
+            )
+            every { productRepository.findById(1L) } returns product
+            every { productRepository.existsByBrandIdAndName(product.brandId, command.name) } returns false
+            every { brandRepository.findById(product.brandId) } returns BrandFixture.validBrand()
+            every { productRepository.save(product) } returns product
+
+            productFacade.updateProduct(productId = 1L, command = command)
+
+            verify { productCache.evictDetail(1L) }
+        }
+
+        @Test
+        @DisplayName("상품 삭제 시 상세 캐시를 무효화한다")
+        fun deleteEvictsDetail() {
+            val product = ProductFixture.validProduct()
+            every { productRepository.findById(1L) } returns product
+            every { productRepository.save(product) } returns product
+
+            productFacade.deleteProduct(productId = 1L)
+
+            verify { productCache.evictDetail(1L) }
         }
     }
 }
