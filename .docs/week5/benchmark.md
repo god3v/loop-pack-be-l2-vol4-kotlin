@@ -98,6 +98,20 @@
 | 무효화 | TTL + 상품 수정/삭제 시 evict (좋아요는 TTL 감내) | TTL-only |
 | 직렬화 | Jackson JSON(String value) | 〃 |
 
+### 성능 비교 — HIT vs MISS (데이터 계층 실측)
+MISS=DB 경로(EXPLAIN ANALYZE warm), HIT=Redis GET(redis-benchmark, 1.6KB 값).
+
+| 경로 | MISS(DB) | HIT(Redis) | 개선 |
+|---|---:|---:|---:|
+| 목록 기본 핫키(필터X page0) | ~49 ms (find 0.024 + **count 49**) | ~0.10 ms | ~490x |
+| 목록 브랜드 핫키(brand=7) | ~2.9 ms (find 0.09 + count 2.8) | ~0.10 ms | ~29x |
+| 상세(PK 2회) | ~0.1 ms | ~0.10 ms | ~1x |
+
+- 목록 MISS 는 `COUNT(*)`(deleted_at 전수 294k행 ~49ms)가 지배 → 캐시 HIT 가 count 자체를 생략.
+- 상세는 PK 점조회라 지연 이득 ~1x, 가치는 DB 오프로드.
+- 처리량: Redis GET 275,103 rps(c=50, p50 0.095ms) vs DB count(*) ~49ms/건. 동시성에서 비선형 격차.
+- (주의: 데이터 계층 수치 — 앱 직렬화/네트워크 제외)
+
 ### 장애/미스 안전성
 - 어댑터가 모든 Redis 호출을 `runCatching` 으로 감싸 **get=null(miss) / put·evict=no-op** 로 폴백 → Redis 다운에도 Facade 가 DB 로 정상 동작.
 

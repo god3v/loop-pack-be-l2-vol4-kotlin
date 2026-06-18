@@ -34,7 +34,6 @@ class ProductFacade(
         val sort = query.sort ?: ProductSortType.LATEST
         val page = query.paging.page
         val size = query.paging.size
-        // 핫 경로(앞쪽 N 페이지)만 캐시한다. 깊은 페이지는 거의 안 읽혀 캐시 가치가 낮고 키만 늘린다.
         val cacheable = page < LIST_CACHE_MAX_PAGE
         if (cacheable) {
             productCache.getList(query.brandId, sort, page, size)?.let { return it }
@@ -114,7 +113,6 @@ class ProductFacade(
         val brand = brandRepository.findById(product.brandId)
             ?: throw CoreException(BrandErrorType.BRAND_NOT_FOUND)
         val result = AdminProductDetailResult.of(productRepository.save(product), brand)
-        // 가격/상태/이름 변경은 즉시 반영돼야 하므로 상세 캐시를 무효화한다. (목록은 TTL-only)
         productCache.evictDetail(productId)
         return result
     }
