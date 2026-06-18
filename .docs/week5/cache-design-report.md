@@ -1,172 +1,255 @@
-# 상품 조회 캐시 설계 리포트
+# 상품 조회 캐시 설계 보고서
 
-> 대상: `GET /api/v1/products/{id}` (상세), `GET /api/v1/products` (목록)
-> 목표: 읽기 병목을 Redis 캐시로 완화하고, 키·TTL·무효화·장애 안전성의 구조 결정과 트레이드오프를 근거와 함께 기록한다.
-> 인덱스 리포트(`index-optimization-report.md`)의 후속 — 인덱스로 단건 지연을 낮춘 뒤, 반복 요청의 부하를 캐시로 막는 단계다.
+> **TL;DR** — 인덱스 최적화로 단건 조회는 이미 빨라졌다. 캐시의 목적은 응답시간 단축이 아니라 **반복 요청의 DB 부하 제거**다. `Cache-Aside + Write-Around(Evict)` 를 채택하고, 포트/어댑터로 캐시 정책과 저장소 기술을 분리했으며, Redis 장애 시 DB로 폴백하는 fail-open 구조로 설계했다.
 
-## 1. 병목 지점 분석 — 왜 캐시인가
+---
 
-인덱스 적용 후 단건 조회 지연은 이미 낮다(목록 page0 0.065ms, 브랜드+인기순 0.089ms). 그럼에도 캐시가 필요한 이유는 **단건 지연이 아니라 반복·집중 부하**다.
+## 1. 개요
 
-| 병목 | 인덱스로 해결됨? | 캐시의 역할 |
-|---|---|---|
-| 동일 핫키 반복 조회 | ❌ (매번 DB 재실행) | TTL 창당 DB 1회로 수렴 — DB 부하·커넥션 절감 |
-| 목록의 `COUNT(*)` 동반 | 부분 (여전히 수 ms) | 캐시 히트 시 count 자체를 생략 |
-| 비인증 기본 진입 집중 | ❌ | `all:latest:0:20` 한 키에 read 극집중 → 캐시가 가장 큰 효과 |
+### 대상 API
+- `GET /api/v1/products/{id}` — 상품 상세 조회
+- `GET /api/v1/products` — 상품 목록 조회 (필터·정렬·페이징)
 
-- 캐시를 이용하게 되면 필연적인 문제점이 있는데 바로 **데이터 정합성** 문제이다.
-- 이전에는 DB에서 조회와 작성을 처리하였기 때문에 정합성 문제가 없지만 캐시라는 또 다른 저장소를 이용하기 때문에 실시간성이 떨어진다.
-- 따라서 적절한 캐시 읽기 전략(Read Cache Strategy)과 캐시 쓰기 전략(Write Cache Strategy)를 통해 캐시와 DB간의 데이터 불일치 문제를 극복하면서도 빠른 성능을 잃지 않도록 설계한다.
-- 읽기는 쓰기의 수~수십 배이고, 그중에서도 **비인증 기본 목록(`brandId` 없음 + 최신순 + 0페이지)** 한 곳에 트래픽이 쏠린다. 이 핫키를 캐시로 막는 것이 핵심 이득이다.
-- 단, 캐시는 **있으면 빠르게, 없으면 정확하게**의 보조 계층이다. 캐시가 못 막는 경로(deep offset, 비캐시 페이지)는 인덱스·페이징 설계로 따로 다룬다.
+### 목표
+- 반복 조회로 인한 데이터베이스 부하 감소
+- 조회 응답시간 안정화
+- 캐시 저장소 장애 시에도 정상 서비스 제공 (fail-open)
+- 정합성과 성능 사이의 균형을 **명시적으로** 통제
 
-### 두 대상의 함정
-- **상세**: 응답에 `likedByMe`(로그인 유저별 값)가 섞여 있어 통째 캐시 불가 → 공유 본문만 캐시하고 `likedByMe`는 매 요청 합성.
-- **목록**: 키가 `brandId × sort × page × size` 로 폭발하고, 목록 안에 여러 상품의 `like_count`가 들어 있어 **정밀 무효화가 불가능**(상품 X가 어느 목록 페이지에 있는지 역추적 불가) → TTL-only.
+> 본 문서는 인덱스 최적화의 후속 단계로, 충분한 단건 조회 성능을 확보한 환경에서 **반복 요청에 의한 데이터베이스 부하를 줄이기 위한 캐시 계층 설계**를 다룬다.
 
-### 측정: 캐시 HIT vs MISS (실측)
-데이터 계층 직접 측정. MISS=DB 경로(`EXPLAIN ANALYZE`, warm), HIT=Redis GET(`redis-benchmark`, 1.6KB 값). 30만 건.
+---
 
-| 경로 | MISS (DB) | HIT (Redis GET) | 개선 |
+## 2. 캐시 도입 배경
+
+인덱스 최적화 이후 조회 성능은 아래와 같이 충분히 개선되었다.
+
+| 조회 유형 | 실행 시간 |
+|---|---|
+| 상품 상세 | 약 0.1 ms |
+| 목록 조회 | 약 0.024 ms |
+| 브랜드 목록 조회 | 약 0.09 ms |
+
+단순 응답 시간만 보면 추가 최적화의 필요성은 크지 않다. 그러나 실제 서비스에서는 **동일한 데이터에 대한 반복 요청**이 끊임없이 발생한다.
+
+- 메인 페이지 진입 시 동일 조건의 상품 목록을 반복 조회
+- 인기 상품 상세를 다수 사용자가 동시에 반복 조회
+- 같은 필터·정렬·페이지 조합의 목록을 반복 실행
+
+인덱스는 요청마다 SQL을 다시 수행하므로, 쿼리가 아무리 빨라도 **요청 수에 비례한 DB 부하는 그대로 남는다.** 캐시는 이 반복을 데이터베이스가 아닌 메모리에서 흡수하여, "한 번의 조회를 빠르게"가 아니라 **"같은 조회를 DB가 반복하지 않게"** 만드는 계층이다.
+
+---
+
+## 3. 병목 분석
+
+### 3.1 상품 상세
+
+상품 상세는 PK 기반 단건 조회다.
+
+```sql
+SELECT * FROM products WHERE id = ? AND deleted_at IS NULL
+```
+
+이미 0.1ms 수준이라 응답시간 개선 여지는 거의 없다. 따라서 상세 캐시의 목적은 **DB 오프로딩**이다. 인기 상품에 반복 조회가 몰릴 때 커넥션 점유와 쿼리 실행 횟수를 줄여, DB가 수행하는 쓰기·결제 트랜잭션에 자원을 양보하는 것이 목적이다.
+
+### 3.2 상품 목록
+
+목록은 상황이 다르다. 실측해 보면 병목은 데이터 조회가 아니라 **페이지네이션을 위한 `COUNT(*)`** 에 있다.
+
+| 구성 | 소요 시간 |
+|---|---|
+| 목록 조회 (`LIMIT 20`) | 0.024 ms |
+| `COUNT(*)` | 49 ms |
+
+```sql
+SELECT COUNT(*) FROM products WHERE deleted_at IS NULL
+```
+
+기본 목록은 약 30만 건(soft-delete 제외 시 약 29만 건)을 대상으로 count를 수행한다. InnoDB는 MyISAM과 달리 테이블 총 행 수를 메타데이터로 유지하지 않으므로, `COUNT(*)` 는 조건에 맞는 행을 매번 인덱스로 훑어 세야 한다. 정렬 인덱스로 `LIMIT 20` 은 20행만 읽고 끝나지만, count는 **요청마다 29만 행을 스캔**한다. Spring Data `Page` 는 목록 쿼리와 count 쿼리를 함께 던지므로, 이 49ms가 매 요청에 따라붙는다.
+
+### 3.3 실측 비교 — DB MISS vs Redis HIT
+
+| 경로 | DB MISS | Redis HIT | 차이 |
 |---|---:|---:|---:|
-| 목록 기본 핫키(필터X, page0) | **~49 ms** (find 0.024 + count 49) | **~0.10 ms** | ~490x |
-| 목록 브랜드 핫키(brand=7) | ~2.9 ms (find 0.09 + count 2.8) | ~0.10 ms | ~29x |
-| 상세(product PK + brand PK) | ~0.1 ms | ~0.10 ms | ~1x |
+| 기본 목록 (필터 없음, 0페이지) | 약 49 ms | 약 0.1 ms | 약 490배 |
+| 브랜드 목록 (brand=7) | 약 2.9 ms | 약 0.1 ms | 약 29배 |
+| 상품 상세 | 약 0.1 ms | 약 0.1 ms | 거의 동일 |
 
-- 목록 MISS 비용은 **`COUNT(*)`가 지배**: 기본 핫키는 `deleted_at IS NULL` 전수 카운트(294k행) ~49ms, `find LIMIT 20`은 0.024ms. 캐시 HIT 는 count 자체를 생략한다. 트래픽이 가장 쏠리는 기본 핫키에서 효과 최대.
-- 상세는 PK 점조회라 DB 도 ~0.1ms → **지연 이득은 ~1x**. 상세 캐시의 가치는 지연이 아니라 **DB 오프로드**(핫 상품 반복 조회의 커넥션·부하 절감).
-- 처리량: Redis GET **275,103 rps**(c=50, p50 0.095ms) vs DB count(*) ~49ms/건(코어당 ~20건/s). 동시성이 오를수록 비선형으로 벌어진다.
+> 측정 방법: MISS 는 `EXPLAIN ANALYZE`(warm), HIT 은 `redis-benchmark` 로 1.6KB 값을 GET 한 데이터 계층 수치다. 앱 직렬화·네트워크·스프링 오버헤드는 제외했으므로 절대값보다 배수·경향으로 해석한다.
 
-> 주의: 데이터 계층 수치(DB 쿼리 vs Redis GET)다. 앱 직렬화/역직렬화·네트워크·Spring 오버헤드 제외 — 절대값보다 배수·경향으로 해석한다.
+목록은 캐시 적중 시 `COUNT(*)` 를 통째로 건너뛰어 수십~수백 배의 비용 절감을 얻는다. 반면 상세는 응답시간 이득이 거의 없고 **DB 부하 감소**가 본질이다. 처리량 기준으로 보면 Redis GET 은 동시 50 연결에서 약 27.5만 rps(p50 0.095ms)를 내는데, count 한 건이 49ms인 DB 는 코어당 초당 스무 건 남짓이라 동시성이 커질수록 격차는 비선형으로 벌어진다.
 
-## 2. 구조 결정
+---
 
-### 2-1. 메커니즘은 infra, 정책은 application
+## 4. 설계 목표
+
+캐시 설계의 판단 기준으로 네 가지 원칙을 세웠다.
+
+1. **fail-open** — 캐시 장애가 서비스 장애로 전파되면 안 된다. Redis 가 죽어도 DB 조회만으로 정상 동작해야 한다.
+2. **정합성 비용의 명시적 통제** — "어디까지 stale 을 허용하는가"를 흐릿하게 두지 않고 TTL·무효화로 설계에 고정한다.
+3. **정책과 기술의 분리** — 캐시 정책(무엇을·언제 캐시/무효화)은 유즈케이스에, 저장소 기술(Redis·직렬화·TTL)은 인프라에 둬, 저장소가 바뀌어도 유즈케이스가 흔들리지 않게 한다.
+4. **키로 폭발과 오염을 통제** — 키 설계와 입력 상한으로 캐시 키 종류가 무한정 늘거나 쓰기로 오염되지 않게 한다.
+
+---
+
+## 5. 캐시 아키텍처
+
+```text
+ProductFacade          (application — 캐시 정책 / 오케스트레이션)
+      │
+ProductCache (Port)    (application — 캐시 계약)
+      │
+RedisProductCache      (infrastructure — Redis 어댑터)
+      │
+   Redis
 ```
-application.product.port.ProductCache       (outbound port — 정책 계약)
-infrastructure.product.RedisProductCache    (adapter — Redis 메커니즘)
-application.product.ProductFacade           (cache-aside 오케스트레이션)
-```
-- 캐시 **메커니즘**(Redis 직렬화·키·TTL)은 infra 어댑터, 캐시 **정책**(무엇을·언제 캐시/무효화, read-through)은 application 에 둔다. 헥사고날 규칙(외부 게이트웨이 = outbound port)과 일치한다.
-- 이 포트 추상화 덕분에 추후 로컬 캐시(L1)를 "L1 → L2(Redis) → DB" 복합 어댑터로 끼워도 Facade 는 바뀌지 않는다.
 
-### 2-2. 왜 `@Cacheable` 대신 RedisTemplate 직접 제어
-| 이유 | 설명 |
+캐시 **정책**(캐시 대상·TTL·무효화 시점·page 상한)은 Application 계층의 `ProductFacade` 와 포트 계약에서 결정한다. Redis 직렬화 방식, TTL 적용, master/replica 라우팅 같은 **기술적 구현**은 Infrastructure 의 `RedisProductCache` 에 격리한다.
+
+이 분리의 실익은 두 가지다. 첫째, 저장소를 교체하거나 L1 캐시를 추가하더라도(§12) 유즈케이스는 영향을 받지 않는다. 둘째, Facade 를 가짜(Fake) 캐시로 주입해 캐시 분기 로직을 **컨텍스트 없이 단위 테스트**할 수 있다. 외부 게이트웨이를 아웃바운드 포트로 두는 프로젝트의 헥사고날 규칙과도 일치한다.
+
+---
+
+## 6. 캐시 전략 선정
+
+### 6.1 읽기 전략 — Cache-Aside (Look-Aside)
+
+```text
+캐시 조회 → (미스) → DB 조회 → 캐시 적재 → 응답
+```
+
+**선정 이유**
+- 미스 경로가 단순 엔티티 조회가 아니다. 상세는 `Product + Brand` 합성, 목록은 조회 + 응답 모델 매핑이라, 미스 시 로직을 애플리케이션이 쥐고 있어야 한다.
+- 캐시가 죽으면 자연스럽게 미스로 떨어져 DB 로 폴백된다(fail-open).
+- 캐시가 미스 때 내부 로더로 DB 를 직접 읽어주는 strict **Read-Through** 와는 구분된다. `RedisTemplate` 를 직접 다루므로 정확히는 Cache-Aside 다.
+
+> 보조 결정 — `@Cacheable` 대신 `RedisTemplate` 직접 제어: 스프링 기본 `SimpleCacheErrorHandler` 는 캐시 예외를 전파해 Redis 장애 시 요청이 실패한다. fail-open 을 얻으려면 `CacheErrorHandler` 를 따로 등록해야 하는데, 직접 제어하면 그 폴백을 코드에 명시할 수 있다. 또한 상세의 `likedByMe` 분리(§7)나 page 조건부 캐싱처럼 메서드 단위 AOP 로는 까다로운 정책을 직관적으로 표현할 수 있다.
+
+### 6.2 쓰기 전략 — Write-Around + Evict
+
+```text
+DB 저장 → 캐시 삭제(Evict)
+```
+
+**선정 이유**
+- 상품 변경(주로 관리자)은 읽기에 비해 빈도가 매우 낮다.
+- 변경값을 캐시에 다시 적재할 필요가 없다. 다음 조회가 필요할 때만 lazy 하게 재생성한다.
+- "갱신(update) 대신 삭제(delete)" — 삭제는 멱등하고 동시 쓰기 순서에 무관하다.
+
+**배제한 방식**
+
+| 방식 | 흐름 | 배제 이유 |
+|---|---|---|
+| Write-Through | DB 저장 → 캐시 갱신 | 읽히지도 않을 값까지 적재. 동시 쓰기 시 캐시에 최신값을 보장하려면 순서 제어가 복잡해진다. |
+| Write-Behind | 캐시 저장 → 비동기 DB 반영 | 데이터 유실 가능성. 즉시 일관성이 필요한 주문·결제 도메인의 철학과 충돌한다. |
+
+---
+
+## 7. 캐시 대상 선정
+
+### 7.1 상품 상세
+
+| 구분 | 항목 |
 |---|---|
-| likedByMe 분리 | `@Cacheable`은 메서드 반환값 통째 캐시. 유저별 값 분리하려면 별도 빈 추출 + self-invocation(같은 빈 내부 호출은 프록시 우회) 함정 회피 필요 |
-| **Redis 다운 시 폴백** | Spring 기본 `SimpleCacheErrorHandler`는 캐시 예외를 전파 → Redis 다운 시 요청 실패. DB 폴백하려면 별도 `CacheErrorHandler` 등록 필요. 명시적 `try/catch`가 "캐시 미스에도 정상 동작"을 코드에 드러낸다 |
-| 테스트 | 포트로 두면 Facade 를 fake/mock 으로 순수 단위 테스트 가능 |
-| 학습 | 주차 문서가 캐시 흐름 학습을 위해 RedisTemplate 직접 제어를 권장 |
+| 캐싱 | `product`, `brand` 를 합친 공유 본문 (`CachedProductDetail`) |
+| 제외 | `likedByMe` |
 
-> 균형: 유저 컨텍스트 없는 단순 단건이면 `@Cacheable` 한 줄이 더 깔끔하다. 절대 우열이 아니라 이 맥락(likedByMe·DB폴백·헥사고날)의 트레이드오프다.
+`likedByMe` 는 사용자마다 값이 달라진다. 이를 캐시에 포함하면 키가 `상품 수 × 사용자 수` 로 폭발하고, 한 사용자의 좋아요 여부가 다른 사용자에게 노출될 위험까지 생긴다. 따라서 **공유 가능한 본문만 캐시하고, 사용자 종속 값은 조회 시점에 합성**한다(로그인 시 `existsByUserIdAndProductId` 1회).
 
-### 2-3. 왜 infra Repository 데코레이터 대신 application 경계
-`CachedProductRepository : ProductRepository` 로 `findById`/`findAll` 을 투명 캐시하는 방식도 정당하나, 이 도메인엔 application 경계가 맞다.
+### 7.2 상품 목록
 
-| 관점 | Repository 데코레이터 | application 포트(채택) |
-|---|---|---|
-| 투명성/재사용 | ✅ | ❌ Facade 가 인지 |
-| **staleness 범위** | ❌ `findById` 호출자 전부(정합성 민감 경로 포함) 오염 | ✅ 표시용 읽기 유즈케이스로 한정 |
-| 교차-레포 합성(상세=product+brand) | ❌ 단일 레포만 보여 조인 결과 캐시 불가 | ✅ 합성물을 한 단위로 캐시 |
-| 유즈케이스 정책(page<N, TTL 차등, member/admin) | ❌ infra 로 정책 누수 | ✅ 유즈케이스에 위치 |
+캐시 대상은 응답 모델 자체인 `PageResult<ProductSummaryResult>` 다. 목록 응답에는 사용자 종속 값이 없고, 캐시 적중 시 §3.2 의 `COUNT(*)` 까지 통째로 제거되므로 **캐시 효과가 가장 큰 지점**이다.
 
-- 가장 결정적: `findById` 를 Repository 에서 캐시하면 그 메서드의 **모든** 호출자가 staleness 를 먹는다. 유즈케이스에 걸면 "표시용 읽기"에만 갇힌다.
-- 단 목록은 브랜드 조인이 없어(`ProductSummaryResult`는 `brandId`만) 데코레이터로도 깔끔하다. 목록만 데코레이터로 떼는 하이브리드는 향후 선택지.
+---
 
-### 2-4. 왜 Cache-Aside(읽기) + Write-Around·evict(쓰기) 패턴인가
-우리가 채택한 패턴을 정확히 적으면:
-- 읽기 = **Cache-Aside(lazy loading)**: Facade 가 캐시를 직접 조회 → 미스면 DB 조회 → 캐시 적재. (캐시가 로더를 갖고 미스 시 내부에서 DB 를 읽어주는 strict **Read-Through** 와 구분된다 — 우리는 RedisTemplate 직접 제어라 cache-aside.)
-- 쓰기 = **Write-Around + evict**: 상품 수정/삭제는 DB 에만 쓰고 캐시는 새 값으로 갱신하지 않고 **무효화(evict)** 한다. 다음 읽기가 lazy 하게 재적재.
+## 8. 키 전략
 
-| 패턴 | 동작 | 채택? / 이유 |
-|---|---|---|
-| **Cache-Aside** (읽기 채택) | 앱이 get→miss→DB→put | ✅ 미스 경로가 비단순(상세=product+brand 합성, 목록=findAll)이라 앱이 제어해야 깔끔. 캐시 다운=그냥 miss→DB 폴백 |
-| Read-Through | 캐시 라이브러리가 미스 시 내부 로더로 DB 적재 | ❌ 합성 로직을 캐시 안에 숨겨 계층이 흐려짐. RedisTemplate 직접 제어와 불일치 |
-| Write-Through | 쓰기 시 캐시도 새 값으로 갱신 | ❌ "delete-don't-update": 갱신은 동시 쓰기 순서 꼬임 + 안 읽힐 값까지 적재. evict 가 멱등·단순 |
-| Write-Behind | 캐시 먼저, DB 비동기 반영 | ❌ 진실원은 즉시 DB 일관해야(주문·재고). 유실 위험, 읽기 최적화 목적과 무관 |
-| **Write-Around** (쓰기 채택) | DB 만 쓰고 캐시는 미적재(+evict) | ✅ 쓰기 드물고(admin) 읽기 지배 → 쓰기로 캐시 오염 안 하고 읽기가 핫셋만 lazy 적재 |
-| Refresh-Ahead | 만료 전 선제 갱신 | ⏳ 알려진 핫키용. 핫키 stampede 대책으로 차주 후보 |
-
-> 한 줄 요약: **읽기 지배 + 쓰기 드묾 + 미스 경로가 합성 로직 + 캐시는 보조(다운 시 DB 폴백)** → Cache-Aside 읽기 + Write-Around·evict 쓰기가 가장 단순·안전한 조합이다.
-
-## 3. 캐시 전략 (키 / 내용 / 범위 / TTL / 무효화)
-
-| 항목 | 상세 | 목록 |
-|---|---|---|
-| 키 | `product:detail:v1:{id}` | `product:list:v1:{brandId\|all}:{sort}:{page}:{size}` |
-| 내용 | 공유 본문(product+brand) — `CachedProductDetail` | `PageResult<ProductSummaryResult>` |
-| 범위 | 전체 | `page < 5` 만 (핫 경로) |
-| TTL | 5분 | 60초 |
-| 무효화 | TTL + 상품 수정/삭제 시 evict (좋아요는 TTL 감내) | TTL-only |
-| 직렬화 | Jackson JSON(String value) | 〃 |
-
-### 키 설계
-- `v1` 버전 prefix — 캐시 스키마 변경 시 키 전체 롤오버용.
-- `brandId` 없으면 `all` 로 고정해 키를 정규화. 정렬은 `sort.key`(latest/price_asc/likes_desc).
-- `size`는 키 구성요소이자 클라이언트 제어값이라 상한 캡(100)을 둬 키스페이스 폭발을 막는다(§5).
-
-### TTL 근거
-- 상세 5분: 자주 안 바뀌는 정보(이름·가격·브랜드). 길게 잡아 적중률↑.
-- 목록 60초: 신규 상품 노출·`like_count` 변동을 더 자주 반영해야 해 짧게.
-
-### 무효화 전략
-- 상세는 키가 명확(`{id}`)해 **상품 수정/삭제 시 즉시 evict** + TTL 안전망. 가격/삭제는 즉시 반영돼야 하므로.
-- 좋아요는 evict하지 않는다 — 고빈도라 evict하면 캐시 churn↑, 카운트는 근사 허용.
-- 목록은 **정밀 무효화 불가** → TTL-only. (열거 없이 무효화하려면 버전 네임스페이스(version-bump)가 표준 해법이나, 상품 쓰기마다 전 목록 캐시를 식히는 비용이 있어 현재는 미적용 — §6 (A))
-
-### 조회 흐름 (cache-aside)
-```
-상세: getDetail(id) → 히트면 본문 / 미스면 DB(product+brand) → put → 본문
-      그 위에 likedByMe = (로그인 시 existsBy) 합성해 응답
-목록: page<5 → getList(key) → 히트면 반환 / 미스면 DB → put → 반환
-      page>=5 → 캐시 우회, DB 직행
-```
-
-## 4. 장애 / 미스 안전성
-
-어댑터(`RedisProductCache`)가 모든 Redis 호출을 `read`/`write`/`evict` 헬퍼로 감싸 저장소 장애를 흡수한다.
-
-| 연산 | Redis 정상 | Redis 예외 |
-|---|---|---|
-| get | 값/대상없음 | **null (= miss)** |
-| put / evict | 저장/삭제 | **no-op (무예외)** |
-
-→ Redis 가 죽어도 Facade 는 캐시 미스로 보고 DB 로 정상 동작한다.
-
-### read=replica / write=master 분리
-- 읽기는 `@Primary`(REPLICA_PREFERRED) 템플릿, 쓰기/삭제는 master 템플릿으로 분리. 핫키 read 를 replica 로 분산해 **master 단일 read 천장**을 완화한다.
-- 트레이드오프: put/evict 직후 replica read 는 복제 지연(ms)만큼 옛값/없음을 볼 수 있다. put 후 miss 는 DB 폴백, evict 후 stale 은 ms 단위라 우리 TTL(분) 수용 범위 내.
-
-## 5. 견고화 (트래픽 10배 점검 결과)
-
-| 항목 | 상태 | 내용 |
-|---|---|---|
-| `size` 상한 캡(100) | ✅ 적용 | 대형 스캔 + 캐시 키스페이스 폭발 + 미스 증폭 동시 방어 |
-| read replica 전환 | ✅ 적용 | master 단일 read 천장 완화 (§4) |
-| 핫키 stampede | ⏳ 차주 | 단일 핫키 만료 tick 에 동시 미스가 같은 `count(*)`를 폭격. single-flight / stale-while-revalidate / refresh-ahead 중 택1 (single-flight = 미스 시 하나만 재계산하고 나머지는 대기) |
-| 로컬 캐시(L1) | ⏳ 보류 | 다중 인스턴스 정합성 비용(evict 전파에 pub/sub 필요) + 상세 카디널리티 높아 적중률 낮음. 핫 목록 키 한정으로 측정 후 |
-
-## 6. 정합성 트레이드오프 (의식적 수용)
-
-| # | 시나리오 | 심각도 | 현재 처리 |
-|---|---|---|---|
-| A | soft-delete/가격변경 상품이 목록 캐시에 최대 60초 잔존 → 클릭 시 상세 NOT_FOUND, 표시가≠결제가 | high | **수용**(차주 검토). 근본 해결은 목록 version-bump(상품 CRUD 시 버전 올려 옛 목록 무효화) |
-| B | 좋아요로 카운트 변동 시 목록(60s)/상세(5분) 카운트 비대칭 | medium | **수용**. like_count 는 근사값. evict-on-like 는 churn 유발이라 안 함 |
-| — | evict-before-commit 레이스: 트랜잭션 커밋 전 evict → 동시 읽기가 옛값 재적재 | — | TTL 자가치유. 개선: 커밋 후 evict(afterCommit) |
-| — | `like_count` 비정규화 드리프트(장기 누적) | — | 재계산 배치로 사후 교정(차주, `commerce-batch`) |
-
-- TTL 내 staleness 와 무효화 레이스는 캐시의 본질적 비용이며, **모든 stale 은 결국 TTL 이 정정**한다는 게 마지막 보루다.
-- 목록은 정밀 무효화가 불가능해 TTL-only — 위 (A)를 즉시성 있게 막으려면 version-bump 가 필요하나, 상품 쓰기 빈도 대비 비용을 따져 차주 결정한다.
-
-## 7. 검증 (테스트)
-
-| 테스트 | 검증 내용 |
+| 대상 | 키 형식 |
 |---|---|
-| `RedisProductCacheTest` (단위) | Redis 예외 시 get=null, put/evict 무예외 — 장애 흡수 |
-| `RedisProductCacheIntegrationTest` (Testcontainer) | 상세/목록 put→get 라운드트립, evict, 키 격리(다른 sort/brand=miss) |
-| `ProductFacadeTest` (mock) | 히트 시 DB 미조회, 미스 시 적재, page≥5 캐시 스킵, 수정/삭제 시 evict |
-| `ProductV1ApiE2ETest` | 캐시 활성 상태로 전 시나리오 통과(테스트 간 Redis flush) + size 캡(100) |
+| 상세 | `product:detail:v1:{productId}` |
+| 목록 | `product:list:v1:{brandId\|all}:{sort}:{page}:{size}` |
 
-## 8. 관련 코드 / 백로그
-- 코드: `application/product/port/ProductCache.kt`, `infrastructure/product/RedisProductCache.kt`, `application/product/ProductFacade.kt`, `interfaces/api/product/ProductV1Controller.kt`(size 캡)
-- 차주 백로그(`plan.md` 후속 섹션): 핫키 stampede, 목록 version-bump(시나리오 A), like_count 재계산 배치, deep offset 커서 페이징
+```text
+product:list:v1:all:latest:0:20       # 비인증 기본 진입 (핫키)
+product:list:v1:7:likes_desc:0:20     # 브랜드 7 인기순
+```
+
+- **버전 prefix(`v1`)** — 캐시 스키마(직렬화 포맷)가 바뀌면 `v1 → v2` 로 올려 기존 캐시를 한 번에 폐기한다. 배포 직후 역직렬화 오류를 원천 차단한다.
+- **`brandId` 정규화** — 필터가 없으면 `all` 로 고정해 동일 의미의 키가 갈라지지 않게 한다.
+- **`size` 상한(100)** — `page`·`size` 는 클라이언트가 정하는 값이자 키의 일부다. 상한이 없으면 `size` 를 흔드는 것만으로 키 종류가 폭발하고(키스페이스 오염), 매번 미스가 나며(미스 증폭), 대형 스캔까지 유발된다. 컨트롤러에서 `size` 를 100으로 clamp 해 셋을 동시에 막았다.
+
+---
+
+## 9. TTL 및 무효화 전략
+
+| 구분 | TTL | 무효화 |
+|---|---|---|
+| 상세 | 5분 | TTL + 수정·삭제 시 즉시 Evict |
+| 목록 | 60초 | TTL only |
+
+### 상세 — TTL + Evict
+상품 가격 변경이나 삭제는 즉시 반영되어야 한다(표시 가격과 결제 가격의 괴리는 수용 임계가 낮다). 키가 `productId` 로 명확하므로 수정·삭제 시 해당 키를 즉시 제거하고, TTL 을 마지막 안전망으로 둔다. 단 **좋아요는 evict 하지 않는다** — 빈도가 높아 매번 evict 하면 캐시가 끊임없이 비워지므로, 카운트를 근사값으로 보고 TTL 로 흡수한다.
+
+### 목록 — TTL only
+목록은 **특정 상품이 어느 페이지에 포함되는지 역추적하기 어렵다.** 상품 100번을 수정해도 영향받는 목록 키(`brandId × sort × page × size` 조합)를 정확히 특정할 수 없다. 따라서 TTL only 로 두고, 최대 60초의 지연 반영을 허용하는 대신 구현 복잡도를 낮췄다. (열거 없이 목록을 한 번에 무효화하려면 키에 버전을 두는 방식이 있으며 §12 에서 다룬다.)
+
+---
+
+## 10. 장애 대응 전략
+
+Redis 장애는 서비스 장애로 전파시키지 않는다. 어댑터가 모든 Redis 호출을 감싸 예외를 흡수한다.
+
+| 동작 | 정상 | 장애 |
+|---|---|---|
+| GET | 값 반환 | MISS 로 처리(null) |
+| PUT | 저장 | 무시(no-op) |
+| EVICT | 삭제 | 무시(no-op) |
+
+결과적으로 Redis 가 완전히 중단돼도 시스템은 "캐시 미스 → DB 조회" 상태로만 동작한다. 캐시는 어디까지나 보조 계층이라는 원칙을 코드로 강제한 것이다(fail-open / graceful degradation).
+
+추가로 **읽기와 쓰기의 Redis 노드를 분리**했다. 조회는 `ReadFrom.REPLICA_PREFERRED` 템플릿으로 replica 에, 저장·삭제는 master 템플릿으로 보낸다(Lettuce master-replica 구성). 핫키 읽기를 replica 로 분산해 master 단일 노드의 읽기 천장을 완화하기 위해서다. 대가로 저장·삭제 직후 replica 조회는 복제 지연(ms)만큼 옛 값을 볼 수 있으나, 미스는 DB 로 폴백되고 짧은 stale 은 분 단위 TTL 에 비하면 무시할 만하다.
+
+---
+
+## 11. 현재 수용한 정합성 비용
+
+| 시나리오 | 영향 | 판단 |
+|---|---|---|
+| 상품 삭제 후 목록 캐시 잔존 → 클릭 시 상세 NOT_FOUND | 최대 60초 | 수용 (§12 version bump 후보) |
+| 가격 변경 후 목록 캐시 잔존 → 표시가≠결제가 | 최대 60초 | 수용 (즉시성 필요 시 version bump) |
+| 좋아요 수가 목록(60초)·상세(5분)에서 불일치 | 최대 TTL | 수용 (근사값) |
+| Evict Race (커밋 전 evict → 옛 값 재적재) | TTL 내 | 자가 복구 (개선: afterCommit evict) |
+
+이들은 설계상 **의도적으로 허용한 비용**이다. 캐시·비정규화는 정확도를 일부 내주고 속도를 얻는 거래이며, 위 stale 들은 모두 TTL 이 결국 정정한다는 점이 마지막 안전망이다. 현재 트래픽 규모에서는 이 비용보다 DB 부하 감소 이득이 크다고 판단했다.
+
+---
+
+## 12. 향후 개선 과제
+
+### Hot Key Stampede
+인기 키가 만료되는 순간 다수 요청이 동시에 미스로 떨어져 같은 `COUNT(*)` 를 DB 에 한꺼번에 던지는 문제(thundering herd). 후보 대응:
+- **Single Flight** — 미스 시 하나의 요청만 재계산하고 나머지는 대기/stale 제공
+- **Stale-While-Revalidate** — 만료 후에도 잠시 옛 값을 주면서 백그라운드로 1회만 갱신
+- **Refresh-Ahead / XFetch** — 만료 전에 확률적으로 미리 재계산해 herd 를 시간축으로 분산
+
+### 목록 Version Bump
+상품 변경 시 전역 버전을 올려 기존 목록 캐시를 즉시 무효화하는 방식. 키를 `product:list:v{N}:...` 로 두고 `INCR` 로 N 을 올리면, 열거 없이 옛 버전 키 전체를 한 번에 폐기할 수 있다. §11 의 목록 stale(삭제·가격) 을 즉시성 있게 해결하나, 상품 쓰기마다 목록 캐시 전체가 식는 비용이 있어 쓰기 빈도를 보고 도입을 결정한다.
+
+### L1 + L2 다층 캐시
+```text
+Application → Caffeine(L1) → Redis(L2) → DB
+```
+인기 상품 목록 키에 한해 인스턴스 로컬 캐시(L1)를 얹어 네트워크 왕복마저 제거하는 구조. 다만 인스턴스마다 L1 이 분리돼 무효화 전파에 Redis pub/sub 이 필요하고, 카디널리티 높은 상세에는 적중률이 낮다. 포트 추상화 덕에 어댑터 교체만으로 도입 가능하므로, 측정으로 병목이 확인되면 검토한다.
+
+---
+
+## 13. 결론
+
+이번 설계의 핵심은 **응답시간 단축이 아니라 데이터베이스 부하 감소**다.
+
+- 상세 조회는 핫 상품 반복 조회를 Redis 로 흡수해 DB 커넥션·부하를 덜어낸다.
+- 목록 조회는 매 요청 49ms 를 쓰던 `COUNT(*)` 를 캐시 적중 시 제거한다.
+- Redis 장애는 DB 폴백으로 흡수해 서비스로 전파시키지 않는다.
+- 상세는 Evict 기반, 목록은 TTL 기반으로 정합성과 구현 복잡도의 균형을 맞췄다.
+
+최종적으로 **Cache-Aside + Write-Around(Evict)** 를 채택했다. 현재 트래픽 규모에서 가장 단순하면서 운영 비용이 낮은 선택이라고 판단했으며, 트래픽이 커지면 §12 의 stampede 대응과 version bump 를 단계적으로 도입한다.
