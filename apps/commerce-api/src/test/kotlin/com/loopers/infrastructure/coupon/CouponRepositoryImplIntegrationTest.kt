@@ -4,6 +4,7 @@ import com.loopers.config.jpa.DataSourceConfig
 import com.loopers.domain.coupon.Coupon
 import com.loopers.domain.coupon.CouponRepository
 import com.loopers.domain.coupon.DiscountType
+import com.loopers.domain.coupon.PercentageDiscountPolicy
 import com.loopers.testcontainers.MySqlTestContainersConfig
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.DisplayName
@@ -30,7 +31,17 @@ class CouponRepositoryImplIntegrationTest @Autowired constructor(
         type: DiscountType = DiscountType.RATE,
         value: Long = 10,
         minOrderAmount: Long? = 10000,
-    ): Coupon = Coupon.create(name, type, value, minOrderAmount, now.plusDays(30), now)
+    ): Coupon = Coupon.create(
+        name = name,
+        discountType = type,
+        discountValue = value,
+        minOrderAmount = minOrderAmount,
+        issueStartAt = now.minusDays(1),
+        issueEndAt = now.plusDays(30),
+        useStartAt = now.minusDays(1),
+        useEndAt = now.plusDays(60),
+        now = now,
+    )
 
     @DisplayName("save / findById 라운드트립")
     @Nested
@@ -44,10 +55,10 @@ class CouponRepositoryImplIntegrationTest @Autowired constructor(
 
             val found = requireNotNull(couponRepository.findById(saved.id))
             assertThat(found.name.value).isEqualTo("신규가입 10% 할인")
-            assertThat(found.discount.type).isEqualTo(DiscountType.RATE)
-            assertThat(found.discount.value).isEqualTo(10)
+            assertThat(found.discountPolicy).isEqualTo(PercentageDiscountPolicy(10))
             assertThat(found.minOrderAmount).isEqualTo(10000)
-            assertThat(found.expiredAt).isEqualTo(now.plusDays(30))
+            assertThat(found.issueEndAt).isEqualTo(now.plusDays(30))
+            assertThat(found.useEndAt).isEqualTo(now.plusDays(60))
         }
 
         @DisplayName("findById 는 soft-deleted Coupon 을 null 로 반환한다.")
@@ -55,7 +66,7 @@ class CouponRepositoryImplIntegrationTest @Autowired constructor(
         fun findByIdExcludesDeleted() {
             val saved = couponRepository.save(newCoupon())
             testEntityManager.flush()
-            saved.softDelete()
+            saved.softDelete(now)
             couponRepository.save(saved)
             testEntityManager.flush()
             testEntityManager.clear()
@@ -68,7 +79,7 @@ class CouponRepositoryImplIntegrationTest @Autowired constructor(
         fun includingDeletedReturnsDeleted() {
             val saved = couponRepository.save(newCoupon())
             testEntityManager.flush()
-            saved.softDelete()
+            saved.softDelete(now)
             couponRepository.save(saved)
             testEntityManager.flush()
             testEntityManager.clear()
@@ -92,7 +103,7 @@ class CouponRepositoryImplIntegrationTest @Autowired constructor(
             couponRepository.save(newCoupon(name = "C"))
             testEntityManager.flush()
             // A 를 삭제 → 결과에서 제외되어야 한다.
-            a.softDelete()
+            a.softDelete(now)
             couponRepository.save(a)
             testEntityManager.flush()
             testEntityManager.clear()
@@ -113,7 +124,7 @@ class CouponRepositoryImplIntegrationTest @Autowired constructor(
             val a = couponRepository.save(newCoupon(name = "A"))
             val b = couponRepository.save(newCoupon(name = "B"))
             testEntityManager.flush()
-            a.softDelete()
+            a.softDelete(now)
             couponRepository.save(a)
             testEntityManager.flush()
             testEntityManager.clear()

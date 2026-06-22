@@ -34,6 +34,26 @@ class ProductRepositoryImpl(
     override fun findAllByIds(ids: Collection<Long>): List<Product> =
         if (ids.isEmpty()) emptyList() else productJpaRepository.findAllById(ids).map { it.toDomain() }
 
+    override fun findAllByIdsForUpdate(ids: Collection<Long>): List<Product> =
+        if (ids.isEmpty()) emptyList() else productJpaRepository.findAllByIdInForUpdate(ids).map { it.toDomain() }
+
+    override fun findAllByIdsForUpdateIncludingDeleted(ids: Collection<Long>): List<Product> =
+        if (ids.isEmpty()) {
+            emptyList()
+        } else {
+            // native FOR UPDATE 로 (삭제 마크 포함) 엔티티를 영속성 컨텍스트에 적재·잠근다.
+            // 이후 saveAll → save 의 findById(em.find) 는 1차 캐시 히트로 @SQLRestriction SQL 필터를 우회해 삭제 행도 갱신된다.
+            productJpaRepository.findAllByIdInForUpdateIncludingDeleted(ids).map { it.toDomain() }
+        }
+
+    override fun increaseLikeCount(productId: Long) {
+        productJpaRepository.increaseLikeCount(productId)
+    }
+
+    override fun decreaseLikeCount(productId: Long) {
+        productJpaRepository.decreaseLikeCount(productId)
+    }
+
     override fun findAll(
         sort: ProductSortType,
         brandId: Long?,
@@ -58,16 +78,18 @@ class ProductRepositoryImpl(
     override fun existsByBrandIdAndName(brandId: Long, name: String): Boolean =
         productJpaRepository.existsByBrandIdAndName(brandId, name)
 
+    // 타이브레이크(id) 방향을 주 정렬 방향과 통일한다.
+    // 혼합 방향(예: price ASC + id DESC)은 단일 인덱스로 못 맞춰 filesort 를 유발하므로,
+    // 평범한 오름차순 복합 인덱스(정/역방향 스캔)만으로 모든 정렬을 커버하도록 방향을 맞춘다.
     private fun ProductSortType.toJpaSort(): Sort {
-        val primary = when (this) {
-            ProductSortType.LATEST -> Sort.Order.desc("createdAt")
-            ProductSortType.PRICE_ASC -> Sort.Order.asc("price")
-            ProductSortType.LIKES_DESC -> Sort.Order.desc("likeCount")
+        val (primary, tiebreak) = when (this) {
+            ProductSortType.LATEST -> Sort.Order.desc("createdAt") to Sort.Order.desc("id")
+            ProductSortType.PRICE_ASC -> Sort.Order.asc("price") to Sort.Order.asc("id")
+            ProductSortType.LIKES_DESC -> Sort.Order.desc("likeCount") to Sort.Order.desc("id")
         }
-        return Sort.by(primary, Sort.Order.desc("id"))
+        return Sort.by(primary, tiebreak)
     }
 
-    // brandId 가 없으면 전체(JpaRepository.findAll), 있으면 파생 쿼리로 분기한다 — @Query 없이 동적 필터를 표현한다.
     private fun findPage(brandId: Long?, pageRequest: PageRequest): Page<ProductEntity> =
         if (brandId == null) {
             productJpaRepository.findAll(pageRequest)

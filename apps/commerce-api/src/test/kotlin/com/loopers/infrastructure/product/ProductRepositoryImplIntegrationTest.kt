@@ -127,6 +127,30 @@ class ProductRepositoryImplIntegrationTest @Autowired constructor(
             assertThat(result.content.map { it.likeCount }).containsExactly(100L, 30L, 1L)
         }
 
+        @DisplayName("sort=PRICE_ASC 동점 시 id asc 로 정렬한다. (타이브레이크 방향을 주 정렬과 통일 → 평범한 오름차순 인덱스로 filesort 회피)")
+        @Test
+        fun priceAscTiebreakIsIdAsc() {
+            val first = persist(name = "p1", price = 5000)
+            val second = persist(name = "p2", price = 5000)
+            testEntityManager.clear()
+
+            val result = productRepository.findAll(ProductSortType.PRICE_ASC, null, 0, 10)
+
+            assertThat(result.content.map { it.id }).containsExactly(first.id, second.id)
+        }
+
+        @DisplayName("sort=LIKES_DESC 동점 시 id desc 로 정렬한다. (주 정렬이 desc 라 타이브레이크도 desc)")
+        @Test
+        fun likesDescTiebreakIsIdDesc() {
+            val first = persist(name = "l1", likeCount = 10)
+            val second = persist(name = "l2", likeCount = 10)
+            testEntityManager.clear()
+
+            val result = productRepository.findAll(ProductSortType.LIKES_DESC, null, 0, 10)
+
+            assertThat(result.content.map { it.id }).containsExactly(second.id, first.id)
+        }
+
         @DisplayName("soft-deleted Product 를 제외한다.")
         @Test
         fun excludesSoftDeleted() {
@@ -240,6 +264,62 @@ class ProductRepositoryImplIntegrationTest @Autowired constructor(
             val result = productRepository.findAllByBrandId(1L)
 
             assertThat(result.map { it.id }).containsExactly(a.id)
+        }
+    }
+
+    @DisplayName("saveAll — 배치 저장")
+    @Nested
+    inner class SaveAll {
+        @DisplayName("여러 기존 Product 의 변경(soft delete) 을 한 번에 반영한다.")
+        @Test
+        fun batchUpdatesExistingProducts() {
+            val a = persist(name = "A")
+            val b = persist(name = "B")
+            testEntityManager.clear()
+            a.softDelete()
+            b.softDelete()
+
+            productRepository.saveAll(listOf(a, b))
+            testEntityManager.flush()
+            testEntityManager.clear()
+
+            assertThat(productRepository.findById(a.id)).isNull()
+            assertThat(productRepository.findById(b.id)).isNull()
+        }
+
+        @DisplayName("신규(id=0) Product 들을 insert 하고 식별자가 부여된 도메인을 반환한다.")
+        @Test
+        fun batchInsertsNewProducts() {
+            val news = listOf(
+                ProductFixture.validProduct(name = "N1"),
+                ProductFixture.validProduct(name = "N2"),
+            )
+
+            val result = productRepository.saveAll(news)
+            testEntityManager.flush()
+            testEntityManager.clear()
+
+            assertThat(result).hasSize(2)
+            assertThat(result.map { it.id }).allMatch { it > 0L }
+            assertThat(productRepository.findById(result.first().id)).isNotNull()
+        }
+
+        @DisplayName("존재하지 않는 id 가 섞이면 PRODUCT_NOT_FOUND 예외가 발생한다.")
+        @Test
+        fun throwsProductNotFound_whenAnyIdMissing() {
+            val live = persist(name = "L")
+            testEntityManager.clear()
+            val ghost = ProductFixture.validProduct(id = 999L)
+
+            val ex = assertThrows<CoreException> { productRepository.saveAll(listOf(live, ghost)) }
+
+            assertThat(ex.errorType).isEqualTo(ProductErrorType.PRODUCT_NOT_FOUND)
+        }
+
+        @DisplayName("빈 컬렉션이면 조회 없이 빈 리스트를 반환한다.")
+        @Test
+        fun returnsEmptyForEmptyInput() {
+            assertThat(productRepository.saveAll(emptyList())).isEmpty()
         }
     }
 }

@@ -2,6 +2,12 @@ package com.loopers.application.order
 
 import com.loopers.application.order.command.OrderLineCommand
 import com.loopers.application.order.command.PlaceOrderCommand
+import com.loopers.domain.coupon.CouponErrorType
+import com.loopers.domain.coupon.CouponFixture
+import com.loopers.domain.coupon.CouponRepository
+import com.loopers.domain.coupon.DiscountType
+import com.loopers.domain.coupon.UserCouponRepository
+import com.loopers.domain.coupon.UserCouponStatus
 import com.loopers.domain.order.OrderRepository
 import com.loopers.domain.product.ProductRepository
 import com.loopers.domain.user.UserRepository
@@ -14,6 +20,7 @@ import com.loopers.domain.product.ProductFixture
 import com.loopers.domain.user.UserErrorType
 import com.loopers.domain.user.UserFixture
 import com.loopers.support.error.CoreException
+import com.loopers.support.page.PageResult
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
@@ -23,6 +30,7 @@ import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import org.springframework.context.ApplicationEventPublisher
 import java.time.LocalDateTime
 
 @DisplayName("OrderFacade")
@@ -30,18 +38,22 @@ class OrderFacadeTest {
     private val userRepository: UserRepository = mockk()
     private val productRepository: ProductRepository = mockk()
     private val orderRepository: OrderRepository = mockk()
-    private val orderFacade = OrderFacade(userRepository, productRepository, orderRepository)
+    private val couponRepository: CouponRepository = mockk()
+    private val userCouponRepository: UserCouponRepository = mockk()
+    private val eventPublisher: ApplicationEventPublisher = mockk(relaxed = true)
+    private val orderFacade =
+        OrderFacade(userRepository, productRepository, orderRepository, couponRepository, userCouponRepository, eventPublisher)
 
     private val loginId = UserFixture.DEFAULT_LOGIN_ID
     private val idempotencyKey = "idem-001"
 
     private fun placeOrderCommand(
-        couponId: Long? = null,
+        userCouponId: Long? = null,
         lines: List<OrderLineCommand> = listOf(OrderLineCommand(productId = 1L, quantity = 1)),
     ) = PlaceOrderCommand(
         loginId = loginId,
         idempotencyKey = idempotencyKey,
-        couponId = couponId,
+        userCouponId = userCouponId,
         lines = lines,
     )
 
@@ -56,7 +68,7 @@ class OrderFacadeTest {
             val productB = ProductFixture.validProduct(id = 2L, name = "B", price = 2000, stock = 5)
             every { userRepository.findByLoginId(loginId) } returns user
             every { orderRepository.findByUserIdAndIdempotencyKey(user.id, idempotencyKey) } returns null
-            every { productRepository.findAllByIds(any()) } returns listOf(productA, productB)
+            every { productRepository.findAllByIdsForUpdate(any()) } returns listOf(productA, productB)
             every { productRepository.saveAll(any()) } answers { firstArg<Collection<com.loopers.domain.product.Product>>().toList() }
             val savedOrder = slot<Order>()
             every { orderRepository.save(capture(savedOrder)) } answers { savedOrder.captured }
@@ -72,7 +84,7 @@ class OrderFacadeTest {
 
             assertThat(productA.stock.value).isEqualTo(8)
             assertThat(productB.stock.value).isEqualTo(2)
-            verify(exactly = 1) { productRepository.findAllByIds(any()) }
+            verify(exactly = 1) { productRepository.findAllByIdsForUpdate(any()) }
             verify(exactly = 1) { productRepository.saveAll(any()) }
         }
 
@@ -83,7 +95,7 @@ class OrderFacadeTest {
             val product = ProductFixture.validProduct(id = 1L, name = "맥북", price = 1_000_000, stock = 10)
             every { userRepository.findByLoginId(loginId) } returns user
             every { orderRepository.findByUserIdAndIdempotencyKey(user.id, idempotencyKey) } returns null
-            every { productRepository.findAllByIds(any()) } returns listOf(product)
+            every { productRepository.findAllByIdsForUpdate(any()) } returns listOf(product)
             every { productRepository.saveAll(any()) } answers { firstArg<Collection<com.loopers.domain.product.Product>>().toList() }
             val savedOrder = slot<Order>()
             every { orderRepository.save(capture(savedOrder)) } answers { savedOrder.captured }
@@ -104,7 +116,7 @@ class OrderFacadeTest {
             val productB = ProductFixture.validProduct(id = 2L, name = "B", price = 2000, stock = 5)
             every { userRepository.findByLoginId(loginId) } returns user
             every { orderRepository.findByUserIdAndIdempotencyKey(user.id, idempotencyKey) } returns null
-            every { productRepository.findAllByIds(any()) } returns listOf(productA, productB)
+            every { productRepository.findAllByIdsForUpdate(any()) } returns listOf(productA, productB)
             every { productRepository.saveAll(any()) } answers { firstArg<Collection<com.loopers.domain.product.Product>>().toList() }
             val savedOrder = slot<Order>()
             every { orderRepository.save(capture(savedOrder)) } answers { savedOrder.captured }
@@ -122,25 +134,122 @@ class OrderFacadeTest {
         }
 
         @Test
-        @DisplayName("couponId 가 있어도 합계는 변하지 않는다 (입력 슬롯만)")
-        fun couponDoesNotAffectTotal() {
+        @DisplayName("userCouponId 가 있으면 쿠폰이 소진되고 할인 금액이 합계에 반영된다")
+        fun appliesCouponDiscount() {
             val user = UserFixture.validUser()
             val product = ProductFixture.validProduct(id = 1L, name = "A", price = 1000, stock = 10)
             every { userRepository.findByLoginId(loginId) } returns user
             every { orderRepository.findByUserIdAndIdempotencyKey(user.id, idempotencyKey) } returns null
-            every { productRepository.findAllByIds(any()) } returns listOf(product)
+            every { productRepository.findAllByIdsForUpdate(any()) } returns listOf(product)
             every { productRepository.saveAll(any()) } answers { firstArg<Collection<com.loopers.domain.product.Product>>().toList() }
+            // 원 합계 2000 에 대해 정액 500 할인 쿠폰을 보유한 상황을 모사한다.
+            val userCoupon = CouponFixture.userCoupon(id = 99L, userId = user.id, couponId = 7L)
+            every { userCouponRepository.findByIdForUpdate(99L) } returns userCoupon
+            every { couponRepository.findByIdIncludingDeleted(7L) } returns
+                CouponFixture.coupon(id = 7L, discountType = DiscountType.FIXED, discountValue = 500)
+            every { userCouponRepository.save(any()) } returns userCoupon
             val savedOrder = slot<Order>()
             every { orderRepository.save(capture(savedOrder)) } answers { savedOrder.captured }
 
             orderFacade.placeOrder(
                 placeOrderCommand(
-                    couponId = 99L,
+                    userCouponId = 99L,
                     lines = listOf(OrderLineCommand(productId = 1L, quantity = 2)),
                 ),
             )
 
-            assertThat(savedOrder.captured.totalAmount).isEqualTo(2000)
+            assertThat(savedOrder.captured.userCouponId).isEqualTo(99L)
+            assertThat(savedOrder.captured.discountAmount).isEqualTo(500L)
+            assertThat(savedOrder.captured.totalAmount).isEqualTo(1500L)
+            assertThat(userCoupon.status).isEqualTo(UserCouponStatus.USED)
+            verify(exactly = 1) { userCouponRepository.save(userCoupon) }
+        }
+
+        @Test
+        @DisplayName("userCouponId 가 없으면 쿠폰 적용을 시도하지 않고 합계는 라인 합과 같다")
+        fun noCouponNoDiscount() {
+            val user = UserFixture.validUser()
+            val product = ProductFixture.validProduct(id = 1L, name = "A", price = 1000, stock = 10)
+            every { userRepository.findByLoginId(loginId) } returns user
+            every { orderRepository.findByUserIdAndIdempotencyKey(user.id, idempotencyKey) } returns null
+            every { productRepository.findAllByIdsForUpdate(any()) } returns listOf(product)
+            every { productRepository.saveAll(any()) } answers { firstArg<Collection<com.loopers.domain.product.Product>>().toList() }
+            val savedOrder = slot<Order>()
+            every { orderRepository.save(capture(savedOrder)) } answers { savedOrder.captured }
+
+            orderFacade.placeOrder(
+                placeOrderCommand(lines = listOf(OrderLineCommand(productId = 1L, quantity = 2))),
+            )
+
+            assertThat(savedOrder.captured.discountAmount).isEqualTo(0L)
+            assertThat(savedOrder.captured.totalAmount).isEqualTo(2000L)
+            verify(exactly = 0) { userCouponRepository.findByIdForUpdate(any()) }
+        }
+    }
+
+    @Nested
+    @DisplayName("placeOrder — 쿠폰 적용 실패 시 주문·재고가 저장되지 않는다")
+    inner class PlaceOrderCouponFailure {
+        private fun arrangeUser(): com.loopers.domain.user.User {
+            val user = UserFixture.validUser()
+            val product = ProductFixture.validProduct(id = 1L, name = "A", price = 1000, stock = 10)
+            every { userRepository.findByLoginId(loginId) } returns user
+            every { orderRepository.findByUserIdAndIdempotencyKey(user.id, idempotencyKey) } returns null
+            every { productRepository.findAllByIdsForUpdate(any()) } returns listOf(product)
+            return user
+        }
+
+        private fun assertOrderFails(expected: CouponErrorType) {
+            val ex = assertThrows<CoreException> {
+                orderFacade.placeOrder(
+                    placeOrderCommand(userCouponId = 99L, lines = listOf(OrderLineCommand(productId = 1L, quantity = 2))),
+                )
+            }
+            assertThat(ex.errorType).isEqualTo(expected)
+            verify(exactly = 0) { orderRepository.save(any()) }
+            verify(exactly = 0) { productRepository.saveAll(any()) }
+        }
+
+        @Test
+        @DisplayName("발급 쿠폰이 없으면 USER_COUPON_NOT_FOUND")
+        fun userCouponNotFound() {
+            arrangeUser()
+            every { userCouponRepository.findByIdForUpdate(99L) } returns null
+            assertOrderFails(CouponErrorType.USER_COUPON_NOT_FOUND)
+        }
+
+        @Test
+        @DisplayName("타 유저 소유 쿠폰이면 USER_COUPON_NOT_FOUND")
+        fun othersCoupon() {
+            val user = arrangeUser()
+            every { userCouponRepository.findByIdForUpdate(99L) } returns
+                CouponFixture.userCoupon(id = 99L, userId = user.id + 1L, couponId = 7L)
+            assertOrderFails(CouponErrorType.USER_COUPON_NOT_FOUND)
+        }
+
+        @Test
+        @DisplayName("이미 사용된 쿠폰이면 ALREADY_USED_COUPON")
+        fun alreadyUsed() {
+            val user = arrangeUser()
+            every { userCouponRepository.findByIdForUpdate(99L) } returns
+                CouponFixture.userCoupon(id = 99L, userId = user.id, couponId = 7L, status = UserCouponStatus.USED)
+            every { couponRepository.findByIdIncludingDeleted(7L) } returns CouponFixture.coupon(id = 7L)
+            assertOrderFails(CouponErrorType.ALREADY_USED_COUPON)
+        }
+
+        @Test
+        @DisplayName("사용 기간이 지난 쿠폰이면 COUPON_NOT_APPLICABLE (발급 쿠폰의 expiredAt 으로 판정)")
+        fun expiredCoupon() {
+            val user = arrangeUser()
+            every { userCouponRepository.findByIdForUpdate(99L) } returns
+                CouponFixture.userCoupon(
+                    id = 99L,
+                    userId = user.id,
+                    couponId = 7L,
+                    expiredAt = LocalDateTime.now().minusDays(1),
+                )
+            every { couponRepository.findByIdIncludingDeleted(7L) } returns CouponFixture.coupon(id = 7L)
+            assertOrderFails(CouponErrorType.COUPON_NOT_APPLICABLE)
         }
     }
 
@@ -164,6 +273,27 @@ class OrderFacadeTest {
             assertThat(result.status).isEqualTo(OrderStatus.PAID)
             verify(exactly = 0) { productRepository.findById(any()) }
             verify(exactly = 0) { orderRepository.save(any()) }
+            verify(exactly = 0) { eventPublisher.publishEvent(any()) }
+        }
+
+        @Test
+        @DisplayName("쿠폰을 적용했던 주문을 같은 멱등 키로 재요청하면 쿠폰을 다시 소진하지 않는다")
+        fun doesNotReconsumeCouponOnIdempotentHit() {
+            val user = UserFixture.validUser()
+            val existing = Order.create(
+                userId = user.id,
+                lines = listOf(OrderLine.create(1L, "X", 1000, 1)),
+                idempotencyKey = idempotencyKey,
+            ).also { it.applyCoupon(userCouponId = 5L, discountAmount = 100) }
+            every { userRepository.findByLoginId(loginId) } returns user
+            every { orderRepository.findByUserIdAndIdempotencyKey(user.id, idempotencyKey) } returns existing
+
+            val result = orderFacade.placeOrder(placeOrderCommand(userCouponId = 5L))
+
+            assertThat(result.userCouponId).isEqualTo(5L)
+            assertThat(result.discountAmount).isEqualTo(100L)
+            verify(exactly = 0) { userCouponRepository.findByIdForUpdate(any()) }
+            verify(exactly = 0) { orderRepository.save(any()) }
         }
     }
 
@@ -186,7 +316,7 @@ class OrderFacadeTest {
             val user = UserFixture.validUser()
             every { userRepository.findByLoginId(loginId) } returns user
             every { orderRepository.findByUserIdAndIdempotencyKey(user.id, idempotencyKey) } returns null
-            every { productRepository.findAllByIds(any()) } returns emptyList()
+            every { productRepository.findAllByIdsForUpdate(any()) } returns emptyList()
 
             val ex = assertThrows<CoreException> {
                 orderFacade.placeOrder(
@@ -205,7 +335,7 @@ class OrderFacadeTest {
             val product = ProductFixture.validProduct(id = 1L, name = "A", price = 1000, stock = 1)
             every { userRepository.findByLoginId(loginId) } returns user
             every { orderRepository.findByUserIdAndIdempotencyKey(user.id, idempotencyKey) } returns null
-            every { productRepository.findAllByIds(any()) } returns listOf(product)
+            every { productRepository.findAllByIdsForUpdate(any()) } returns listOf(product)
 
             val ex = assertThrows<CoreException> {
                 orderFacade.placeOrder(
@@ -224,7 +354,7 @@ class OrderFacadeTest {
             val product = ProductFixture.validProduct(id = 1L, name = "A", price = 1000, stock = 10)
             every { userRepository.findByLoginId(loginId) } returns user
             every { orderRepository.findByUserIdAndIdempotencyKey(user.id, "") } returns null
-            every { productRepository.findAllByIds(any()) } returns listOf(product)
+            every { productRepository.findAllByIdsForUpdate(any()) } returns listOf(product)
             every { productRepository.saveAll(any()) } answers { firstArg<Collection<com.loopers.domain.product.Product>>().toList() }
 
             val ex = assertThrows<CoreException> {
@@ -232,7 +362,7 @@ class OrderFacadeTest {
                     PlaceOrderCommand(
                         loginId = loginId,
                         idempotencyKey = "",
-                        couponId = null,
+                        userCouponId = null,
                         lines = listOf(OrderLineCommand(productId = 1L, quantity = 1)),
                     ),
                 )
@@ -252,12 +382,27 @@ class OrderFacadeTest {
             val end = LocalDateTime.of(2026, 5, 28, 23, 59)
             every { userRepository.findByLoginId(loginId) } returns user
             every {
-                orderRepository.findAllByUserIdAndOrderedAtBetween(user.id, start, end, 1, 30)
-            } returns emptyList()
+                orderRepository.findAllByUserIdInPeriod(user.id, start, end, 1, 30)
+            } returns PageResult(emptyList(), 1, 30, 0, 0)
 
             orderFacade.getMyOrders(loginId, start, end, page = 1, size = 30)
 
-            verify { orderRepository.findAllByUserIdAndOrderedAtBetween(user.id, start, end, 1, 30) }
+            verify { orderRepository.findAllByUserIdInPeriod(user.id, start, end, 1, 30) }
+        }
+
+        @Test
+        @DisplayName("기간 미지정(null) 이면 sentinel 시각이 아니라 null 경계가 그대로 Repository 에 전달된다")
+        fun passesNullPeriodThrough() {
+            val user = UserFixture.validUser()
+            every { userRepository.findByLoginId(loginId) } returns user
+            every {
+                orderRepository.findAllByUserIdInPeriod(user.id, null, null, 0, 20)
+            } returns PageResult(emptyList(), 0, 20, 0, 0)
+
+            orderFacade.getMyOrders(loginId, startAt = null, endAt = null, page = 0, size = 20)
+
+            // LocalDateTime.MIN/MAX 로 치환하지 않는다 — 그 값은 MySQL DATETIME 범위 밖이라 매칭이 빈다.
+            verify { orderRepository.findAllByUserIdInPeriod(user.id, null, null, 0, 20) }
         }
 
         @Test
@@ -269,6 +414,24 @@ class OrderFacadeTest {
                 orderFacade.getMyOrders(loginId, null, null, 0, 20)
             }
             assertThat(ex.errorType).isEqualTo(UserErrorType.UNAUTHORIZED)
+        }
+
+        @Test
+        @DisplayName("startAt 이 endAt 보다 크면 INVALID_DATE_RANGE")
+        fun invalidDateRange() {
+            val user = UserFixture.validUser()
+            every { userRepository.findByLoginId(loginId) } returns user
+
+            val ex = assertThrows<CoreException> {
+                orderFacade.getMyOrders(
+                    loginId,
+                    LocalDateTime.of(2026, 5, 10, 0, 0),
+                    LocalDateTime.of(2026, 5, 1, 0, 0),
+                    0,
+                    20,
+                )
+            }
+            assertThat(ex.errorType).isEqualTo(OrderErrorType.INVALID_DATE_RANGE)
         }
     }
 
@@ -332,15 +495,15 @@ class OrderFacadeTest {
                 lines = listOf(OrderLine.create(1L, "P", 1000, 1)),
                 idempotencyKey = "k",
             ).also { it.markPaid("tx-9", "APPROVED") }
-            every { orderRepository.findAllForAdmin(0, 20) } returns listOf(order)
+            every { orderRepository.findAllForAdmin(0, 20) } returns PageResult(listOf(order), 0, 20, 1, 1)
             every { userRepository.findAllByIds(any()) } returns listOf(user)
 
             val result = orderFacade.getOrdersForAdmin(0, 20)
 
-            assertThat(result).hasSize(1)
-            assertThat(result[0].userMaskedName).endsWith("*")
-            assertThat(result[0].paymentTransactionId).isEqualTo("tx-9")
-            assertThat(result[0].paymentResultCode).isEqualTo("APPROVED")
+            assertThat(result.content).hasSize(1)
+            assertThat(result.content[0].userMaskedName).endsWith("*")
+            assertThat(result.content[0].paymentTransactionId).isEqualTo("tx-9")
+            assertThat(result.content[0].paymentResultCode).isEqualTo("APPROVED")
         }
 
         @Test
@@ -352,14 +515,14 @@ class OrderFacadeTest {
                 lines = listOf(OrderLine.create(1L, "P", 1000, 1)),
                 idempotencyKey = "k",
             ).also { it.markPaymentFailed(null, null) }
-            every { orderRepository.findAllForAdmin(0, 20) } returns listOf(failed)
+            every { orderRepository.findAllForAdmin(0, 20) } returns PageResult(listOf(failed), 0, 20, 1, 1)
             every { userRepository.findAllByIds(any()) } returns listOf(user)
 
             val result = orderFacade.getOrdersForAdmin(0, 20)
 
-            assertThat(result[0].status).isEqualTo(OrderStatus.PAYMENT_FAILED)
-            assertThat(result[0].paymentTransactionId).isNull()
-            assertThat(result[0].paymentResultCode).isNull()
+            assertThat(result.content[0].status).isEqualTo(OrderStatus.PAYMENT_FAILED)
+            assertThat(result.content[0].paymentTransactionId).isNull()
+            assertThat(result.content[0].paymentResultCode).isNull()
         }
 
         @Test
@@ -384,12 +547,12 @@ class OrderFacadeTest {
                     idempotencyKey = "k-$uid",
                 )
             }
-            every { orderRepository.findAllForAdmin(0, size) } returns orders
+            every { orderRepository.findAllForAdmin(0, size) } returns PageResult(orders, 0, size, size.toLong(), 1)
             every { userRepository.findAllByIds(any()) } returns users
 
             val result = orderFacade.getOrdersForAdmin(0, size)
 
-            assertThat(result).hasSize(size)
+            assertThat(result.content).hasSize(size)
             verify(exactly = 1) { userRepository.findAllByIds(any()) }
             verify(exactly = 0) { userRepository.findById(any()) }
         }

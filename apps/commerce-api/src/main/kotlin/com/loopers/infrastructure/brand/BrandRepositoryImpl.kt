@@ -7,6 +7,7 @@ import com.loopers.support.error.CoreException
 import com.loopers.support.page.PageResult
 import org.springframework.data.domain.PageRequest
 import org.springframework.data.domain.Sort
+import org.springframework.data.repository.findByIdOrNull
 import org.springframework.stereotype.Component
 
 @Component
@@ -25,11 +26,10 @@ class BrandRepositoryImpl(
     }
 
     override fun findById(id: Long): Brand? =
-        brandJpaRepository.findById(id).orElse(null)?.toDomain()
+        brandJpaRepository.findByIdOrNull(id)?.toDomain()
 
     override fun findAll(page: Int, size: Int): PageResult<Brand> {
         val found = brandJpaRepository.findAllBy(
-            // createdAt 동률 시 페이지 간 중복/누락을 막기 위해 고유 tie-breaker(id)까지 정렬에 고정한다.
             PageRequest.of(page, size, Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"))),
         )
         return PageResult(

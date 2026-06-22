@@ -18,8 +18,11 @@
 - **계층 경계**: `interfaces → application ← infrastructure`, `application → domain`. `domain` 은 스프링/JPA 를 모른다.
 - **트랜잭션 경계 & 조율**: `application.Facade` 가 Repository 호출과 `@Transactional` 을 단일 소유.
 - **순수 도메인 헬퍼는 허용**: 정책/계산기/스펙(예: `PasswordPolicy`, `OrderPriceCalculator`) 은 무상태·인자 기반이면 `domain` 에 둔다.
+- **Tell, Don't Ask**: 도메인 상태를 밖에서 묻고(`isXxx()`) `if` 로 분기하기보다, 규칙과 그 위반 예외를 도메인 객체의 행위 메서드로 캡슐화한다. (예: `if (coupon.isExpired(now)) throw …` → `coupon.ensureIssuable(now)`)
 - **null-safety 최우선**. `!!` 는 근거 코멘트와 함께만.
 - **라이브러리 버전**은 `gradle.properties` 단일 출처.
+- **Skill 우선**: 작업 요청이 등록된 skill(`/requirements`, `/api-spec`, `/test-cases`, `/tdd`, `/design-qna`, `/analyze-query` 등)에 해당하면 직접 처리하기 전 해당 skill 을 활용한다.
+- **작업 후 검증 필수**: 코드 변경 뒤에는 빌드·테스트(`./gradlew ktlintCheck test`)를 수행해 통과를 확인한다.
 
 ## 도구
 - 포맷: `./gradlew ktlintCheck` / `./gradlew ktlintFormat` — 커밋 전 통과 필수.
@@ -28,6 +31,8 @@
 - 커버리지: `./gradlew jacocoTestReport`.
 
 ## 커밋 / PR
+- **커밋은 사용자 승인 없이 수행하지 않는다.** 코드 변경 후 간결한 커밋 메시지를 제안만 하고, 실제 커밋은 사용자 확인을 받은 뒤 진행한다.
+- 커밋 메시지: `type(scope): 한국어 요약` 한 줄 (type: `feat`/`fix`/`refactor`/`test`/`docs`/`chore`, scope: 도메인/모듈명).
 - 한 커밋은 하나의 논리적 단위. 커밋 메시지에 구조/행위 변경 여부 명시.
 - PR 본문: 변경 목적 → 핵심 변경점 → 리스크 → 검증 방법 (4~8줄).
 - CodeRabbit 자동 리뷰. `wip`/`draft` 키워드가 제목에 있으면 스킵.
