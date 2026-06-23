@@ -14,7 +14,6 @@ import com.loopers.domain.user.UserErrorType
 import com.loopers.domain.user.UserRepository
 import com.loopers.support.error.CoreException
 import com.loopers.support.page.PageResult
-import org.springframework.context.ApplicationEventPublisher
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
 import java.time.LocalDateTime
@@ -26,7 +25,6 @@ class OrderFacade(
     private val orderRepository: OrderRepository,
     private val couponRepository: CouponRepository,
     private val userCouponRepository: UserCouponRepository,
-    private val eventPublisher: ApplicationEventPublisher,
 ) {
     @Transactional
     fun placeOrder(command: PlaceOrderCommand): OrderResult {
@@ -64,8 +62,7 @@ class OrderFacade(
 
         productRepository.saveAll(products.values)
         val saved = orderRepository.save(order)
-        // 커밋 후 결제 처리(PG → PAID)를 트리거한다. 외부 결제 호출은 이 트랜잭션 밖(AFTER_COMMIT)에서 일어난다.
-        eventPublisher.publishEvent(OrderPlacedEvent(saved.id))
+
         return OrderResult.from(saved)
     }
 

@@ -30,7 +30,6 @@ import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
-import org.springframework.context.ApplicationEventPublisher
 import java.time.LocalDateTime
 
 @DisplayName("OrderFacade")
@@ -40,9 +39,8 @@ class OrderFacadeTest {
     private val orderRepository: OrderRepository = mockk()
     private val couponRepository: CouponRepository = mockk()
     private val userCouponRepository: UserCouponRepository = mockk()
-    private val eventPublisher: ApplicationEventPublisher = mockk(relaxed = true)
     private val orderFacade =
-        OrderFacade(userRepository, productRepository, orderRepository, couponRepository, userCouponRepository, eventPublisher)
+        OrderFacade(userRepository, productRepository, orderRepository, couponRepository, userCouponRepository)
 
     private val loginId = UserFixture.DEFAULT_LOGIN_ID
     private val idempotencyKey = "idem-001"
@@ -273,7 +271,6 @@ class OrderFacadeTest {
             assertThat(result.status).isEqualTo(OrderStatus.PAID)
             verify(exactly = 0) { productRepository.findById(any()) }
             verify(exactly = 0) { orderRepository.save(any()) }
-            verify(exactly = 0) { eventPublisher.publishEvent(any()) }
         }
 
         @Test

@@ -2,8 +2,6 @@ package com.loopers.application.order
 
 import com.loopers.application.order.command.OrderLineCommand
 import com.loopers.application.order.command.PlaceOrderCommand
-import com.loopers.application.order.port.PaymentGateway
-import com.loopers.application.order.port.PaymentResult
 import com.loopers.domain.coupon.CouponErrorType
 import com.loopers.domain.coupon.CouponFixture
 import com.loopers.domain.coupon.CouponRepository
@@ -18,8 +16,6 @@ import com.loopers.domain.user.UserFixture
 import com.loopers.domain.user.UserRepository
 import com.loopers.infrastructure.order.OrderJpaRepository
 import com.loopers.support.error.CoreException
-import com.ninjasquad.springmockk.MockkBean
-import io.mockk.every
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.DisplayName
@@ -32,18 +28,10 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 /**
- * 주문 동시성 — 재고 차감(비관 락)·쿠폰 단일 사용(비관 락)·결제 실패 보상(비관 락)이
- * 동시/중복 요청에도 정확히 동작하는지 실제 영속 계층으로 검증한다. PaymentGateway 는 테스트별로 성공/실패를 주입한다.
- *
- * pay() 가 AFTER_COMMIT 안에서 REQUIRES_NEW 로 실행돼 결제 구간에서 스레드당 커넥션 2개를 점유하므로,
- * 기본 풀(10) 대신 이 스펙 한정으로 풀을 키워 "여러명"을 재현한다.
+ * 주문 동시성 — 재고 차감(비관 락)·쿠폰 단일 사용(비관 락)이 동시/중복 요청에도 정확히 동작하는지
+ * 실제 영속 계층으로 검증한다. 주문 생성은 결제대기(PAYMENT_PENDING)까지이며, 결제는 별도 흐름이다.
  */
-@SpringBootTest(
-    properties = [
-        "datasource.mysql-jpa.main.maximum-pool-size=32",
-        "datasource.mysql-jpa.main.minimum-idle=10",
-    ],
-)
+@SpringBootTest
 class OrderConcurrencyIntegrationTest @Autowired constructor(
     private val orderFacade: OrderFacade,
     private val userRepository: UserRepository,
@@ -53,22 +41,9 @@ class OrderConcurrencyIntegrationTest @Autowired constructor(
     private val orderJpaRepository: OrderJpaRepository,
     private val databaseCleanUp: com.loopers.utils.DatabaseCleanUp,
 ) {
-    @MockkBean
-    private lateinit var paymentGateway: PaymentGateway
-
     @AfterEach
     fun tearDown() {
         databaseCleanUp.truncateAllTables()
-    }
-
-    private fun succeedPayments() {
-        every { paymentGateway.charge(any(), any()) } answers {
-            PaymentResult(transactionId = "tx-${firstArg<Long>()}", resultCode = "APPROVED", success = true)
-        }
-    }
-
-    private fun failPayments() {
-        every { paymentGateway.charge(any(), any()) } returns PaymentResult("tx-fail", "DECLINED", false)
     }
 
     private fun newUsers(count: Int): List<User> =
@@ -114,10 +89,9 @@ class OrderConcurrencyIntegrationTest @Autowired constructor(
         return errors.toList()
     }
 
-    @DisplayName("[5] 서로 다른 사용자가 같은 상품을 동시에 주문하면, 재고가 정확히 차감되고 모든 주문이 성공한다.")
+    @DisplayName("[5] 서로 다른 사용자가 같은 상품을 동시에 주문하면, 재고가 정확히 차감되고 모든 주문이 결제대기로 생성된다.")
     @Test
     fun concurrentOrdersByDifferentUsersDeductStockAndSucceed() {
-        succeedPayments()
         val orderers = 8
         val users = newUsers(orderers)
         val product = productRepository.save(ProductFixture.validProduct(name = "운동화", price = 1000, stock = orderers))
@@ -136,13 +110,12 @@ class OrderConcurrencyIntegrationTest @Autowired constructor(
         assertThat(errors.filterNotNull()).isEmpty()
         assertThat(productRepository.findById(product.id)!!.stock.value).isEqualTo(0)
         assertThat(orderJpaRepository.count()).isEqualTo(orderers.toLong())
-        assertThat(orderJpaRepository.findAll()).allMatch { it.status == OrderStatus.PAID }
+        assertThat(orderJpaRepository.findAll()).allMatch { it.status == OrderStatus.PAYMENT_PENDING }
     }
 
     @DisplayName("[6] 같은 사용자가 같은 쿠폰으로 동시에 여러 번 주문하면, 쿠폰은 한 번만 사용되고 나머지 주문은 ALREADY_USED_COUPON 으로 실패한다.")
     @Test
     fun concurrentOrdersBySameUserConsumeCouponOnce() {
-        succeedPayments()
         val user = userRepository.save(UserFixture.validUser())
         val product = productRepository.save(ProductFixture.validProduct(name = "운동화", price = 1000, stock = 100))
         val coupon = issuedCoupon(user.id)
@@ -165,64 +138,5 @@ class OrderConcurrencyIntegrationTest @Autowired constructor(
         assertThat(userCouponRepository.findById(coupon.id)!!.status).isEqualTo(UserCouponStatus.USED)
         assertThat(orderJpaRepository.count()).isEqualTo(1L)
         assertThat(productRepository.findById(product.id)!!.stock.value).isEqualTo(99)
-    }
-
-    @DisplayName("[7] 서로 다른 사용자가 같은 상품을 동시에 주문했고 결제가 모두 실패하면, 차감된 재고가 전부 원복된다.")
-    @Test
-    fun concurrentOrdersRollBackStockWhenAllPaymentsFail() {
-        failPayments()
-        val orderers = 8
-        val users = newUsers(orderers)
-        val initialStock = 20
-        val product = productRepository.save(ProductFixture.validProduct(name = "운동화", price = 1000, stock = initialStock))
-
-        val errors = runConcurrently(orderers) { i ->
-            orderFacade.placeOrder(
-                PlaceOrderCommand(
-                    loginId = users[i].loginId,
-                    idempotencyKey = "c7-$i",
-                    userCouponId = null,
-                    lines = listOf(OrderLineCommand(productId = product.id, quantity = 1)),
-                ),
-            )
-        }
-
-        // placeOrder 자체는 성공(PENDING)하고, 결제는 커밋 후 비동기로 실패 → 보상 비관 락으로 재고가 정확히 원복된다.
-        assertThat(errors.filterNotNull()).isEmpty()
-        assertThat(productRepository.findById(product.id)!!.stock.value).isEqualTo(initialStock)
-        assertThat(orderJpaRepository.count()).isEqualTo(orderers.toLong())
-        assertThat(orderJpaRepository.findAll()).allMatch { it.status == OrderStatus.PAYMENT_FAILED }
-    }
-
-    @DisplayName("[8] 같은 사용자가 같은 쿠폰으로 동시 주문했고 결제가 실패하면, 소진됐던 쿠폰이 AVAILABLE 로 정상 롤백된다.")
-    @Test
-    fun failedPaymentRollsBackCouponForSameUser() {
-        failPayments()
-        val user = userRepository.save(UserFixture.validUser())
-        val product = productRepository.save(ProductFixture.validProduct(name = "운동화", price = 1000, stock = 100))
-        val coupon = issuedCoupon(user.id)
-
-        val attempts = 8
-        runConcurrently(attempts) { i ->
-            orderFacade.placeOrder(
-                PlaceOrderCommand(
-                    loginId = user.loginId,
-                    idempotencyKey = "c8-$i",
-                    userCouponId = coupon.id,
-                    lines = listOf(OrderLineCommand(productId = product.id, quantity = 1)),
-                ),
-            )
-        }
-
-        // 단 한 주문만 쿠폰을 소진(USED)했다가 결제 실패 보상으로 AVAILABLE 로 되돌아온다 — 재사용 가능 상태.
-        val persistedCoupon = userCouponRepository.findById(coupon.id)!!
-        assertThat(persistedCoupon.status).isEqualTo(UserCouponStatus.AVAILABLE)
-        assertThat(persistedCoupon.usedAt).isNull()
-        // 쿠폰을 적용한 단 하나의 주문이 생성되고 결제 실패로 마감되며, 차감했던 재고도 원복된다.
-        assertThat(orderJpaRepository.count()).isEqualTo(1L)
-        val order = orderJpaRepository.findAll().single()
-        assertThat(order.status).isEqualTo(OrderStatus.PAYMENT_FAILED)
-        assertThat(order.userCouponId).isEqualTo(coupon.id)
-        assertThat(productRepository.findById(product.id)!!.stock.value).isEqualTo(100)
     }
 }
