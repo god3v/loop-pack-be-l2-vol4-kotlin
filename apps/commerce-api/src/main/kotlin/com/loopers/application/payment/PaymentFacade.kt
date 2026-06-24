@@ -2,6 +2,8 @@ package com.loopers.application.payment
 
 import com.loopers.application.payment.port.PaymentGateway
 import com.loopers.application.payment.port.PaymentRequestCommand
+import com.loopers.application.payment.port.PgTransaction
+import com.loopers.application.payment.port.PgTransactionStatus
 import com.loopers.domain.order.OrderErrorType
 import com.loopers.domain.order.OrderRepository
 import com.loopers.domain.payment.Payment
@@ -9,6 +11,7 @@ import com.loopers.domain.payment.PaymentRepository
 import com.loopers.support.error.CoreException
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
+import java.time.LocalDateTime
 
 @Component
 class PaymentFacade(
@@ -51,6 +54,26 @@ class PaymentFacade(
             amount = saved.amount,
             requestedAt = saved.requestedAt,
         )
+    }
+
+    /**
+     * 정산 — 콜백·폴링이 전달한 외부 거래 결과를 결제·주문에 반영한다. 거래 식별자로 결제를 찾아 확정한다.
+     * 성공이면 결제 APPROVED + 주문 PAID. (실패·미확정 분기는 후속 구현.)
+     */
+    @Transactional
+    fun settle(transaction: PgTransaction) {
+        val payment = paymentRepository.findByTransactionId(transaction.transactionKey) ?: return
+        val order = orderRepository.findByIdForUpdate(payment.orderId) ?: return
+
+        when (transaction.status) {
+            PgTransactionStatus.SUCCESS -> {
+                payment.approve(transaction.transactionKey, LocalDateTime.now())
+                order.markPaid(transaction.transactionKey, transaction.status.name)
+            }
+            else -> return // FAILED/PENDING: 후속 item 에서 구현
+        }
+        paymentRepository.save(payment)
+        orderRepository.save(order)
     }
 
     companion object {

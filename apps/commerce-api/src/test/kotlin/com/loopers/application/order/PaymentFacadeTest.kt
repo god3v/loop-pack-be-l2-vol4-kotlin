@@ -4,11 +4,13 @@ import com.loopers.application.payment.PaymentCommand
 import com.loopers.application.payment.PaymentFacade
 import com.loopers.application.payment.port.PaymentGateway
 import com.loopers.application.payment.port.PaymentResponse
+import com.loopers.application.payment.port.PgTransaction
 import com.loopers.application.payment.port.PgTransactionStatus
 import com.loopers.domain.order.Order
 import com.loopers.domain.order.OrderErrorType
 import com.loopers.domain.order.OrderLine
 import com.loopers.domain.order.OrderRepository
+import com.loopers.domain.order.OrderStatus
 import com.loopers.domain.payment.Payment
 import com.loopers.domain.payment.PaymentRepository
 import com.loopers.domain.payment.PaymentStatus
@@ -18,11 +20,12 @@ import io.mockk.mockk
 import io.mockk.verify
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.DisplayName
+import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import java.time.LocalDateTime
 
-@DisplayName("PaymentFacade — 결제 요청(pay)")
+@DisplayName("PaymentFacade — 결제 요청(pay)·정산(settle)")
 class PaymentFacadeTest {
     private val orderRepository: OrderRepository = mockk(relaxed = true)
     private val paymentRepository: PaymentRepository = mockk()
@@ -92,5 +95,28 @@ class PaymentFacadeTest {
         assertThrows<CoreException> { paymentFacade.pay(command()) }
 
         verify(exactly = 0) { paymentGateway.request(any()) }
+    }
+
+    @DisplayName("정산(settle) 은, ")
+    @Nested
+    inner class Settle {
+        private fun pendingOrder() = createdOrder().also { it.markPaymentPending() }
+
+        @DisplayName("외부 결과가 성공이면 결제는 APPROVED, 주문은 PAID 로 전이한다.")
+        @Test
+        fun approvesAndMarksPaidOnSuccess() {
+            val payment = Payment(id = 10L, orderId = 1L, amount = 2000L, transactionId = "tx-1", requestedAt = LocalDateTime.now())
+            val order = pendingOrder()
+            every { paymentRepository.findByTransactionId("tx-1") } returns payment
+            every { orderRepository.findByIdForUpdate(1L) } returns order
+            every { paymentRepository.save(any()) } answers { firstArg() }
+            every { orderRepository.save(any()) } answers { firstArg() }
+
+            paymentFacade.settle(PgTransaction("tx-1", PgTransactionStatus.SUCCESS, null))
+
+            assertThat(payment.status).isEqualTo(PaymentStatus.APPROVED)
+            assertThat(payment.transactionId).isEqualTo("tx-1")
+            assertThat(order.status).isEqualTo(OrderStatus.PAID)
+        }
     }
 }
