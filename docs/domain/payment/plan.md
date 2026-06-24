@@ -44,7 +44,7 @@
 - `apps/pg-simulator` — 비동기 결제 API(요청/조회/주문별 조회) + 콜백 통지.
 
 ### 갭
-- `charge → settle` **즉시 확정 분리** — `charge` 는 거래 식별자 접수(REQUESTED)까지, 확정은 콜백/폴링.
+- 외부 요청 → 정산 **즉시 확정 분리** — 외부 `request` 는 거래 식별자 접수(REQUESTED)까지, 확정은 콜백/폴링.
 - `PaymentGateway` 계약 확장 — `cardType`·`cardNo`·`callbackUrl` 입력, 상태 조회(`getTransaction`/`getByOrder`) 추가, 항상성공 mock 을 실 HTTP 어댑터로 교체.
 - 결제 진입점 `POST /api/v1/payments` 컨트롤러 추가 + 자동 이벤트 트리거 제거.
 - 콜백 수신 엔드포인트 + 폴링/수동 복구 경로.
@@ -57,8 +57,8 @@
 > 값 객체·엔티티 불변식, 생성/상태전이 규칙. 순수 Kotlin.
 > 상태 전이(approve/fail/cancel)·멱등 규칙은 베이스라인에서 구현·테스트 완료 — 아래는 비동기 전환으로 새로 필요한 행위만 추가한다.
 
-- [ ] 결제를 요청하면 거래 식별자 없이 요청(REQUESTED) 상태로 생성된다
-- [ ] 요청 상태 결제에 외부 거래 식별자를 접수 기록할 수 있다
+- [x] 결제를 요청하면 거래 식별자 없이 요청(REQUESTED) 상태로 생성된다 (베이스라인 `PaymentTest.createsRequested` 커버)
+- [x] 요청 상태 결제에 외부 거래 식별자를 접수 기록할 수 있다 (2026-06-23 — `Payment.accept`)
 - [ ] 거래 식별자를 받지 못한 결제도(타임아웃 접수 미확인) 요청 상태로 유효하게 존재한다
 - [ ] 한 번 접수된 거래 식별자는 같은 결제에서 다른 값으로 덮어쓰이지 않는다
 
@@ -70,11 +70,11 @@
 > JPA 매핑·Repository 구현(testcontainers MySQL), 외부 PG HTTP 어댑터(mock 서버).
 
 **Repository**
-- [ ] 거래 식별자로 결제를 조회할 수 있다
-- [ ] 처리 중(REQUESTED) 결제 목록을 조회할 수 있다 (폴링 복구 대상)
+- [x] 거래 식별자로 결제를 조회할 수 있다 (2026-06-23 — `findByTransactionId`)
+- [x] 처리 중(REQUESTED) 결제 목록을 조회할 수 있다 (폴링 복구 대상) (2026-06-23 — `findAllByStatus`)
 
 **외부 PG HTTP 어댑터 (pg-simulator 계약)**
-- [ ] 결제를 요청하면 외부 PG 가 발급한 거래 식별자와 처리 중 상태를 받는다
+- [x] 결제를 요청하면 외부 PG 가 발급한 거래 식별자와 처리 중 상태를 받는다 (2026-06-23 — `PgSimulatorPaymentGateway.request`, RestClient + MockRestServiceServer)
 - [ ] 거래 식별자로 외부 결제 상태(성공/실패/처리중)를 조회할 수 있다
 - [ ] 주문 식별자로 외부 결제건을 조회할 수 있다 (거래 식별자 미확보 복구용)
 - [ ] 승인된 결제의 환불을 외부 PG 에 요청한다
@@ -148,3 +148,6 @@
 
 ## 진행 로그
 - 2026-06-23: /test-cases 로 초기 케이스 도출 (Round 6 비동기 전환·회복 전략 기준)
+- 2026-06-23: Phase 1 — `Payment.accept(transactionId)` 추가 (요청 상태 거래 식별자 접수 기록). 생성-as-REQUESTED 는 베이스라인 커버로 확인.
+- 2026-06-23: Phase 3 — Repository `findByTransactionId`·`findAllByStatus`(통합) + 비동기 PG 포트(`application.payment.port.PaymentGateway`) & `PgSimulatorPaymentGateway.request`(RestClient, MockRestServiceServer 단위) 추가.
+- 2026-06-23: 포트 정정 — 비동기 PG 의 `charge` → `request`(접수 의미 명확화). `ChargeCommand`/`ChargeResult` → `PaymentRequest`/`PaymentAcceptance`. requirements §1 용어 "결제 요청(Charge→Request)" 동기화. OLD `application.order.port.PaymentGateway`(동기 mock)는 미변경.

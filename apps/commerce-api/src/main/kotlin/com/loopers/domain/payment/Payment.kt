@@ -3,13 +3,6 @@ package com.loopers.domain.payment
 import com.loopers.support.error.CoreException
 import java.time.LocalDateTime
 
-/**
- * 결제 애그리거트 — 결제 생애주기(요청/완료/실패/취소)의 source of truth.
- * 외부 PG 호출 *전에* `REQUESTED` 로 먼저 영속된 뒤, 응답에 따라 `APPROVED`/`FAILED` 로,
- * 사후 환불 시 `CANCELED` 로 전이한다. 상태 전이 규칙은 도메인이 캡슐화한다(Tell, Don't Ask).
- *
- * 멱등키는 별도로 두지 않는다 — 외부 호출의 멱등 레퍼런스는 주문 식별자/주문 멱등키를 재사용한다(1주문 1결제).
- */
 class Payment internal constructor(
     val id: Long = 0L,
     val orderId: Long,
@@ -35,6 +28,11 @@ class Payment internal constructor(
 
     var canceledAt: LocalDateTime? = canceledAt
         private set
+
+    /** PG 요청 접수 반영 — 외부 거래 식별자를 기록한다(결과 확정 전, 폴링·콜백 매칭용). */
+    fun accept(transactionId: String) {
+        this.transactionId = transactionId
+    }
 
     /** PG 승인 반영 — REQUESTED 에서만 가능하다. 외부 거래 식별자와 결제 시각을 기록한다. */
     fun approve(transactionId: String, at: LocalDateTime) {

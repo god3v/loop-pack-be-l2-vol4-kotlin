@@ -31,6 +31,21 @@ class PaymentTest {
         }
     }
 
+    @DisplayName("accept 는, ")
+    @Nested
+    inner class Accept {
+        @DisplayName("REQUESTED 결제에 외부 거래 식별자를 접수 기록하고 상태는 REQUESTED 로 유지한다.")
+        @Test
+        fun recordsTransactionKeyWhileRequested() {
+            val payment = requested()
+
+            payment.accept(transactionId = "20260623:TR:9577c5")
+
+            assertThat(payment.transactionId).isEqualTo("20260623:TR:9577c5")
+            assertThat(payment.status).isEqualTo(PaymentStatus.REQUESTED)
+        }
+    }
+
     @DisplayName("approve 는, ")
     @Nested
     inner class Approve {

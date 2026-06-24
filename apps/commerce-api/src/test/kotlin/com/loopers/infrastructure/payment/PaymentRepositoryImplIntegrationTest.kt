@@ -93,4 +93,41 @@ class PaymentRepositoryImplIntegrationTest @Autowired constructor(
         assertThat(payment.id).isEqualTo(saved.id)
         assertThat(payment.status).isEqualTo(PaymentStatus.REQUESTED)
     }
+
+    @DisplayName("findByTransactionId 는 접수된 거래 식별자로 결제를 조회한다.")
+    @Test
+    fun findByTransactionIdReturnsRow() {
+        val saved = persistRequested(orderId = 9L, amount = 3000L)
+        testEntityManager.clear()
+        val accepted = requireNotNull(paymentRepository.findById(saved.id)).also { it.accept("20260623:TR:abc123") }
+        paymentRepository.save(accepted)
+        testEntityManager.flush()
+        testEntityManager.clear()
+
+        val found = paymentRepository.findByTransactionId("20260623:TR:abc123")
+
+        assertThat(found).isNotNull()
+        val payment = requireNotNull(found)
+        assertThat(payment.id).isEqualTo(saved.id)
+        assertThat(payment.orderId).isEqualTo(9L)
+        assertThat(payment.transactionId).isEqualTo("20260623:TR:abc123")
+    }
+
+    @DisplayName("findAllByStatus 는 처리 중(REQUESTED) 결제들만 조회한다 (폴링 복구 대상).")
+    @Test
+    fun findAllByStatusReturnsRequested() {
+        persistRequested(orderId = 1L, amount = 1000L)
+        val toApprove = persistRequested(orderId = 2L, amount = 2000L)
+        val approved = requireNotNull(paymentRepository.findById(toApprove.id))
+            .also { it.approve("tx-x", LocalDateTime.of(2026, 6, 12, 10, 0)) }
+        paymentRepository.save(approved)
+        testEntityManager.flush()
+        testEntityManager.clear()
+
+        val requested = paymentRepository.findAllByStatus(PaymentStatus.REQUESTED)
+
+        assertThat(requested).hasSize(1)
+        assertThat(requested.single().orderId).isEqualTo(1L)
+        assertThat(requested.single().status).isEqualTo(PaymentStatus.REQUESTED)
+    }
 }
