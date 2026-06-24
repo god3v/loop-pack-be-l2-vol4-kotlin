@@ -1,7 +1,8 @@
 package com.loopers.application.order
 
-import com.loopers.application.order.port.PaymentResult
-import com.loopers.application.payment.PaymentSettler
+import com.loopers.application.payment.PaymentFacade
+import com.loopers.application.payment.port.PgTransaction
+import com.loopers.application.payment.port.PgTransactionStatus
 import com.loopers.domain.coupon.CouponErrorType
 import com.loopers.domain.order.Order
 import com.loopers.domain.order.OrderLine
@@ -28,12 +29,12 @@ import org.springframework.jdbc.core.JdbcTemplate
 
 /**
  * 보상 대상 누락 시 롤백 통합 — 보상(`OrderCompensator.restore`) 대상 상품/쿠폰이 삭제·누락되면
- * 결제 실패 정산(`PaymentSettler.settle`) 이 조용히 부분 보상하지 않고 예외로 실패하며,
+ * 결제 실패 정산(`PaymentFacade.settle`) 이 조용히 부분 보상하지 않고 예외로 실패하며,
  * 같은 트랜잭션의 어떤 변경도 커밋되지 않는지(재고·주문·결제 상태 불변) 검증한다.
  */
 @SpringBootTest
 class OrderCompensationFailureIntegrationTest @Autowired constructor(
-    private val paymentSettler: PaymentSettler,
+    private val paymentFacade: PaymentFacade,
     private val userRepository: UserRepository,
     private val productRepository: ProductRepository,
     private val orderRepository: OrderRepository,
@@ -42,7 +43,7 @@ class OrderCompensationFailureIntegrationTest @Autowired constructor(
     private val jdbcTemplate: JdbcTemplate,
     private val databaseCleanUp: com.loopers.utils.DatabaseCleanUp,
 ) {
-    private val failResult = PaymentResult("tx-fail", "DECLINED", false)
+    private val failTransaction = PgTransaction("tx-fail", PgTransactionStatus.FAILED, "DECLINED")
 
     @AfterEach
     fun tearDown() {
@@ -64,9 +65,11 @@ class OrderCompensationFailureIntegrationTest @Autowired constructor(
                 idempotencyKey = "compensate-missing-product",
             ).also { it.markPaymentPending() },
         )
-        val payment = paymentRepository.save(Payment.request(orderId = order.id, amount = order.totalAmount))
+        val payment = paymentRepository.save(
+            Payment.request(orderId = order.id, amount = order.totalAmount).also { it.accept("tx-fail") },
+        )
 
-        val ex = assertThrows<CoreException> { paymentSettler.settle(payment.id, failResult) }
+        val ex = assertThrows<CoreException> { paymentFacade.settle(failTransaction) }
 
         assertThat(ex.errorType).isEqualTo(ProductErrorType.PRODUCT_NOT_FOUND)
         // 어떤 저장도 커밋되지 않는다 — 살아있는 상품 재고는 복원 전 그대로, 주문·결제 상태도 불변.
@@ -90,9 +93,11 @@ class OrderCompensationFailureIntegrationTest @Autowired constructor(
                 userCouponId = MISSING_ID,
             ).also { it.markPaymentPending() },
         )
-        val payment = paymentRepository.save(Payment.request(orderId = order.id, amount = order.totalAmount))
+        val payment = paymentRepository.save(
+            Payment.request(orderId = order.id, amount = order.totalAmount).also { it.accept("tx-fail") },
+        )
 
-        val ex = assertThrows<CoreException> { paymentSettler.settle(payment.id, failResult) }
+        val ex = assertThrows<CoreException> { paymentFacade.settle(failTransaction) }
 
         assertThat(ex.errorType).isEqualTo(CouponErrorType.USER_COUPON_NOT_FOUND)
         // 쿠폰 가드는 재고 saveAll 이후에 던져지지만, 트랜잭션 롤백으로 재고 복원도 커밋되지 않는다(8 그대로).
@@ -119,9 +124,11 @@ class OrderCompensationFailureIntegrationTest @Autowired constructor(
                 idempotencyKey = "compensate-soft-deleted",
             ).also { it.markPaymentPending() },
         )
-        val payment = paymentRepository.save(Payment.request(orderId = order.id, amount = order.totalAmount))
+        val payment = paymentRepository.save(
+            Payment.request(orderId = order.id, amount = order.totalAmount).also { it.accept("tx-fail") },
+        )
 
-        paymentSettler.settle(payment.id, failResult) // 누락으로 보지 않고 통과해야 한다(예외 없음).
+        paymentFacade.settle(failTransaction) // 누락으로 보지 않고 통과해야 한다(예외 없음).
 
         // delist 된 상품도 스냅샷에 박힌 라인 기준으로 재고가 복원되고, 주문·결제는 정상 마감된다.
         assertThat(stockOf(product.id)).isEqualTo(10)

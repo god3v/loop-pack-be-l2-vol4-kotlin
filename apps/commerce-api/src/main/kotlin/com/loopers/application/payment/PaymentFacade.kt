@@ -7,7 +7,10 @@ import com.loopers.application.payment.port.PgTransaction
 import com.loopers.application.payment.port.PgTransactionStatus
 import com.loopers.domain.order.OrderErrorType
 import com.loopers.domain.order.OrderRepository
+import com.loopers.domain.payment.CardNumber
+import com.loopers.domain.payment.CardType
 import com.loopers.domain.payment.Payment
+import com.loopers.domain.payment.PaymentErrorType
 import com.loopers.domain.payment.PaymentRepository
 import com.loopers.support.error.CoreException
 import org.springframework.stereotype.Component
@@ -23,6 +26,10 @@ class PaymentFacade(
 ) {
     @Transactional
     fun pay(command: PaymentCommand): PaymentRequestResult {
+        // 카드 입력 검증(400) — 외부 호출·DB 조회 전에 먼저 거른다.
+        val cardType = CardType.from(command.cardType)
+        val cardNo = CardNumber(command.cardNo)
+
         val order = orderRepository.findByIdForUpdate(command.orderId)
             ?: throw CoreException(OrderErrorType.ORDER_NOT_FOUND)
         // 본인 주문인지 검증
@@ -39,8 +46,8 @@ class PaymentFacade(
                 userId = command.userId,
                 orderId = order.id,
                 amount = order.totalAmount,
-                cardType = command.cardType,
-                cardNo = command.cardNo,
+                cardType = cardType.name,
+                cardNo = cardNo.value,
                 callbackUrl = CALLBACK_URL,
             ),
         )
@@ -83,6 +90,32 @@ class PaymentFacade(
         }
         paymentRepository.save(payment)
         orderRepository.save(order)
+    }
+
+    /**
+     * 수동 복구 — 처리 중(REQUESTED) 결제의 외부 상태를 거래 식별자로 조회해, 확정(SUCCESS/FAILED)이면 정산한다.
+     * 이미 확정됐거나 거래 식별자 미확보이거나 외부가 아직 처리 중이면 상태를 바꾸지 않고 `settled = false` 로 반환한다.
+     */
+    @Transactional
+    fun sync(paymentId: Long): PaymentSyncResult {
+        val payment = paymentRepository.findById(paymentId)
+            ?: throw CoreException(PaymentErrorType.PAYMENT_NOT_FOUND)
+        if (!payment.isRequested()) {
+            return PaymentSyncResult(paymentId, payment.status, settled = false) // 이미 확정 — 변화 없음
+        }
+        // 거래 식별자 미확보(타임아웃 접수 미확인)는 이 경로로 확정할 수 없다 — 미확정으로 둔다.
+        val transactionKey = payment.transactionId
+            ?: return PaymentSyncResult(paymentId, payment.status, settled = false)
+        val order = orderRepository.findById(payment.orderId)
+            ?: throw CoreException(OrderErrorType.ORDER_NOT_FOUND)
+
+        val transaction = paymentGateway.getTransaction(order.userId.toString(), transactionKey)
+        if (transaction.status == PgTransactionStatus.PENDING) {
+            return PaymentSyncResult(paymentId, payment.status, settled = false) // 외부 미확정
+        }
+        settle(transaction)
+        val settled = paymentRepository.findById(paymentId)!!
+        return PaymentSyncResult(paymentId, settled.status, settled = true)
     }
 
     companion object {

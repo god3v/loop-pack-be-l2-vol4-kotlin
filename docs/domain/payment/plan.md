@@ -39,8 +39,8 @@
 ### 현재 코드 상태 (비동기 PG 로 전환 중)
 - `domain.payment` — `Payment`(orderId·amount·status·transactionId·failureReason·시각) + `PaymentStatus(REQUESTED/APPROVED/FAILED/CANCELED)`. `approve`·`fail`(멱등)·`cancel`(멱등)·`accept`(거래 식별자 접수) 상태 전이 **구현·테스트 완료**.
 - `domain.order` — `OrderStatus` 에 `CREATED`(생성 초기) 추가. 주문 생명주기: **CREATED(생성) → markPaymentPending → PAYMENT_PENDING(결제 진행) → PAID/PAYMENT_FAILED**. `Order.validatePayable()`(CREATED 만 결제 가능)·`markPaymentPending()`(CREATED→PAYMENT_PENDING) 추가 — 결제 가능 판정·전이를 주문 도메인이 캡슐화(Tell-Don't-Ask).
-- `application.payment` — `PaymentFacade`(단일 진입점 `pay(command)`, `@Transactional`: 주문 잠금 조회 → `order.validatePayable()`/`markPaymentPending()` → 비동기 PG `request` → 거래 식별자 `accept`+save → `PaymentRequestResult` 반환) · `PaymentSettler`(정산 멱등 — 콜백/폴링 정산용, 현재 미참조). (`PaymentInitiator`·`PaymentRequestFacade`·`PaymentCanceler` 제거.)
-- ~~`application.order.port.PaymentGateway`(charge) · `AlwaysSuccessPaymentGateway`~~ **제거됨** — 비동기 PG 포트 `application.payment.port.PaymentGateway`(`request`/`getTransaction`/`getByOrder`) + `PgSimulatorPaymentGateway`(RestClient) 로 대체. `PaymentResult` 는 `PaymentSettler` 입력으로 보존.
+- `application.payment` — `PaymentFacade` 단일 진입점이 요청·정산을 모두 소유한다. `pay(command)`(`@Transactional`: 주문 잠금 조회 → `order.validateOwnedBy`/`validatePayable`/`markPaymentPending` → 비동기 PG `request` → 거래 식별자 `accept`+save → `PaymentRequestResult` 반환) · `settle(transaction)`(`@Transactional`: `findByTransactionIdForUpdate` 비관 락 → 멱등 가드 → SUCCESS/FAILED/PENDING 분기). (`PaymentInitiator`·`PaymentRequestFacade`·`PaymentCanceler`·`PaymentSettler` 제거.)
+- ~~`application.order.port.PaymentGateway`(charge) · `AlwaysSuccessPaymentGateway`~~ **제거됨** — 비동기 PG 포트 `application.payment.port.PaymentGateway`(`request`/`getTransaction`/`getByOrder`) + `PgSimulatorPaymentGateway`(RestClient) 로 대체. ~~`PaymentResult` VO~~ 도 제거 — 정산 입력은 포트의 `PgTransaction` 으로 일원화.
 - 트리거 — 자동 결제(`OrderPlacedEvent`→`OrderPaymentEventListener`) 제거됨(커밋 8916f6a). 결제는 **명시 API(`pay(command)`)** 로만 진입.
 - `apps/pg-simulator` — 비동기 결제 API(요청/조회/주문별 조회) + 콜백 통지.
 
@@ -102,7 +102,7 @@
 - [ ] **TBD(설계 전환 여파)**: PG 호출이 `@Transactional` 안에 있어, 호출 중 크래시/롤백 시 결제 레코드가 남지 않는다 — "타임아웃됐는데 PG 성공" 복구(요구사항 §4 선커밋 보장)와 상충. 외부 호출의 트랜잭션 격리 재검토 필요.
 
 **정산 (콜백·폴링 공통)**
-> **설계 전환(2026-06-24)**: 정산은 `PaymentFacade.settle(transaction: PgTransaction)` 가 소유한다 — `transactionKey` 로 결제를 찾아 `PgTransactionStatus`(SUCCESS/FAILED/PENDING) 로 승인/실패/미확정 분기. 구 `PaymentSettler.settle(paymentId, PaymentResult)`(동기 boolean) 는 본 형태로 이관 후 제거 예정. `PaymentResult` VO 도 제거 대상.
+> **설계 전환(2026-06-24)**: 정산은 `PaymentFacade.settle(transaction: PgTransaction)` 가 소유한다 — `transactionKey` 로 결제를 찾아 `PgTransactionStatus`(SUCCESS/FAILED/PENDING) 로 승인/실패/미확정 분기. 구 `PaymentSettler.settle(paymentId, PaymentResult)`(동기 boolean) 와 `PaymentResult` VO 는 **제거 완료**(2026-06-24, 행위 이관 후 구조 정리). 보상 실패 롤백 검증(`OrderCompensationFailureIntegrationTest`)도 `PaymentFacade.settle` 로 이관.
 - [x] 외부 결과가 성공이면 결제가 승인되고 그 주문이 결제완료로 전이된다 (2026-06-24 — `PaymentFacade.settle` SUCCESS 분기)
 - [x] 외부 결과가 실패면 결제가 실패하고 재고·쿠폰이 보상되며 그 주문이 결제실패로 전이된다 (2026-06-24 — `settle` FAILED 분기: `payment.fail` + `orderCompensator.restore` + `order.markPaymentFailed`)
 - [x] 이미 정산된(승인·실패·취소) 결제에 결과를 다시 반영하면 멱등하게 무시된다 (2026-06-24 — `settle` 가드 `if (!payment.isRequested()) return`, 주문 조회·저장·보상 모두 건너뜀)
@@ -110,9 +110,9 @@
 - [x] 알 수 없는 거래 식별자의 결과 통지는 정산 없이 무시된다 (2026-06-24 — `findByTransactionIdForUpdate(...) ?: return` 가드, 동작 고정 테스트로 확인)
 
 **상태 복구 (폴링·수동)**
-- [ ] 처리 중 결제를 복구 트리거하면 외부 상태를 조회해 확정 시 정산한다
-- [ ] 거래 식별자가 없는 처리 중 결제는 주문 식별자로 외부 결제건을 조회해 정산한다 (타임아웃 성공 수렴)
-- [ ] 외부가 아직 처리 중이거나 외부 조회가 실패하면 상태를 바꾸지 않고 미확정으로 둔다
+- [x] 처리 중 결제를 복구 트리거하면 외부 상태를 조회해 확정 시 정산한다 (2026-06-24 — `PaymentFacade.sync`, 거래 식별자 기반 `getTransaction` → `settle`)
+- [ ] 거래 식별자가 없는 처리 중 결제는 주문 식별자로 외부 결제건을 조회해 정산한다 (타임아웃 성공 수렴) — `getByOrder` 기반 복구 미구현(`sync` 는 거래 식별자 미확보 시 미확정 반환)
+- [~] 외부가 아직 처리 중이거나 외부 조회가 실패하면 상태를 바꾸지 않고 미확정으로 둔다 — PENDING 은 `settled=false` 로 커버(2026-06-24). 외부 조회 실패(통신 오류) graceful 처리는 예외 변환(보류)과 함께 미구현
 
 **취소·환불 — 보류 (pg-simulator 환불 API 없음)**
 > pg-simulator 엔드포인트는 생성·조회뿐 — 환불/취소 API 가 없어 외부 환불이 불가능하다. 외부 `refund` + 취소 오케스트레이션(`application.order.port.PaymentGateway.refund`·`AlwaysSuccessPaymentGateway.refund`·`PaymentFacade.cancel`·`PaymentCanceler` + 관련 테스트)을 제거했다(2026-06-23). 순수 도메인 전이 `Payment.cancel()`·`Order.cancel()` 는 향후 환불 가능 PG 대비 보존(현재 애플리케이션 미참조). 환불 가능 PG 연동 시 재도입한다.
@@ -121,25 +121,25 @@
 > HTTP 계약. `ApiResponse` + `ApiControllerAdvice` 표준 응답.
 
 **결제 요청 — `POST /api/v1/payments`**
-- [ ] 인증 회원이 결제대기 주문에 결제를 요청하면 200 과 함께 요청(REQUESTED) 접수 응답을 받는다
-- [ ] 응답 본문에 카드 번호가 노출되지 않는다
-- [ ] 카드 번호 형식이 틀리면 400 BAD_REQUEST 를 받는다
-- [ ] 지원하지 않는 카드 종류면 400 BAD_REQUEST 를 받는다
-- [ ] 인증 헤더가 없으면 401 UNAUTHORIZED 를 받는다
-- [ ] 존재하지 않는 주문이면 404 ORDER_NOT_FOUND 를 받는다
-- [ ] 타인 소유 주문이면 403 ORDER_FORBIDDEN 을 받는다
-- [ ] 결제대기가 아닌 주문이면 409 ORDER_NOT_PAYABLE 을 받는다
-- [ ] 외부 PG 가 장애·지연이어도 결제 요청 API 는 스레드 점유 없이 즉시 200(처리 중)을 응답한다
+- [x] 인증 회원이 결제대기 주문에 결제를 요청하면 200 과 함께 요청(REQUESTED) 접수 응답을 받는다 (2026-06-24 — `PaymentV1Controller.pay`, E2E `PaymentV1ApiE2ETest.acceptsPayment`)
+- [x] 응답 본문에 카드 번호가 노출되지 않는다 (2026-06-24 — `PayResponse` 에 cardNo 부재, raw 본문 검증)
+- [x] 카드 번호 형식이 틀리면 400 BAD_REQUEST 를 받는다 (2026-06-24 — `CardNumber` VO, `INVALID_CARD_NUMBER`)
+- [x] 지원하지 않는 카드 종류면 400 BAD_REQUEST 를 받는다 (2026-06-24 — `CardType.from`, `UNSUPPORTED_CARD_TYPE`)
+- [x] 인증 헤더가 없으면 401 UNAUTHORIZED 를 받는다 (2026-06-24 — `@RequireAuth` + `AuthInterceptor`)
+- [x] 존재하지 않는 주문이면 404 ORDER_NOT_FOUND 를 받는다 (2026-06-24 — facade `ORDER_NOT_FOUND`)
+- [x] 타인 소유 주문이면 403 ORDER_FORBIDDEN 을 받는다 (2026-06-24 — `validateOwnedBy` → `ORDER_FORBIDDEN`)
+- [x] 결제대기가 아닌 주문이면 409 ORDER_NOT_PAYABLE 을 받는다 (2026-06-24 — `validatePayable` → `ORDER_NOT_PAYABLE`)
+- [ ] (보류) 외부 PG 가 장애·지연이어도 결제 요청 API 는 스레드 점유 없이 즉시 200(처리 중)을 응답한다 — Fallback/Timeout(resilience4j) 보류 항목과 묶여 미구현
 
-**콜백 — `POST /api/v1/payments/callback`**
-- [ ] 성공 콜백을 받으면 200 을 응답하고 해당 주문이 결제완료가 된다
-- [ ] 실패 콜백을 받으면 200 을 응답하고 해당 주문이 결제실패가 되며 재고·쿠폰이 보상된다
-- [ ] 같은 콜백을 두 번 받아도 정산은 한 번만 반영된다
-- [ ] 알 수 없는 거래 식별자 콜백도 200 으로 수신 확인되고 상태가 변하지 않는다
-- [ ] 콜백 본문 형식이 틀리면 400 BAD_REQUEST 를 받는다
+**콜백 — `POST /api/v1/payments/callback`** (2026-06-24 — `PaymentV1Controller.callback` → `settle`, 회원 인증 없음)
+- [x] 성공 콜백을 받으면 200 을 응답하고 해당 주문이 결제완료가 된다
+- [x] 실패 콜백을 받으면 200 을 응답하고 해당 주문이 결제실패가 되며 재고·쿠폰이 보상된다
+- [x] 같은 콜백을 두 번 받아도 정산은 한 번만 반영된다 (settle 멱등 가드 + 락)
+- [x] 알 수 없는 거래 식별자 콜백도 200 으로 수신 확인되고 상태가 변하지 않는다
+- [x] 콜백 본문 형식이 틀리면 400 BAD_REQUEST 를 받는다 (`HttpMessageNotReadableException`)
 
-**수동 복구 — `POST /api-admin/v1/payments/{paymentId}/sync`**
-- [ ] 운영자가 처리 중 결제를 복구 트리거하면 외부 확정 시 정산되고 갱신된 상태를 응답한다
-- [ ] 외부가 미확정이면 상태 변화 없이 settled=false 로 응답한다
-- [ ] 존재하지 않는 결제면 404 PAYMENT_NOT_FOUND 를 받는다
-- [ ] LDAP 인증에 실패하면 401 UNAUTHORIZED 를 받는다
+**수동 복구 — `POST /api-admin/v1/payments/{paymentId}/sync`** (2026-06-24 — `PaymentV1AdminController.sync`, `X-Loopers-Ldap` 인증)
+- [x] 운영자가 처리 중 결제를 복구 트리거하면 외부 확정 시 정산되고 갱신된 상태를 응답한다 (settled=true·APPROVED)
+- [x] 외부가 미확정이면 상태 변화 없이 settled=false 로 응답한다
+- [x] 존재하지 않는 결제면 404 PAYMENT_NOT_FOUND 를 받는다
+- [x] LDAP 인증에 실패하면 401 UNAUTHORIZED 를 받는다

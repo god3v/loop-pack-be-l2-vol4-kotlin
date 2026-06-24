@@ -90,7 +90,7 @@
 
 | 필드 | 타입 | 필수 | 규칙 |
 |---|---|---|---|
-| `orderId` | Long | O | 결제할 주문 식별자. 인증 회원 소유이며 `PAYMENT_PENDING` 상태여야 한다 |
+| `orderId` | Long | O | 결제할 주문 식별자. 인증 회원 소유이며 `CREATED`(결제 가능) 상태여야 한다. 결제 요청이 접수되면 주문은 `PAYMENT_PENDING` 으로 전이한다 |
 | `cardType` | String | O | `SAMSUNG` \| `KB` \| `HYUNDAI` (`§0.4`) |
 | `cardNo` | String | O | `xxxx-xxxx-xxxx-xxxx` 형식 (`§0.4`) |
 
@@ -131,11 +131,13 @@
 
 | HTTP | errorCode | 케이스 |
 |---|---|---|
-| `400` | `BAD_REQUEST` | `cardNo` 형식 위반 / `cardType` 누락·미지원 값 / `orderId` 누락 |
+| `400` | `INVALID_CARD_NUMBER` | `cardNo` 형식 위반 (`xxxx-xxxx-xxxx-xxxx` 아님) |
+| `400` | `UNSUPPORTED_CARD_TYPE` | `cardType` 이 `SAMSUNG`·`KB`·`HYUNDAI` 가 아님 |
+| `400` | `Bad Request` | 본문 형식 오류(JSON 파싱 실패·필수 필드 누락 등) |
 | `401` | `UNAUTHORIZED` | 회원 인증 실패 (`§0.1`) |
 | `404` | `ORDER_NOT_FOUND` | 존재하지 않는 주문 식별자 |
 | `403` | `ORDER_FORBIDDEN` | 타인 소유 주문 식별자 (존재 여부와 응답이 구분된다) |
-| `409` | `ORDER_NOT_PAYABLE` | 주문이 `PAYMENT_PENDING` 이 아님 (이미 결제완료·결제실패·취소) |
+| `409` | `ORDER_NOT_PAYABLE` | 주문이 `CREATED`(결제 가능) 가 아님 (이미 결제 진행·완료·실패·취소) |
 
 ---
 
