@@ -105,9 +105,9 @@
 > **설계 전환(2026-06-24)**: 정산은 `PaymentFacade.settle(transaction: PgTransaction)` 가 소유한다 — `transactionKey` 로 결제를 찾아 `PgTransactionStatus`(SUCCESS/FAILED/PENDING) 로 승인/실패/미확정 분기. 구 `PaymentSettler.settle(paymentId, PaymentResult)`(동기 boolean) 는 본 형태로 이관 후 제거 예정. `PaymentResult` VO 도 제거 대상.
 - [x] 외부 결과가 성공이면 결제가 승인되고 그 주문이 결제완료로 전이된다 (2026-06-24 — `PaymentFacade.settle` SUCCESS 분기)
 - [x] 외부 결과가 실패면 결제가 실패하고 재고·쿠폰이 보상되며 그 주문이 결제실패로 전이된다 (2026-06-24 — `settle` FAILED 분기: `payment.fail` + `orderCompensator.restore` + `order.markPaymentFailed`)
-- [ ] 이미 정산된(승인·실패·취소) 결제에 결과를 다시 반영하면 멱등하게 무시된다
-- [ ] 같은 결과가 콜백·폴링으로 두 번 도착해도 정산은 한 번만 일어난다
-- [ ] 알 수 없는 거래 식별자의 결과 통지는 정산 없이 무시된다
+- [x] 이미 정산된(승인·실패·취소) 결제에 결과를 다시 반영하면 멱등하게 무시된다 (2026-06-24 — `settle` 가드 `if (!payment.isRequested()) return`, 주문 조회·저장·보상 모두 건너뜀)
+- [x] 같은 결과가 콜백·폴링으로 두 번 도착해도 정산은 한 번만 일어난다 (2026-06-24 — `findByTransactionIdForUpdate` 비관 락 + 멱등 가드, `PaymentSettleConcurrencyIntegrationTest` 로 직렬화 검증)
+- [x] 알 수 없는 거래 식별자의 결과 통지는 정산 없이 무시된다 (2026-06-24 — `findByTransactionIdForUpdate(...) ?: return` 가드, 동작 고정 테스트로 확인)
 
 **상태 복구 (폴링·수동)**
 - [ ] 처리 중 결제를 복구 트리거하면 외부 상태를 조회해 확정 시 정산한다

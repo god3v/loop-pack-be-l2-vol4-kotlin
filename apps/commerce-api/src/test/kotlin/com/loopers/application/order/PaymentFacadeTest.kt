@@ -108,7 +108,7 @@ class PaymentFacadeTest {
         fun approvesAndMarksPaidOnSuccess() {
             val payment = Payment(id = 10L, orderId = 1L, amount = 2000L, transactionId = "tx-1", requestedAt = LocalDateTime.now())
             val order = pendingOrder()
-            every { paymentRepository.findByTransactionId("tx-1") } returns payment
+            every { paymentRepository.findByTransactionIdForUpdate("tx-1") } returns payment
             every { orderRepository.findByIdForUpdate(1L) } returns order
             every { paymentRepository.save(any()) } answers { firstArg() }
             every { orderRepository.save(any()) } answers { firstArg() }
@@ -126,7 +126,7 @@ class PaymentFacadeTest {
         fun failsCompensatesAndMarksFailedOnFailure() {
             val payment = Payment(id = 10L, orderId = 1L, amount = 2000L, transactionId = "tx-f", requestedAt = LocalDateTime.now())
             val order = pendingOrder()
-            every { paymentRepository.findByTransactionId("tx-f") } returns payment
+            every { paymentRepository.findByTransactionIdForUpdate("tx-f") } returns payment
             every { orderRepository.findByIdForUpdate(1L) } returns order
             every { paymentRepository.save(any()) } answers { firstArg() }
             every { orderRepository.save(any()) } answers { firstArg() }
@@ -137,6 +137,38 @@ class PaymentFacadeTest {
             assertThat(payment.failureReason).isEqualTo("DECLINED")
             assertThat(order.status).isEqualTo(OrderStatus.PAYMENT_FAILED)
             verify { orderCompensator.restore(order) }
+        }
+
+        @DisplayName("이미 정산된(REQUESTED 가 아닌) 결제에 결과를 다시 반영하면 멱등하게 무시한다 — 주문 조회·저장·보상이 일어나지 않는다.")
+        @Test
+        fun ignoresWhenAlreadySettled() {
+            val payment = Payment(
+                id = 10L,
+                orderId = 1L,
+                amount = 2000L,
+                status = PaymentStatus.APPROVED,
+                transactionId = "tx-1",
+                requestedAt = LocalDateTime.now(),
+            )
+            every { paymentRepository.findByTransactionIdForUpdate("tx-1") } returns payment
+
+            paymentFacade.settle(PgTransaction("tx-1", PgTransactionStatus.SUCCESS, null))
+
+            verify(exactly = 0) { orderRepository.findByIdForUpdate(any()) }
+            verify(exactly = 0) { paymentRepository.save(any()) }
+            verify(exactly = 0) { orderCompensator.restore(any()) }
+        }
+
+        @DisplayName("알 수 없는 거래 식별자의 결과 통지는 정산 없이 무시한다 — 주문 조회·저장·보상이 일어나지 않는다.")
+        @Test
+        fun ignoresUnknownTransaction() {
+            every { paymentRepository.findByTransactionIdForUpdate("unknown") } returns null
+
+            paymentFacade.settle(PgTransaction("unknown", PgTransactionStatus.SUCCESS, null))
+
+            verify(exactly = 0) { orderRepository.findByIdForUpdate(any()) }
+            verify(exactly = 0) { paymentRepository.save(any()) }
+            verify(exactly = 0) { orderCompensator.restore(any()) }
         }
     }
 }

@@ -64,7 +64,9 @@ class PaymentFacade(
      */
     @Transactional
     fun settle(transaction: PgTransaction) {
-        val payment = paymentRepository.findByTransactionId(transaction.transactionKey) ?: return
+        // 거래 식별자로 결제를 비관 락 조회 — 콜백·폴링 동시 도착을 직렬화한다.
+        val payment = paymentRepository.findByTransactionIdForUpdate(transaction.transactionKey) ?: return
+        if (!payment.isRequested()) return // 이미 정산(승인·실패·취소)됨 — 중복 결과는 멱등하게 무시한다
         val order = orderRepository.findByIdForUpdate(payment.orderId) ?: return
 
         when (transaction.status) {

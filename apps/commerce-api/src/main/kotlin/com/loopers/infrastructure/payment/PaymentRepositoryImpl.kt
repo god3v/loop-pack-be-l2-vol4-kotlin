@@ -34,6 +34,9 @@ class PaymentRepositoryImpl(
     override fun findByTransactionId(transactionId: String): Payment? =
         paymentJpaRepository.findByTransactionId(transactionId)?.toDomain()
 
+    override fun findByTransactionIdForUpdate(transactionId: String): Payment? =
+        paymentJpaRepository.findByTransactionIdForUpdate(transactionId)?.toDomain()
+
     override fun findAllByStatus(status: PaymentStatus): List<Payment> =
         paymentJpaRepository.findAllByStatus(status).map { it.toDomain() }
 }
