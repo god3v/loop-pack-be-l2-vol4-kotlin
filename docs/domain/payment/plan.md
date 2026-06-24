@@ -77,7 +77,7 @@
 - [x] 결제를 요청하면 외부 PG 가 발급한 거래 식별자와 처리 중 상태를 받는다 (2026-06-23 — `PgSimulatorPaymentGateway.request`, RestClient + MockRestServiceServer)
 - [x] 거래 식별자로 외부 결제 상태(성공/실패/처리중)를 조회할 수 있다 (2026-06-23 — `PgSimulatorPaymentGateway.getTransaction`)
 - [x] 주문 식별자로 외부 결제건을 조회할 수 있다 (거래 식별자 미확보 복구용) (2026-06-23 — `PgSimulatorPaymentGateway.getByOrder`)
-- [ ] 승인된 결제의 환불을 외부 PG 에 요청한다
+- ~~승인된 결제의 환불을 외부 PG 에 요청한다~~ — **보류**: pg-simulator 에 환불/취소 API 없음 (아래 취소·환불 참고)
 - [ ] 외부 응답이 정한 시간을 넘기면 호출이 타임아웃으로 종료되고 스레드를 무한 점유하지 않는다
 - [ ] 외부 통신 실패·타임아웃이 애플리케이션 예외로 변환되어 외부 예외가 누수되지 않는다
 
@@ -111,11 +111,8 @@
 - [ ] 거래 식별자가 없는 처리 중 결제는 주문 식별자로 외부 결제건을 조회해 정산한다 (타임아웃 성공 수렴)
 - [ ] 외부가 아직 처리 중이거나 외부 조회가 실패하면 상태를 바꾸지 않고 미확정으로 둔다
 
-**취소·환불**
-- [ ] 승인된 결제를 취소하면 외부 환불을 요청한 뒤 결제가 취소된다
-- [ ] 처리 중 결제를 취소하면 외부 환불 없이 결제가 취소된다 (청구 전)
-- [ ] 외부 환불 호출은 트랜잭션·락 밖에서 일어난다
-- [ ] 실패한 결제를 취소하려 하면 예외가 발생한다
+**취소·환불 — 보류 (pg-simulator 환불 API 없음)**
+> pg-simulator 엔드포인트는 생성·조회뿐 — 환불/취소 API 가 없어 외부 환불이 불가능하다. 외부 `refund` + 취소 오케스트레이션(`application.order.port.PaymentGateway.refund`·`AlwaysSuccessPaymentGateway.refund`·`PaymentFacade.cancel`·`PaymentCanceler` + 관련 테스트)을 제거했다(2026-06-23). 순수 도메인 전이 `Payment.cancel()`·`Order.cancel()` 는 향후 환불 가능 PG 대비 보존(현재 애플리케이션 미참조). 환불 가능 PG 연동 시 재도입한다.
 
 ### Phase 5 — Controller E2E (`com.loopers.interfaces.api.payment`)
 > HTTP 계약. `ApiResponse` + `ApiControllerAdvice` 표준 응답.

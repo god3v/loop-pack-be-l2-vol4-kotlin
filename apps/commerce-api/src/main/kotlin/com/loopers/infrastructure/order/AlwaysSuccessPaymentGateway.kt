@@ -11,7 +11,4 @@ import org.springframework.stereotype.Component
 class AlwaysSuccessPaymentGateway : PaymentGateway {
     override fun charge(orderId: Long, amount: Long): PaymentResult =
         PaymentResult(transactionId = "tx-$orderId", resultCode = "APPROVED", success = true)
-
-    override fun refund(transactionId: String, amount: Long): PaymentResult =
-        PaymentResult(transactionId = transactionId, resultCode = "REFUNDED", success = true)
 }

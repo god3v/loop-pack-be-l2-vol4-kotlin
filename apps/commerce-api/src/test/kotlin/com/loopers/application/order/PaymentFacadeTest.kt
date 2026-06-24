@@ -2,12 +2,10 @@ package com.loopers.application.order
 
 import com.loopers.application.order.port.PaymentGateway
 import com.loopers.application.order.port.PaymentResult
-import com.loopers.application.payment.PaymentCanceler
 import com.loopers.application.payment.PaymentFacade
 import com.loopers.application.payment.PaymentInitiator
 import com.loopers.application.payment.PaymentSettler
 import com.loopers.domain.payment.Payment
-import com.loopers.domain.payment.PaymentRepository
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -20,11 +18,8 @@ import java.time.LocalDateTime
 class PaymentFacadeTest {
     private val paymentInitiator: PaymentInitiator = mockk()
     private val paymentSettler: PaymentSettler = mockk(relaxed = true)
-    private val paymentCanceler: PaymentCanceler = mockk(relaxed = true)
-    private val paymentRepository: PaymentRepository = mockk()
     private val paymentGateway: PaymentGateway = mockk(relaxed = true)
-    private val paymentFacade =
-        PaymentFacade(paymentInitiator, paymentSettler, paymentCanceler, paymentRepository, paymentGateway)
+    private val paymentFacade = PaymentFacade(paymentInitiator, paymentSettler, paymentGateway)
 
     @DisplayName("결제 — 요청 → 락 밖 charge → 정산")
     @Nested
@@ -51,35 +46,6 @@ class PaymentFacadeTest {
 
             verify(exactly = 0) { paymentGateway.charge(any(), any()) }
             verify(exactly = 0) { paymentSettler.settle(any(), any()) }
-        }
-    }
-
-    @DisplayName("취소 — 락 밖 refund(승인분) → 취소 정산")
-    @Nested
-    inner class Cancel {
-        @DisplayName("승인된 결제를 취소하면 외부 환불을 호출하고 취소 정산한다.")
-        @Test
-        fun refundsApprovedThenCancels() {
-            val payment = Payment(id = 10L, orderId = 1L, amount = 2000L, requestedAt = LocalDateTime.now())
-                .also { it.approve("tx-1", LocalDateTime.now()) }
-            every { paymentRepository.findById(10L) } returns payment
-
-            paymentFacade.cancel(10L)
-
-            verify { paymentGateway.refund("tx-1", 2000L) }
-            verify { paymentCanceler.cancel(10L) }
-        }
-
-        @DisplayName("아직 승인 전(REQUESTED)인 결제는 외부 환불 없이 취소 정산만 한다.")
-        @Test
-        fun cancelsRequestedWithoutRefund() {
-            val payment = Payment.request(orderId = 1L, amount = 2000L)
-            every { paymentRepository.findById(10L) } returns payment
-
-            paymentFacade.cancel(10L)
-
-            verify(exactly = 0) { paymentGateway.refund(any(), any()) }
-            verify { paymentCanceler.cancel(10L) }
         }
     }
 }
