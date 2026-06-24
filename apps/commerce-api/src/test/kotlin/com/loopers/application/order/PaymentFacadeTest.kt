@@ -30,7 +30,8 @@ class PaymentFacadeTest {
     private val orderRepository: OrderRepository = mockk(relaxed = true)
     private val paymentRepository: PaymentRepository = mockk()
     private val paymentGateway: PaymentGateway = mockk(relaxed = true)
-    private val paymentFacade = PaymentFacade(orderRepository, paymentRepository, paymentGateway)
+    private val orderCompensator: OrderCompensator = mockk(relaxed = true)
+    private val paymentFacade = PaymentFacade(orderRepository, paymentRepository, paymentGateway, orderCompensator)
 
     private fun createdOrder() = Order(
         id = 1L,
@@ -117,6 +118,25 @@ class PaymentFacadeTest {
             assertThat(payment.status).isEqualTo(PaymentStatus.APPROVED)
             assertThat(payment.transactionId).isEqualTo("tx-1")
             assertThat(order.status).isEqualTo(OrderStatus.PAID)
+            verify(exactly = 0) { orderCompensator.restore(any()) }
+        }
+
+        @DisplayName("외부 결과가 실패면 결제는 FAILED, 주문은 PAYMENT_FAILED 로 전이하고 보상(재고·쿠폰 원복)을 수행한다.")
+        @Test
+        fun failsCompensatesAndMarksFailedOnFailure() {
+            val payment = Payment(id = 10L, orderId = 1L, amount = 2000L, transactionId = "tx-f", requestedAt = LocalDateTime.now())
+            val order = pendingOrder()
+            every { paymentRepository.findByTransactionId("tx-f") } returns payment
+            every { orderRepository.findByIdForUpdate(1L) } returns order
+            every { paymentRepository.save(any()) } answers { firstArg() }
+            every { orderRepository.save(any()) } answers { firstArg() }
+
+            paymentFacade.settle(PgTransaction("tx-f", PgTransactionStatus.FAILED, "DECLINED"))
+
+            assertThat(payment.status).isEqualTo(PaymentStatus.FAILED)
+            assertThat(payment.failureReason).isEqualTo("DECLINED")
+            assertThat(order.status).isEqualTo(OrderStatus.PAYMENT_FAILED)
+            verify { orderCompensator.restore(order) }
         }
     }
 }

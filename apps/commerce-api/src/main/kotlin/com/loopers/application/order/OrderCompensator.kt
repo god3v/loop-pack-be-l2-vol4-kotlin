@@ -10,7 +10,7 @@ import org.springframework.stereotype.Component
 
 /**
  * 주문 보상 — 차감했던 재고를 비관 쓰기 락(id ASC)으로 잡아 복원하고, 소진한 쿠폰을 AVAILABLE 로 되돌린다.
- * 결제 실패 정산(`PaymentSettler`) 이 사용한다. 호출자의 트랜잭션 경계 안에서 동작한다.
+ * 결제 실패 정산(`PaymentFacade.settle`) 이 사용한다. Facade 가 아닌 application 협력 컴포넌트라 호출자의 트랜잭션 경계 안에서 동작한다.
  */
 @Component
 class OrderCompensator(

@@ -1,5 +1,6 @@
 package com.loopers.application.payment
 
+import com.loopers.application.order.OrderCompensator
 import com.loopers.application.payment.port.PaymentGateway
 import com.loopers.application.payment.port.PaymentRequestCommand
 import com.loopers.application.payment.port.PgTransaction
@@ -18,6 +19,7 @@ class PaymentFacade(
     private val orderRepository: OrderRepository,
     private val paymentRepository: PaymentRepository,
     private val paymentGateway: PaymentGateway,
+    private val orderCompensator: OrderCompensator,
 ) {
     @Transactional
     fun pay(command: PaymentCommand): PaymentRequestResult {
@@ -70,7 +72,12 @@ class PaymentFacade(
                 payment.approve(transaction.transactionKey, LocalDateTime.now())
                 order.markPaid(transaction.transactionKey, transaction.status.name)
             }
-            else -> return // FAILED/PENDING: 후속 item 에서 구현
+            PgTransactionStatus.FAILED -> {
+                payment.fail(transaction.reason)
+                orderCompensator.restore(order)
+                order.markPaymentFailed(transaction.transactionKey, transaction.reason)
+            }
+            PgTransactionStatus.PENDING -> return // 아직 처리 중 — 미확정으로 둔다(후속 item)
         }
         paymentRepository.save(payment)
         orderRepository.save(order)
