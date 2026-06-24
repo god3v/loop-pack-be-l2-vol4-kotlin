@@ -29,8 +29,15 @@ class Payment internal constructor(
     var canceledAt: LocalDateTime? = canceledAt
         private set
 
-    /** PG 요청 접수 반영 — 외부 거래 식별자를 기록한다(결과 확정 전, 폴링·콜백 매칭용). */
+    /**
+     * PG 요청 접수 반영 — 외부 거래 식별자를 기록한다(결과 확정 전, 폴링·콜백 매칭용).
+     * 한 번 접수한 식별자는 다른 값으로 덮어쓰지 않는다 — 같은 값 재접수는 멱등 통과(중복 요청 방어).
+     */
     fun accept(transactionId: String) {
+        val current = this.transactionId
+        if (!current.isNullOrBlank() && current != transactionId) {
+            throw CoreException(PaymentErrorType.TRANSACTION_ID_CONFLICT)
+        }
         this.transactionId = transactionId
     }
 
@@ -73,6 +80,9 @@ class Payment internal constructor(
     fun isRequested(): Boolean = status == PaymentStatus.REQUESTED
 
     fun isApproved(): Boolean = status == PaymentStatus.APPROVED
+
+    /** 외부 거래 식별자 확보 여부 — 복구 시 거래 식별자 조회(true) vs 주문 식별자 조회(false) 를 가른다. */
+    fun hasTransactionId(): Boolean = !transactionId.isNullOrBlank()
 
     companion object {
         fun request(orderId: Long, amount: Long): Payment = Payment(

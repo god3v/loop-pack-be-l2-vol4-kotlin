@@ -43,6 +43,43 @@ class PaymentTest {
 
             assertThat(payment.transactionId).isEqualTo("20260623:TR:9577c5")
             assertThat(payment.status).isEqualTo(PaymentStatus.REQUESTED)
+            assertThat(payment.hasTransactionId()).isTrue()
+        }
+
+        @DisplayName("같은 거래 식별자로 다시 접수하면 멱등하게 통과한다 (중복 요청 방어).")
+        @Test
+        fun idempotentWhenSameTransactionId() {
+            val payment = requested().also { it.accept("tx-first") }
+
+            payment.accept("tx-first")
+
+            assertThat(payment.transactionId).isEqualTo("tx-first")
+        }
+
+        @DisplayName("이미 접수된 거래 식별자를 다른 값으로 덮어쓰려 하면 TRANSACTION_ID_CONFLICT 로 막히고 최초 값이 유지된다.")
+        @Test
+        fun rejectsOverwriteWithDifferentTransactionId() {
+            val payment = requested().also { it.accept("tx-first") }
+
+            val ex = assertThrows<CoreException> { payment.accept("tx-second") }
+
+            assertThat(ex.errorType).isEqualTo(PaymentErrorType.TRANSACTION_ID_CONFLICT)
+            assertThat(payment.transactionId).isEqualTo("tx-first")
+        }
+    }
+
+    @DisplayName("거래 식별자를 접수받지 못한 채라도, ")
+    @Nested
+    inner class WithoutTransactionId {
+        @DisplayName("요청 상태로 유효하게 존재하며 거래 식별자 미확보로 식별된다 (타임아웃 접수 미확인 — 주문 식별자 복구 대상).")
+        @Test
+        fun staysRequestedAndLacksTransactionId() {
+            // accept() 가 한 번도 호출되지 않은 결제 = 외부 요청은 떴으나 접수 응답을 못 받은(타임아웃) 상태
+            val payment = requested()
+
+            assertThat(payment.isRequested()).isTrue()
+            assertThat(payment.transactionId).isNull()
+            assertThat(payment.hasTransactionId()).isFalse()
         }
     }
 

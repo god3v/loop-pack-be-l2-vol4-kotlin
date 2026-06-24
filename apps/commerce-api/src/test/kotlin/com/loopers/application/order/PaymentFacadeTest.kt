@@ -3,9 +3,10 @@ package com.loopers.application.order
 import com.loopers.application.payment.PaymentCommand
 import com.loopers.application.payment.PaymentFacade
 import com.loopers.application.payment.port.PaymentGateway
-import com.loopers.application.payment.port.PaymentRequestResult
+import com.loopers.application.payment.port.PaymentResponse
 import com.loopers.application.payment.port.PgTransactionStatus
 import com.loopers.domain.order.Order
+import com.loopers.domain.order.OrderErrorType
 import com.loopers.domain.order.OrderLine
 import com.loopers.domain.order.OrderRepository
 import com.loopers.domain.payment.Payment
@@ -36,14 +37,15 @@ class PaymentFacadeTest {
         idempotencyKey = "k",
     )
 
+    // 주문 소유자(userId=1L)와 같은 회원이 결제를 요청하는 정상 케이스.
     private fun command() =
-        PaymentCommand(userId = "7", orderId = 1L, cardType = "SAMSUNG", cardNo = "1234-5678-9814-1451")
+        PaymentCommand(userId = "1", orderId = 1L, cardType = "SAMSUNG", cardNo = "1234-5678-9814-1451")
 
     @DisplayName("결제대기 주문에 결제를 요청하면 주문을 결제 진행으로 전이하고, 발급된 거래 식별자를 기록해 접수 정보를 반환한다.")
     @Test
     fun marksPendingRecordsTransactionKeyAndReturnsAcceptance() {
         every { orderRepository.findByIdForUpdate(1L) } returns createdOrder()
-        every { paymentGateway.request(any()) } returns PaymentRequestResult("tx-key-1", PgTransactionStatus.PENDING)
+        every { paymentGateway.request(any()) } returns PaymentResponse("tx-key-1", PgTransactionStatus.PENDING)
         every { paymentRepository.save(any()) } returns
             Payment(id = 10L, orderId = 1L, amount = 2000L, transactionId = "tx-key-1", requestedAt = LocalDateTime.now())
 
@@ -64,6 +66,21 @@ class PaymentFacadeTest {
 
         assertThrows<CoreException> { paymentFacade.pay(command()) }
 
+        verify(exactly = 0) { paymentGateway.request(any()) }
+    }
+
+    @DisplayName("타인 소유 주문에 결제를 요청하면 ORDER_FORBIDDEN 이 발생하고 외부 PG 를 호출하지 않는다.")
+    @Test
+    fun rejectsWhenOrderOwnedByAnother() {
+        every { orderRepository.findByIdForUpdate(1L) } returns createdOrder() // 주문 소유자 = 1L
+
+        val ex = assertThrows<CoreException> {
+            paymentFacade.pay(
+                PaymentCommand(userId = "999", orderId = 1L, cardType = "SAMSUNG", cardNo = "1234-5678-9814-1451"),
+            )
+        }
+
+        assertThat(ex.errorType).isEqualTo(OrderErrorType.ORDER_FORBIDDEN)
         verify(exactly = 0) { paymentGateway.request(any()) }
     }
 

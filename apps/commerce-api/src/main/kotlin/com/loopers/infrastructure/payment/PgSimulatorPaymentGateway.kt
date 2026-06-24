@@ -3,7 +3,7 @@ package com.loopers.infrastructure.payment
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import com.loopers.application.payment.port.PaymentGateway
 import com.loopers.application.payment.port.PaymentRequestCommand
-import com.loopers.application.payment.port.PaymentRequestResult
+import com.loopers.application.payment.port.PaymentResponse
 import com.loopers.application.payment.port.PgTransaction
 import com.loopers.application.payment.port.PgTransactionStatus
 import org.springframework.http.MediaType
@@ -18,7 +18,7 @@ import org.springframework.web.client.RestClient
 class PgSimulatorPaymentGateway(
     private val pgRestClient: RestClient,
 ) : PaymentGateway {
-    override fun request(request: PaymentRequestCommand): PaymentRequestResult {
+    override fun request(request: PaymentRequestCommand): PaymentResponse {
         val response = pgRestClient.post()
             .uri("/api/v1/payments")
             .header(HEADER_USER_ID, request.userId)
@@ -27,7 +27,7 @@ class PgSimulatorPaymentGateway(
             .retrieve()
             .body(PgTransactionResponse::class.java)
         val data = requireNotNull(response?.data) { "PG 결제 요청 응답이 비어 있다." }
-        return PaymentRequestResult(transactionKey = data.transactionKey, status = data.status)
+        return PaymentResponse(transactionKey = data.transactionKey, status = data.status)
     }
 
     override fun getTransaction(userId: String, transactionKey: String): PgTransaction {

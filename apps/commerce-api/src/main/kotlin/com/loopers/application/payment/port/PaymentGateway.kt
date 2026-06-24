@@ -5,7 +5,7 @@ package com.loopers.application.payment.port
  * `request` 는 결과를 즉시 확정하지 않고 **접수(거래 식별자 + 처리 중)** 를 돌려받는다 — 확정은 콜백/폴링이 한다.
  */
 interface PaymentGateway {
-    fun request(request: PaymentRequestCommand): PaymentRequestResult
+    fun request(request: PaymentRequestCommand): PaymentResponse
 
     /** 거래 식별자로 외부 결제 상태를 조회한다 — 콜백 유실·타임아웃 복구(폴링)용. */
     fun getTransaction(userId: String, transactionKey: String): PgTransaction
@@ -25,7 +25,7 @@ data class PaymentRequestCommand(
 )
 
 /** 결제 요청 접수 결과 — 외부 거래 식별자와 처리 상태(즉시 확정이 아니라 접수). */
-data class PaymentRequestResult(
+data class PaymentResponse(
     val transactionKey: String,
     val status: PgTransactionStatus,
 )

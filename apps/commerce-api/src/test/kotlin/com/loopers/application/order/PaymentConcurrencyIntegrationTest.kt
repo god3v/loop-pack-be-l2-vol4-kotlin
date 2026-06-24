@@ -3,7 +3,7 @@ package com.loopers.application.order
 import com.loopers.application.payment.PaymentFacade
 import com.loopers.application.payment.PaymentCommand
 import com.loopers.application.payment.port.PaymentGateway
-import com.loopers.application.payment.port.PaymentRequestResult
+import com.loopers.application.payment.port.PaymentResponse
 import com.loopers.application.payment.port.PgTransactionStatus
 import com.loopers.domain.order.Order
 import com.loopers.domain.order.OrderLine
@@ -72,7 +72,7 @@ class PaymentConcurrencyIntegrationTest @Autowired constructor(
             requests.incrementAndGet()
             // 경합 창을 넓힌다 — 락이 없으면 늦은 스레드도 PENDING 을 읽고 중복 요청한다.
             Thread.sleep(150)
-            PaymentRequestResult(transactionKey = "tx-${order.id}", status = PgTransactionStatus.PENDING)
+            PaymentResponse(transactionKey = "tx-${order.id}", status = PgTransactionStatus.PENDING)
         }
 
         val threads = 4

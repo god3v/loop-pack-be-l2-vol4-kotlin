@@ -20,6 +20,8 @@ class PaymentFacade(
     fun pay(command: PaymentCommand): PaymentRequestResult {
         val order = orderRepository.findByIdForUpdate(command.orderId)
             ?: throw CoreException(OrderErrorType.ORDER_NOT_FOUND)
+        // 본인 주문인지 검증
+        order.validateOwnedBy(command.userId.toLong())
         // 이미 결제 진행/완료인지 검증
         order.validatePayable()
         // 결제 진행 상태 변경

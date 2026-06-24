@@ -9,5 +9,6 @@ enum class PaymentErrorType(
     override val message: String,
 ) : ErrorType {
     INVALID_PAYMENT_TRANSITION(ErrorStatus.CONFLICT, "INVALID_PAYMENT_TRANSITION", "허용되지 않는 결제 상태 전이입니다."),
+    TRANSACTION_ID_CONFLICT(ErrorStatus.CONFLICT, "TRANSACTION_ID_CONFLICT", "이미 접수된 거래 식별자를 다른 값으로 덮어쓸 수 없습니다."),
     PAYMENT_NOT_FOUND(ErrorStatus.NOT_FOUND, "PAYMENT_NOT_FOUND", "결제를 찾을 수 없습니다."),
 }

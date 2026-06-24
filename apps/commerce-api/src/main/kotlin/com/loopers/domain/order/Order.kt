@@ -46,6 +46,13 @@ class Order internal constructor(
         }
     }
 
+    /** 주문 소유자 검증 — 본인 주문이 아니면 거부한다. */
+    fun validateOwnedBy(userId: Long) {
+        if (this.userId != userId) {
+            throw CoreException(OrderErrorType.ORDER_FORBIDDEN, "본인의 주문이 아니다.")
+        }
+    }
+
     /** 결제 가능 상태인지 검증 — 생성(CREATED) 상태에서만 결제 가능 */
     fun validatePayable() {
         if (status != OrderStatus.CREATED) {
