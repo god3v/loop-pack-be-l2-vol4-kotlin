@@ -75,8 +75,8 @@
 
 **외부 PG HTTP 어댑터 (pg-simulator 계약)**
 - [x] 결제를 요청하면 외부 PG 가 발급한 거래 식별자와 처리 중 상태를 받는다 (2026-06-23 — `PgSimulatorPaymentGateway.request`, RestClient + MockRestServiceServer)
-- [ ] 거래 식별자로 외부 결제 상태(성공/실패/처리중)를 조회할 수 있다
-- [ ] 주문 식별자로 외부 결제건을 조회할 수 있다 (거래 식별자 미확보 복구용)
+- [x] 거래 식별자로 외부 결제 상태(성공/실패/처리중)를 조회할 수 있다 (2026-06-23 — `PgSimulatorPaymentGateway.getTransaction`)
+- [x] 주문 식별자로 외부 결제건을 조회할 수 있다 (거래 식별자 미확보 복구용) (2026-06-23 — `PgSimulatorPaymentGateway.getByOrder`)
 - [ ] 승인된 결제의 환불을 외부 PG 에 요청한다
 - [ ] 외부 응답이 정한 시간을 넘기면 호출이 타임아웃으로 종료되고 스레드를 무한 점유하지 않는다
 - [ ] 외부 통신 실패·타임아웃이 애플리케이션 예외로 변환되어 외부 예외가 누수되지 않는다
@@ -143,11 +143,3 @@
 - [ ] 외부가 미확정이면 상태 변화 없이 settled=false 로 응답한다
 - [ ] 존재하지 않는 결제면 404 PAYMENT_NOT_FOUND 를 받는다
 - [ ] LDAP 인증에 실패하면 401 UNAUTHORIZED 를 받는다
-
----
-
-## 진행 로그
-- 2026-06-23: /test-cases 로 초기 케이스 도출 (Round 6 비동기 전환·회복 전략 기준)
-- 2026-06-23: Phase 1 — `Payment.accept(transactionId)` 추가 (요청 상태 거래 식별자 접수 기록). 생성-as-REQUESTED 는 베이스라인 커버로 확인.
-- 2026-06-23: Phase 3 — Repository `findByTransactionId`·`findAllByStatus`(통합) + 비동기 PG 포트(`application.payment.port.PaymentGateway`) & `PgSimulatorPaymentGateway.request`(RestClient, MockRestServiceServer 단위) 추가.
-- 2026-06-23: 포트 정정 — 비동기 PG 의 `charge` → `request`(접수 의미 명확화). `ChargeCommand`/`ChargeResult` → `PaymentRequest`/`PaymentAcceptance`. requirements §1 용어 "결제 요청(Charge→Request)" 동기화. OLD `application.order.port.PaymentGateway`(동기 mock)는 미변경.

@@ -1,9 +1,10 @@
 package com.loopers.infrastructure.payment
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
-import com.loopers.application.payment.port.PaymentRequestResult
 import com.loopers.application.payment.port.PaymentGateway
 import com.loopers.application.payment.port.PaymentRequestCommand
+import com.loopers.application.payment.port.PaymentRequestResult
+import com.loopers.application.payment.port.PgTransaction
 import com.loopers.application.payment.port.PgTransactionStatus
 import org.springframework.http.MediaType
 import org.springframework.stereotype.Component
@@ -27,6 +28,26 @@ class PgSimulatorPaymentGateway(
             .body(PgTransactionResponse::class.java)
         val data = requireNotNull(response?.data) { "PG 결제 요청 응답이 비어 있다." }
         return PaymentRequestResult(transactionKey = data.transactionKey, status = data.status)
+    }
+
+    override fun getTransaction(userId: String, transactionKey: String): PgTransaction {
+        val response = pgRestClient.get()
+            .uri("/api/v1/payments/{transactionKey}", transactionKey)
+            .header(HEADER_USER_ID, userId)
+            .retrieve()
+            .body(PgTransactionResponse::class.java)
+        val data = requireNotNull(response?.data) { "PG 결제 조회 응답이 비어 있다." }
+        return PgTransaction(transactionKey = data.transactionKey, status = data.status, reason = data.reason)
+    }
+
+    override fun getByOrder(userId: String, orderId: Long): List<PgTransaction> {
+        val response = pgRestClient.get()
+            .uri { it.path("/api/v1/payments").queryParam("orderId", orderId).build() }
+            .header(HEADER_USER_ID, userId)
+            .retrieve()
+            .body(PgOrderResponse::class.java)
+        val transactions = response?.data?.transactions ?: return emptyList()
+        return transactions.map { PgTransaction(transactionKey = it.transactionKey, status = it.status, reason = it.reason) }
     }
 
     companion object {
@@ -62,4 +83,21 @@ internal data class PgTransactionResponse(
         val status: PgTransactionStatus,
         val reason: String?,
     )
+}
+
+@JsonIgnoreProperties(ignoreUnknown = true)
+internal data class PgOrderResponse(
+    val data: Data?,
+) {
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    data class Data(
+        val transactions: List<Transaction> = emptyList(),
+    ) {
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        data class Transaction(
+            val transactionKey: String,
+            val status: PgTransactionStatus,
+            val reason: String?,
+        )
+    }
 }

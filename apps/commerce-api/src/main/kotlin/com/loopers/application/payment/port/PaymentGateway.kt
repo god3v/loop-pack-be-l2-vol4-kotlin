@@ -6,6 +6,12 @@ package com.loopers.application.payment.port
  */
 interface PaymentGateway {
     fun request(request: PaymentRequestCommand): PaymentRequestResult
+
+    /** 거래 식별자로 외부 결제 상태를 조회한다 — 콜백 유실·타임아웃 복구(폴링)용. */
+    fun getTransaction(userId: String, transactionKey: String): PgTransaction
+
+    /** 주문 식별자로 외부 결제건들을 조회한다 — 타임아웃으로 거래 식별자를 확보 못한 결제 복구용. */
+    fun getByOrder(userId: String, orderId: Long): List<PgTransaction>
 }
 
 /** 결제 요청 입력 — 회원 식별자(X-USER-ID)·주문·금액·카드·결과 통지 주소. */
@@ -22,6 +28,13 @@ data class PaymentRequestCommand(
 data class PaymentRequestResult(
     val transactionKey: String,
     val status: PgTransactionStatus,
+)
+
+/** 외부 결제 조회 결과 — 거래 식별자·상태·실패 사유(폴링 정산 입력). */
+data class PgTransaction(
+    val transactionKey: String,
+    val status: PgTransactionStatus,
+    val reason: String?,
 )
 
 /** 외부 PG 의 처리 상태. PENDING(접수·처리 중) → SUCCESS/FAILED 로 비동기 확정된다. */
