@@ -62,7 +62,7 @@ class OrderCompensationFailureIntegrationTest @Autowired constructor(
                     OrderLine.create(productId = MISSING_ID, productName = "유령상품", unitPrice = 1000, quantity = 1),
                 ),
                 idempotencyKey = "compensate-missing-product",
-            ),
+            ).also { it.markPaymentPending() },
         )
         val payment = paymentRepository.save(Payment.request(orderId = order.id, amount = order.totalAmount))
 
@@ -88,7 +88,7 @@ class OrderCompensationFailureIntegrationTest @Autowired constructor(
                 ),
                 idempotencyKey = "compensate-missing-coupon",
                 userCouponId = MISSING_ID,
-            ),
+            ).also { it.markPaymentPending() },
         )
         val payment = paymentRepository.save(Payment.request(orderId = order.id, amount = order.totalAmount))
 
@@ -117,7 +117,7 @@ class OrderCompensationFailureIntegrationTest @Autowired constructor(
                     OrderLine.create(productId = product.id, productName = "운동화", unitPrice = 1000, quantity = 2),
                 ),
                 idempotencyKey = "compensate-soft-deleted",
-            ),
+            ).also { it.markPaymentPending() },
         )
         val payment = paymentRepository.save(Payment.request(orderId = order.id, amount = order.totalAmount))
 

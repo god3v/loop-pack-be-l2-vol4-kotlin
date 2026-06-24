@@ -29,7 +29,7 @@ import java.util.concurrent.TimeUnit
 
 /**
  * 주문 동시성 — 재고 차감(비관 락)·쿠폰 단일 사용(비관 락)이 동시/중복 요청에도 정확히 동작하는지
- * 실제 영속 계층으로 검증한다. 주문 생성은 결제대기(PAYMENT_PENDING)까지이며, 결제는 별도 흐름이다.
+ * 실제 영속 계층으로 검증한다. 주문 생성은 생성(CREATED) 상태까지이며, 결제는 별도 흐름이다.
  */
 @SpringBootTest
 class OrderConcurrencyIntegrationTest @Autowired constructor(
@@ -89,7 +89,7 @@ class OrderConcurrencyIntegrationTest @Autowired constructor(
         return errors.toList()
     }
 
-    @DisplayName("[5] 서로 다른 사용자가 같은 상품을 동시에 주문하면, 재고가 정확히 차감되고 모든 주문이 결제대기로 생성된다.")
+    @DisplayName("[5] 서로 다른 사용자가 같은 상품을 동시에 주문하면, 재고가 정확히 차감되고 모든 주문이 생성(CREATED) 상태로 생성된다.")
     @Test
     fun concurrentOrdersByDifferentUsersDeductStockAndSucceed() {
         val orderers = 8
@@ -110,7 +110,7 @@ class OrderConcurrencyIntegrationTest @Autowired constructor(
         assertThat(errors.filterNotNull()).isEmpty()
         assertThat(productRepository.findById(product.id)!!.stock.value).isEqualTo(0)
         assertThat(orderJpaRepository.count()).isEqualTo(orderers.toLong())
-        assertThat(orderJpaRepository.findAll()).allMatch { it.status == OrderStatus.PAYMENT_PENDING }
+        assertThat(orderJpaRepository.findAll()).allMatch { it.status == OrderStatus.CREATED }
     }
 
     @DisplayName("[6] 같은 사용자가 같은 쿠폰으로 동시에 여러 번 주문하면, 쿠폰은 한 번만 사용되고 나머지 주문은 ALREADY_USED_COUPON 으로 실패한다.")

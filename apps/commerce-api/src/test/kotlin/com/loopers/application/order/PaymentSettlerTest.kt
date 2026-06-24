@@ -29,7 +29,7 @@ class PaymentSettlerTest {
         userId = 1L,
         lines = listOf(OrderLine.create(productId = 1L, productName = "운동화", unitPrice = 1000, quantity = 2)),
         idempotencyKey = "k",
-    )
+    ).also { it.markPaymentPending() }
 
     @DisplayName("결제 성공 시")
     @Nested

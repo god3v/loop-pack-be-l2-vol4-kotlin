@@ -36,11 +36,12 @@
 - **Fallback = 결과 유형으로 구분**: 영구 실패(잘못된 카드·한도 초과)는 즉시 `FAILED`+보상, 일시 장애(통신 실패·타임아웃·CB Open)는 `REQUESTED` 유지 후 복구. 이 분기는 **정산 시점**에 결정되고, 결제 요청 응답은 두 경우 모두 `REQUESTED` 다.
 - **스코프 = 결제 전 생애주기 풀 스펙**: 요청·승인·실패·취소/환불을 payment 도메인이 소유. order 는 결제대기 주문 생성까지로 축소(order/requirements.md v0.6).
 
-### 베이스라인 (현재 코드 — 동기·항상성공)
-- `domain.payment` — `Payment`(orderId·amount·status·transactionId·failureReason·시각) + `PaymentStatus(REQUESTED/APPROVED/FAILED/CANCELED)`. `approve`·`fail`(멱등)·`cancel`(멱등) 상태 전이 **구현·테스트 완료**.
-- `application.payment` — `PaymentFacade`(pay: request→charge→settle **즉시 확정**) · `PaymentInitiator`(REQUESTED 커밋, 1주문1결제 dedupe) · `PaymentSettler`(정산 멱등) · `PaymentCanceler`.
-- `application.order.port.PaymentGateway` — `charge(orderId, amount)` · `refund(transactionId, amount)`, **항상 성공** 어댑터(`AlwaysSuccessPaymentGateway`).
-- 트리거 — `OrderPlacedEvent` → `OrderPaymentEventListener`(AFTER_COMMIT) → `paymentFacade.pay`.
+### 현재 코드 상태 (비동기 PG 로 전환 중)
+- `domain.payment` — `Payment`(orderId·amount·status·transactionId·failureReason·시각) + `PaymentStatus(REQUESTED/APPROVED/FAILED/CANCELED)`. `approve`·`fail`(멱등)·`cancel`(멱등)·`accept`(거래 식별자 접수) 상태 전이 **구현·테스트 완료**.
+- `domain.order` — `OrderStatus` 에 `CREATED`(생성 초기) 추가. 주문 생명주기: **CREATED(생성) → markPaymentPending → PAYMENT_PENDING(결제 진행) → PAID/PAYMENT_FAILED**. `Order.validatePayable()`(CREATED 만 결제 가능)·`markPaymentPending()`(CREATED→PAYMENT_PENDING) 추가 — 결제 가능 판정·전이를 주문 도메인이 캡슐화(Tell-Don't-Ask).
+- `application.payment` — `PaymentFacade`(단일 진입점 `pay(command)`, `@Transactional`: 주문 잠금 조회 → `order.validatePayable()`/`markPaymentPending()` → 비동기 PG `request` → 거래 식별자 `accept`+save → `PaymentRequestResult` 반환) · `PaymentSettler`(정산 멱등 — 콜백/폴링 정산용, 현재 미참조). (`PaymentInitiator`·`PaymentRequestFacade`·`PaymentCanceler` 제거.)
+- ~~`application.order.port.PaymentGateway`(charge) · `AlwaysSuccessPaymentGateway`~~ **제거됨** — 비동기 PG 포트 `application.payment.port.PaymentGateway`(`request`/`getTransaction`/`getByOrder`) + `PgSimulatorPaymentGateway`(RestClient) 로 대체. `PaymentResult` 는 `PaymentSettler` 입력으로 보존.
+- 트리거 — 자동 결제(`OrderPlacedEvent`→`OrderPaymentEventListener`) 제거됨(커밋 8916f6a). 결제는 **명시 API(`pay(command)`)** 로만 진입.
 - `apps/pg-simulator` — 비동기 결제 API(요청/조회/주문별 조회) + 콜백 통지.
 
 ### 갭
@@ -78,26 +79,27 @@
 - [x] 거래 식별자로 외부 결제 상태(성공/실패/처리중)를 조회할 수 있다 (2026-06-23 — `PgSimulatorPaymentGateway.getTransaction`)
 - [x] 주문 식별자로 외부 결제건을 조회할 수 있다 (거래 식별자 미확보 복구용) (2026-06-23 — `PgSimulatorPaymentGateway.getByOrder`)
 - ~~승인된 결제의 환불을 외부 PG 에 요청한다~~ — **보류**: pg-simulator 에 환불/취소 API 없음 (아래 취소·환불 참고)
-- [ ] 외부 응답이 정한 시간을 넘기면 호출이 타임아웃으로 종료되고 스레드를 무한 점유하지 않는다
-- [ ] 외부 통신 실패·타임아웃이 애플리케이션 예외로 변환되어 외부 예외가 누수되지 않는다
+- [ ] (보류) 외부 응답이 정한 시간을 넘기면 호출이 타임아웃으로 종료되고 스레드를 무한 점유하지 않는다
+- [ ] (보류) 외부 통신 실패·타임아웃이 애플리케이션 예외로 변환되어 외부 예외가 누수되지 않는다
 
-**CircuitBreaker / Timeout**
-- [ ] 외부 PG 가 반복 실패하면 회로가 열려(Open) 이후 호출이 외부를 거치지 않고 차단된다
-- [ ] 회로가 열린 동안의 호출은 외부를 호출하지 않고 Fallback 으로 처리된다
-- [ ] 느린 응답(slow call)이 임계치를 넘으면 실패로 간주되어 회로 차단에 반영된다
+**CircuitBreaker / Timeout — 보류 (API 정상 응답 경로 완성 후 처리)**
+> Timeout · 예외 변환 · CircuitBreaker 는 결제 요청 API 의 정상 응답 경로(Phase 4·5 happy path)를 끝낸 뒤 적용한다 (2026-06-23 결정).
+- [ ] (보류) 외부 PG 가 반복 실패하면 회로가 열려(Open) 이후 호출이 외부를 거치지 않고 차단된다
+- [ ] (보류) 회로가 열린 동안의 호출은 외부를 호출하지 않고 Fallback 으로 처리된다
+- [ ] (보류) 느린 응답(slow call)이 임계치를 넘으면 실패로 간주되어 회로 차단에 반영된다
 
 ### Phase 4 — Application Facade (`com.loopers.application.payment`)
 > 유스케이스 진입점, 트랜잭션 경계, 예외 전파. mock 기반 단위 + 일부 통합.
 
-**결제 요청**
-- [ ] 결제대기 주문에 결제를 요청하면 결제가 요청 상태로 생성되고 접수 정보가 반환된다
-- [ ] 외부 PG 호출은 결제 레코드가 영속(커밋)된 이후에 일어난다
-- [ ] 결제 요청이 접수되면 외부 거래 식별자가 결제에 기록된다
-- [ ] 같은 주문에 진행 중(요청·승인) 결제가 있으면 새 결제를 만들지 않고 기존 접수로 수렴한다
-- [ ] 결제대기가 아닌 주문(이미 결제완료·실패·취소)에 결제를 요청하면 결제 불가 예외가 발생한다
-- [ ] 타인 소유 주문에 결제를 요청하면 권한 예외가 발생한다
-- [ ] 외부 호출이 타임아웃·통신 실패·회로 차단이면 결제는 요청 상태로 남고 즉시 접수 응답이 반환된다
-- [ ] 타임아웃으로 거래 식별자를 받지 못해도 결제 레코드는 요청 상태로 남아 복구 대상이 된다
+> **설계 전환(2026-06-24)**: `pay(command)` 는 단일 `@Transactional` — 주문 잠금 조회 → `validatePayable`/`markPaymentPending` → PG `request` → `accept`+save. (구 "REQUESTED 선커밋(REQUIRES_NEW) 후 락 밖 호출" 폐기. 외부 호출이 트랜잭션 안에 들어옴 — 복구 보장은 아래 미해결로.)
+
+- [x] 결제대기 주문에 결제를 요청하면 결제가 요청 상태로 생성되고 접수 정보를 반환한다 (2026-06-24 — `PaymentFacade.pay`, `PaymentRequestResult`)
+- [x] 결제 요청이 접수되면 외부 거래 식별자가 결제에 기록된다 (2026-06-24 — `accept(transactionKey)` + save)
+- [x] 결제 가능하지 않은 주문(이미 결제 진행·완료·실패·취소)에 결제를 요청하면 결제 불가 예외가 발생한다 (2026-06-24 — `Order.validatePayable` → `ORDER_NOT_PAYABLE`)
+- [x] 같은 주문에 동시/중복 결제 요청이 와도 한 번만 결제 진행으로 전이된다 (2026-06-24 — 주문 잠금 + `markPaymentPending`(CREATED→PENDING), 두 번째는 `validatePayable` 거부)
+- [ ] 타인 소유 주문에 결제를 요청하면 권한 예외가 발생한다 (소유 검증 미구현 — pay 는 주문 소유자 확인 안 함)
+- [ ] (보류) 외부 호출이 타임아웃·통신 실패·회로 차단이면 결제는 요청 상태로 남고 즉시 접수 응답이 반환된다
+- [ ] **TBD(설계 전환 여파)**: PG 호출이 `@Transactional` 안에 있어, 호출 중 크래시/롤백 시 결제 레코드가 남지 않는다 — "타임아웃됐는데 PG 성공" 복구(요구사항 §4 선커밋 보장)와 상충. 외부 호출의 트랜잭션 격리 재검토 필요.
 
 **정산 (콜백·폴링 공통)**
 - [ ] 외부 결과가 성공이면 결제가 승인되고 그 주문이 결제완료로 전이된다

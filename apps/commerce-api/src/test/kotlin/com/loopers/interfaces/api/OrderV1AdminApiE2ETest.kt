@@ -41,7 +41,10 @@ class OrderV1AdminApiE2ETest @Autowired constructor(
                 userId = user.id,
                 lines = listOf(OrderLine.create(1L, "스투시 반팔티", 1000, 2)),
                 idempotencyKey = "admin-seed",
-            ).also { it.markPaid("tx-seed", "APPROVED") },
+            ).also {
+                it.markPaymentPending()
+                it.markPaid("tx-seed", "APPROVED")
+            },
         ).id
     }
 

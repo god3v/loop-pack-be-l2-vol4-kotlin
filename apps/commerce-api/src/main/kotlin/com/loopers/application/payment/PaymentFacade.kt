@@ -1,24 +1,58 @@
 package com.loopers.application.payment
 
-import com.loopers.application.order.port.PaymentGateway
+import com.loopers.application.payment.port.PaymentGateway
+import com.loopers.application.payment.port.PaymentRequestCommand
+import com.loopers.domain.order.OrderErrorType
+import com.loopers.domain.order.OrderRepository
+import com.loopers.domain.payment.Payment
+import com.loopers.domain.payment.PaymentRepository
+import com.loopers.support.error.CoreException
 import org.springframework.stereotype.Component
+import org.springframework.transaction.annotation.Transactional
 
-/**
- * 주문 결제 오케스트레이션. 주문 저장 트랜잭션 커밋 후(이벤트 리스너가 트리거) 실행된다.
- *
- * 트랜잭션 경계를 두지 않는다 — 외부 결제 호출(charge)을 어떤 락/트랜잭션에도 가두지 않기 위함이다.
- * 결제: 요청(REQUESTED 커밋) → **락 밖** charge → 정산. 각 트랜잭션 경계는 별도 빈(`PaymentInitiator`·`PaymentSettler`)이 소유한다(REQUIRES_NEW — 프록시 경유 필수).
- */
 @Component
 class PaymentFacade(
-    private val paymentInitiator: PaymentInitiator,
-    private val paymentSettler: PaymentSettler,
+    private val orderRepository: OrderRepository,
+    private val paymentRepository: PaymentRepository,
     private val paymentGateway: PaymentGateway,
 ) {
-    fun pay(orderId: Long) {
-        // 요청이 성사되지 않으면(이미 처리·진행 중·주문 없음) 외부 호출 없이 종료 — 중복 트리거 방어.
-        val payment = paymentInitiator.request(orderId) ?: return
-        val result = paymentGateway.charge(payment.orderId, payment.amount)
-        paymentSettler.settle(payment.id, result)
+    @Transactional
+    fun pay(command: PaymentCommand): PaymentRequestResult {
+        val order = orderRepository.findByIdForUpdate(command.orderId)
+            ?: throw CoreException(OrderErrorType.ORDER_NOT_FOUND)
+        // 이미 결제 진행/완료인지 검증
+        order.validatePayable()
+        // 결제 진행 상태 변경
+        order.markPaymentPending()
+        orderRepository.save(order)
+
+        // 외부 PG 에 결제 요청 → 접수(거래 식별자 + 처리 중).
+        val result = paymentGateway.request(
+            PaymentRequestCommand(
+                userId = command.userId,
+                orderId = order.id,
+                amount = order.totalAmount,
+                cardType = command.cardType,
+                cardNo = command.cardNo,
+                callbackUrl = CALLBACK_URL,
+            ),
+        )
+        // 접수된 거래 식별자를 결제에 기록·저장한다(상태는 REQUESTED — 확정은 콜백/폴링).
+        val payment = Payment.request(orderId = order.id, amount = order.totalAmount)
+        payment.accept(result.transactionKey)
+        val saved = paymentRepository.save(payment)
+        return PaymentRequestResult(
+            paymentId = saved.id,
+            orderId = order.id,
+            status = saved.status,
+            transactionKey = saved.transactionId,
+            amount = saved.amount,
+            requestedAt = saved.requestedAt,
+        )
+    }
+
+    companion object {
+        // TODO: 환경별 외부화(payment.callback-url). pg-simulator 는 callbackUrl 이 http://localhost:8080 으로 시작할 것을 요구한다.
+        private const val CALLBACK_URL = "http://localhost:8080/api/v1/payments/callback"
     }
 }

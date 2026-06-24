@@ -77,14 +77,14 @@ class OrderV1ApiE2ETest @Autowired constructor(
     @DisplayName("POST /api/v1/orders 주문 생성")
     @Nested
     inner class PlaceOrder {
-        @DisplayName("쿠폰을 적용해 주문하면, 200 과 PAYMENT_PENDING + 3금액(할인 반영) 을 받는다.")
+        @DisplayName("쿠폰을 적용해 주문하면, 200 과 CREATED + 3금액(할인 반영) 을 받는다.")
         @Test
         fun placesWithCoupon() {
             val response = placeOrder(request(quantity = 2, userCouponId = userCouponId), idempotencyKey = "idem-1")
 
             assertAll(
                 { assertThat(response.statusCode).isEqualTo(HttpStatus.OK) },
-                { assertThat(response.body?.data?.status).isEqualTo(OrderStatus.PAYMENT_PENDING) },
+                { assertThat(response.body?.data?.status).isEqualTo(OrderStatus.CREATED) },
                 { assertThat(response.body?.data?.originalAmount).isEqualTo(2000L) },
                 { assertThat(response.body?.data?.discountAmount).isEqualTo(200L) },
                 { assertThat(response.body?.data?.totalAmount).isEqualTo(1800L) },

@@ -1,13 +1,16 @@
 package com.loopers.application.order
 
-import com.loopers.application.order.port.PaymentGateway
-import com.loopers.application.order.port.PaymentResult
 import com.loopers.application.payment.PaymentFacade
+import com.loopers.application.payment.PaymentCommand
+import com.loopers.application.payment.port.PaymentGateway
+import com.loopers.application.payment.port.PaymentRequestResult
+import com.loopers.application.payment.port.PgTransactionStatus
 import com.loopers.domain.order.Order
 import com.loopers.domain.order.OrderLine
 import com.loopers.domain.order.OrderRepository
 import com.loopers.domain.order.OrderStatus
 import com.loopers.domain.payment.PaymentRepository
+import com.loopers.domain.payment.PaymentStatus
 import com.loopers.domain.product.ProductFixture
 import com.loopers.domain.product.ProductRepository
 import com.loopers.domain.user.UserFixture
@@ -27,9 +30,9 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * 결제 트리거 이후 주문 비관 락 동시성 — 같은 PENDING 주문에 pay() 가 동시·중복으로 들어와도
- * 주문 행 비관 락이 상태 전이를 직렬화해 외부 결제(charge)가 정확히 한 번만 호출되는지 검증한다.
- * (현재 운영에선 AFTER_COMMIT 트리거가 1회뿐이지만, 재시도/스윕 도입 시의 이중 청구를 막는 가드다.)
+ * 결제 요청 동시성 — 같은 결제대기 주문에 pay() 가 동시·중복으로 들어와도
+ * 주문 행 비관 락이 REQUESTED 생성을 직렬화해, 결제는 1건만 만들어지고 외부 PG 요청도 정확히 한 번만 일어난다.
+ * (재시도/중복 트리거 시의 이중 청구를 막는 가드.)
  */
 @SpringBootTest
 class PaymentConcurrencyIntegrationTest @Autowired constructor(
@@ -49,9 +52,9 @@ class PaymentConcurrencyIntegrationTest @Autowired constructor(
         databaseCleanUp.truncateAllTables()
     }
 
-    @DisplayName("같은 PENDING 주문에 pay() 를 동시에 여러 번 호출해도, 외부 결제는 정확히 한 번만 호출되고 주문은 PAID 가 된다.")
+    @DisplayName("같은 결제대기 주문에 pay() 를 동시에 여러 번 호출해도, REQUESTED 결제는 1건이고 외부 PG 요청은 정확히 한 번만 일어난다.")
     @Test
-    fun concurrentPayChargesExactlyOnce() {
+    fun concurrentPayRequestsExactlyOnce() {
         val user = userRepository.save(UserFixture.validUser())
         val product = productRepository.save(ProductFixture.validProduct(name = "운동화", price = 1000, stock = 10))
         val order = orderRepository.save(
@@ -64,38 +67,48 @@ class PaymentConcurrencyIntegrationTest @Autowired constructor(
             ),
         )
 
-        val charges = AtomicInteger(0)
-        every { paymentGateway.charge(any(), any()) } answers {
-            charges.incrementAndGet()
-            // 경합 창을 넓힌다 — 무락이면 늦은 스레드도 락 대기 없이 PENDING 을 읽고 중복 charge 한다.
+        val requests = AtomicInteger(0)
+        every { paymentGateway.request(any()) } answers {
+            requests.incrementAndGet()
+            // 경합 창을 넓힌다 — 락이 없으면 늦은 스레드도 PENDING 을 읽고 중복 요청한다.
             Thread.sleep(150)
-            PaymentResult(transactionId = "tx-${order.id}", resultCode = "APPROVED", success = true)
+            PaymentRequestResult(transactionKey = "tx-${order.id}", status = PgTransactionStatus.PENDING)
         }
 
         val threads = 4
         val startLatch = CountDownLatch(1)
         val doneLatch = CountDownLatch(threads)
         val executor = Executors.newFixedThreadPool(threads)
-
         repeat(threads) {
             executor.submit {
                 try {
                     startLatch.await()
-                    paymentFacade.pay(order.id)
+                    paymentFacade.pay(
+                        PaymentCommand(
+                            userId = user.id.toString(),
+                            orderId = order.id,
+                            cardType = "SAMSUNG",
+                            cardNo = "1234-5678-9814-1451",
+                        ),
+                    )
+                } catch (_: Exception) {
+                    // 경합 패자는 진행 중 결제를 보고 ORDER_NOT_PAYABLE — 정합성은 아래 최종 상태로 검증한다.
                 } finally {
                     doneLatch.countDown()
                 }
             }
         }
-
         startLatch.countDown()
         doneLatch.await(30, TimeUnit.SECONDS)
         executor.shutdown()
 
-        // 비관 락이 pay 를 직렬화: 첫 호출만 PENDING 을 보고 charge, 나머지는 커밋된 PAID 를 보고 no-op.
-        assertThat(charges.get()).isEqualTo(1)
-        val persisted = orderJpaRepository.findById(order.id).get()
-        assertThat(persisted.status).isEqualTo(OrderStatus.PAID)
-        assertThat(persisted.paymentTransactionId).isEqualTo("tx-${order.id}")
+        // 비관 락이 REQUESTED 생성을 직렬화: 첫 호출만 결제를 만들고 외부 요청, 나머지는 진행 중 결제를 보고 거른다.
+        assertThat(requests.get()).isEqualTo(1)
+        val requested = paymentRepository.findAllByStatus(PaymentStatus.REQUESTED)
+        assertThat(requested).hasSize(1)
+        assertThat(requested.single().orderId).isEqualTo(order.id)
+        assertThat(requested.single().transactionId).isEqualTo("tx-${order.id}")
+        // 결제 확정 전이므로 주문은 결제대기로 유지된다(승인은 콜백/폴링이 한다).
+        assertThat(orderJpaRepository.findById(order.id).get().status).isEqualTo(OrderStatus.PAYMENT_PENDING)
     }
 }

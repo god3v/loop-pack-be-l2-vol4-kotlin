@@ -262,7 +262,10 @@ class OrderFacadeTest {
                 userId = user.id,
                 lines = listOf(OrderLine.create(1L, "X", 100, 1)),
                 idempotencyKey = idempotencyKey,
-            ).also { it.markPaid("prev-tx", "APPROVED") }
+            ).also {
+                it.markPaymentPending()
+                it.markPaid("prev-tx", "APPROVED")
+            }
             every { userRepository.findByLoginId(loginId) } returns user
             every { orderRepository.findByUserIdAndIdempotencyKey(user.id, idempotencyKey) } returns existing
 
@@ -443,7 +446,10 @@ class OrderFacadeTest {
                 userId = user.id,
                 lines = listOf(OrderLine.create(1L, "P", 1000, 1)),
                 idempotencyKey = "k",
-            ).also { it.markPaid("tx", "OK") }
+            ).also {
+                it.markPaymentPending()
+                it.markPaid("tx", "OK")
+            }
             every { userRepository.findByLoginId(loginId) } returns user
             every { orderRepository.findById(10L) } returns order
 
@@ -491,7 +497,10 @@ class OrderFacadeTest {
                 userId = user.id,
                 lines = listOf(OrderLine.create(1L, "P", 1000, 1)),
                 idempotencyKey = "k",
-            ).also { it.markPaid("tx-9", "APPROVED") }
+            ).also {
+                it.markPaymentPending()
+                it.markPaid("tx-9", "APPROVED")
+            }
             every { orderRepository.findAllForAdmin(0, 20) } returns PageResult(listOf(order), 0, 20, 1, 1)
             every { userRepository.findAllByIds(any()) } returns listOf(user)
 
@@ -511,7 +520,10 @@ class OrderFacadeTest {
                 userId = user.id,
                 lines = listOf(OrderLine.create(1L, "P", 1000, 1)),
                 idempotencyKey = "k",
-            ).also { it.markPaymentFailed(null, null) }
+            ).also {
+                it.markPaymentPending()
+                it.markPaymentFailed(null, null)
+            }
             every { orderRepository.findAllForAdmin(0, 20) } returns PageResult(listOf(failed), 0, 20, 1, 1)
             every { userRepository.findAllByIds(any()) } returns listOf(user)
 
@@ -566,7 +578,10 @@ class OrderFacadeTest {
                 userId = user.id,
                 lines = listOf(OrderLine.create(1L, "P", 1000, 1)),
                 idempotencyKey = "k",
-            ).also { it.markPaid("tx", "OK") }
+            ).also {
+                it.markPaymentPending()
+                it.markPaid("tx", "OK")
+            }
             every { orderRepository.findById(10L) } returns order
             every { userRepository.findById(user.id) } returns user
 
