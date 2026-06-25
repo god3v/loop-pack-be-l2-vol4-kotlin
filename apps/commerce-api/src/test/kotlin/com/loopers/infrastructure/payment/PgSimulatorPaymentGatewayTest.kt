@@ -5,6 +5,8 @@ import com.loopers.application.payment.port.PaymentRequestCommand
 import com.loopers.application.payment.port.PgTransactionStatus
 import io.github.resilience4j.circuitbreaker.CircuitBreaker
 import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig
+import io.github.resilience4j.retry.Retry
+import io.github.resilience4j.retry.RetryConfig
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.DisplayName
@@ -25,6 +27,17 @@ class PgSimulatorPaymentGatewayTest {
     private fun cb(config: CircuitBreakerConfig = CircuitBreakerConfig.ofDefaults()): CircuitBreaker =
         CircuitBreaker.of("test", config)
 
+    // 기본 maxAttempts=1 → 재시도 없음(기존 테스트 행위 보존). 재시도 케이스만 명시적으로 횟수를 올린다.
+    private fun retry(maxAttempts: Int = 1): Retry =
+        Retry.of(
+            "test",
+            RetryConfig.custom<Any>()
+                .maxAttempts(maxAttempts)
+                .waitDuration(Duration.ofMillis(1))
+                .retryExceptions(PaymentGatewayException::class.java)
+                .build(),
+        )
+
     private fun request() = PaymentRequestCommand(
         userId = "7",
         orderId = 1000001L,
@@ -39,7 +52,7 @@ class PgSimulatorPaymentGatewayTest {
     fun requestReturnsTransactionKeyAndPending() {
         val builder = RestClient.builder().baseUrl("http://pg.test")
         val server = MockRestServiceServer.bindTo(builder).build()
-        val gateway = PgSimulatorPaymentGateway(builder.build(), cb())
+        val gateway = PgSimulatorPaymentGateway(builder.build(), cb(), retry())
 
         server.expect(requestTo("http://pg.test/api/v1/payments"))
             .andExpect(method(HttpMethod.POST))
@@ -68,7 +81,7 @@ class PgSimulatorPaymentGatewayTest {
     fun getTransactionReturnsStatus() {
         val builder = RestClient.builder().baseUrl("http://pg.test")
         val server = MockRestServiceServer.bindTo(builder).build()
-        val gateway = PgSimulatorPaymentGateway(builder.build(), cb())
+        val gateway = PgSimulatorPaymentGateway(builder.build(), cb(), retry())
 
         // RestClient 가 path 변수의 콜론을 %3A 로 인코딩한다(서버는 디코딩해 매칭). 실제 송신 URI 를 검증한다.
         server.expect(requestTo("http://pg.test/api/v1/payments/20260623%3ATR%3A9577c5"))
@@ -95,7 +108,7 @@ class PgSimulatorPaymentGatewayTest {
     fun getByOrderReturnsTransactions() {
         val builder = RestClient.builder().baseUrl("http://pg.test")
         val server = MockRestServiceServer.bindTo(builder).build()
-        val gateway = PgSimulatorPaymentGateway(builder.build(), cb())
+        val gateway = PgSimulatorPaymentGateway(builder.build(), cb(), retry())
 
         server.expect(requestTo("http://pg.test/api/v1/payments?orderId=1000001"))
             .andExpect(method(HttpMethod.GET))
@@ -122,7 +135,7 @@ class PgSimulatorPaymentGatewayTest {
     fun translatesServerErrorToGatewayException() {
         val builder = RestClient.builder().baseUrl("http://pg.test")
         val server = MockRestServiceServer.bindTo(builder).build()
-        val gateway = PgSimulatorPaymentGateway(builder.build(), cb())
+        val gateway = PgSimulatorPaymentGateway(builder.build(), cb(), retry())
 
         server.expect(requestTo("http://pg.test/api/v1/payments"))
             .andExpect(method(HttpMethod.POST))
@@ -147,7 +160,7 @@ class PgSimulatorPaymentGatewayTest {
                 .waitDurationInOpenState(Duration.ofSeconds(30))
                 .build(),
         )
-        val gateway = PgSimulatorPaymentGateway(builder.build(), circuit)
+        val gateway = PgSimulatorPaymentGateway(builder.build(), circuit, retry())
 
         // 외부는 딱 2번만 실패 응답한다 — 회로가 열리면 3번째 호출은 외부로 가지 않는다.
         repeat(2) {
@@ -164,5 +177,24 @@ class PgSimulatorPaymentGatewayTest {
 
         assertThat(circuit.state).isEqualTo(CircuitBreaker.State.OPEN)
         server.verify() // 외부 호출은 정확히 2번만 일어났다(3번째는 차단)
+    }
+
+    @DisplayName("일시적 통신 실패(5xx)는 설정한 최대 시도 횟수까지 재시도된다.")
+    @Test
+    fun retriesTransientFailureUpToMaxAttempts() {
+        val builder = RestClient.builder().baseUrl("http://pg.test")
+        val server = MockRestServiceServer.bindTo(builder).build()
+        val gateway = PgSimulatorPaymentGateway(builder.build(), cb(), retry(maxAttempts = 3))
+
+        // 외부가 3번 모두 5xx 로 실패한다 — 최대 시도(3회) 만큼 호출되어야 한다.
+        repeat(3) {
+            server.expect(requestTo("http://pg.test/api/v1/payments"))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withServerError())
+        }
+
+        assertThatThrownBy { gateway.request(request()) }
+            .isInstanceOf(PaymentGatewayException::class.java)
+        server.verify() // 정확히 3번 시도됐다
     }
 }

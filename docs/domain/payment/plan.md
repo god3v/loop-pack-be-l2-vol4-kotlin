@@ -94,7 +94,7 @@ CREATED → PAYMENT_PENDING → PAID / PAYMENT_FAILED
 
 > transient fault 에 한정한 재시도. CircuitBreaker 와 결합하되, 재시도가 이중 결제를 만들지 않아야 한다.
 
-- [ ] 일시적 통신 실패는 지정한 횟수까지 재시도된다
+- [x] 일시적 통신 실패는 지정한 횟수까지 재시도된다
 - [ ] 재시도 대상이 아닌 예외(영구 실패 등)는 재시도 없이 즉시 전파된다
 - [ ] 재시도 사이에 backoff 대기를 둔다
 - [ ] 최대 시도를 소진하면 재시도를 멈추고 Fallback 으로 이어진다
@@ -158,6 +158,16 @@ CREATED → PAYMENT_PENDING → PAID / PAYMENT_FAILED
 - [x] 존재하지 않는 결제면 404 `PAYMENT_NOT_FOUND` 를 받는다
 - [x] LDAP 인증에 실패하면 401 `UNAUTHORIZED` 를 받는다
 
+## 회복 전략 부하 검증 (k6 시나리오)
+
+> `.docs/week6/k6/` 스크립트로 외부 PG 장애를 주입해 회복 전략을 부하 상태에서 검증한다. 도메인 TDD 가 아니라 시나리오 기반 부하 테스트다.
+
+- [ ] **Timeout** — PG 응답 지연 부하에서 결제 요청이 타임아웃 내로 끊기고 스레드가 점유되지 않는다
+- [ ] **CircuitBreaker** — PG 반복 실패 부하에서 회로가 열려 외부 호출이 차단되고 응답 지연이 급감한다
+- [ ] **Fallback** — 회로가 열린 동안에도 결제 요청 API 가 즉시 처리 중(REQUESTED) 응답을 유지한다
+- [ ] **Retry** — 일시 실패를 주입한 부하에서 재시도로 성공률이 회복된다
+- [ ] **장애 격리** — PG 장애 주입 중에도 내부 API p99 지연·에러율이 임계 내로 유지된다
+
 ## 시니어 파트너 Skill (Nice-To-Have)
 
 > 코드 테스트가 아닌 별도 산출 작업. 외부 연동 설계를 트랜잭션 경계·상태 일관성·실패 시나리오·멱등성 관점으로 분석/질의응답한다 (설계 생성은 하지 않는다).
@@ -171,3 +181,4 @@ CREATED → PAYMENT_PENDING → PAID / PAYMENT_FAILED
 - **2026-06-23** — 초기 케이스 도출. `Payment.accept`·결제 조회·PG 어댑터(`request`/`getTransaction`/`getByOrder`) 구현.
 - **2026-06-24** — `PaymentFacade`(pay/settle/sync) 단일 진입점 확립. 컨트롤러·콜백·수동복구 E2E. 동기 잔재(`PaymentSettler`·`PaymentResult`·자동 트리거·refund) 제거.
 - **2026-06-25** — Timeout·CircuitBreaker·Fallback 적용. 외부 호출 전 선영속으로 복구 보장.
+- **2026-06-25** — Retry(Nice-To-Have) 착수. PG 어댑터에 resilience4j-retry 적용(Retry 바깥·CircuitBreaker 안쪽), 일시 실패 최대 시도까지 재시도(첫 케이스). k6 회복 전략 부하 검증 시나리오를 plan 에 추가.

@@ -9,6 +9,7 @@ import com.loopers.application.payment.port.PgTransaction
 import com.loopers.application.payment.port.PgTransactionStatus
 import io.github.resilience4j.circuitbreaker.CallNotPermittedException
 import io.github.resilience4j.circuitbreaker.CircuitBreaker
+import io.github.resilience4j.retry.Retry
 import org.springframework.http.MediaType
 import org.springframework.stereotype.Component
 import org.springframework.web.client.RestClient
@@ -22,6 +23,7 @@ import org.springframework.web.client.RestClientException
 class PgSimulatorPaymentGateway(
     private val pgRestClient: RestClient,
     private val pgCircuitBreaker: CircuitBreaker,
+    private val pgRetry: Retry,
 ) : PaymentGateway {
     override fun request(request: PaymentRequestCommand): PaymentResponse = execute("결제 요청") {
         val response = pgRestClient.post()
@@ -56,21 +58,24 @@ class PgSimulatorPaymentGateway(
     }
 
     /**
-     * 외부 호출을 회로 차단기로 감싸고, 인프라 예외(통신 실패·타임아웃·5xx)·회로 차단을 포트 예외로 변환한다.
-     * 외부 예외가 상위로 누수되지 않으며, 회로가 열린 동안의 호출은 외부를 거치지 않고 즉시 차단된다.
+     * 외부 호출을 회로 차단기(안쪽)·재시도(바깥쪽)로 감싸고, 인프라 예외(통신 실패·타임아웃·5xx)·회로 차단을 포트 예외로 변환한다.
+     * 일시 장애로 변환된 포트 예외는 재시도 대상이며, 각 시도가 회로 차단기를 거쳐 실패로 누적된다 — 누적 실패가 임계를 넘으면 회로가 열린다.
+     * 회로가 열린 동안의 호출(`CallNotPermittedException`)은 재시도하지 않고 즉시 차단으로 변환한다.
      */
-    private fun <T> execute(action: String, block: () -> T): T =
-        try {
-            pgCircuitBreaker.executeSupplier {
-                try {
-                    block()
-                } catch (e: RestClientException) {
-                    throw PaymentGatewayException("PG $action 실패", e)
-                }
+    private fun <T> execute(action: String, block: () -> T): T {
+        val guarded = CircuitBreaker.decorateSupplier(pgCircuitBreaker) {
+            try {
+                block()
+            } catch (e: RestClientException) {
+                throw PaymentGatewayException("PG $action 실패", e)
             }
+        }
+        return try {
+            Retry.decorateSupplier(pgRetry, guarded).get()
         } catch (e: CallNotPermittedException) {
             throw PaymentGatewayException("PG 회로 차단 — $action 차단됨", e)
         }
+    }
 
     companion object {
         private const val HEADER_USER_ID = "X-USER-ID"

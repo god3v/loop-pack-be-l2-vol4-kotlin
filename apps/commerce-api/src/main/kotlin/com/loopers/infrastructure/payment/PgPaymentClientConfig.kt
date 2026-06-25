@@ -1,7 +1,10 @@
 package com.loopers.infrastructure.payment
 
+import com.loopers.application.payment.port.PaymentGatewayException
 import io.github.resilience4j.circuitbreaker.CircuitBreaker
 import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig
+import io.github.resilience4j.retry.Retry
+import io.github.resilience4j.retry.RetryConfig
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
@@ -27,6 +30,20 @@ class PgPaymentClientConfig {
             .waitDurationInOpenState(Duration.ofSeconds(10))
             .build()
         return CircuitBreaker.of("pg", config)
+    }
+
+    /**
+     * 외부 PG 연동 재시도 — 일시 장애(통신 실패·타임아웃·5xx)로 변환된 `PaymentGatewayException` 만 backoff 를 두고 재시도한다.
+     * 영구 실패(잘못된 카드·한도 초과)는 비동기 콜백으로 도착하므로 이 경로를 타지 않고, 회로 차단(`CallNotPermittedException`)은 재시도 대상이 아니다.
+     */
+    @Bean
+    fun pgRetry(): Retry {
+        val config = RetryConfig.custom<Any>()
+            .maxAttempts(3)
+            .waitDuration(Duration.ofMillis(200))
+            .retryExceptions(PaymentGatewayException::class.java)
+            .build()
+        return Retry.of("pg", config)
     }
 
     /**
