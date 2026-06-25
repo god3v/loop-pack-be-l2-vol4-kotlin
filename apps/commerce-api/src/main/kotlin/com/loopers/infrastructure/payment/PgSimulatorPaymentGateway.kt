@@ -2,13 +2,17 @@ package com.loopers.infrastructure.payment
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import com.loopers.application.payment.port.PaymentGateway
+import com.loopers.application.payment.port.PaymentGatewayException
 import com.loopers.application.payment.port.PaymentRequestCommand
 import com.loopers.application.payment.port.PaymentResponse
 import com.loopers.application.payment.port.PgTransaction
 import com.loopers.application.payment.port.PgTransactionStatus
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException
+import io.github.resilience4j.circuitbreaker.CircuitBreaker
 import org.springframework.http.MediaType
 import org.springframework.stereotype.Component
 import org.springframework.web.client.RestClient
+import org.springframework.web.client.RestClientException
 
 /**
  * pg-simulator 연동 어댑터. `request` 는 결과를 기다리지 않고 거래 식별자·처리 상태(접수)만 받는다.
@@ -17,8 +21,9 @@ import org.springframework.web.client.RestClient
 @Component
 class PgSimulatorPaymentGateway(
     private val pgRestClient: RestClient,
+    private val pgCircuitBreaker: CircuitBreaker,
 ) : PaymentGateway {
-    override fun request(request: PaymentRequestCommand): PaymentResponse {
+    override fun request(request: PaymentRequestCommand): PaymentResponse = execute("결제 요청") {
         val response = pgRestClient.post()
             .uri("/api/v1/payments")
             .header(HEADER_USER_ID, request.userId)
@@ -27,28 +32,45 @@ class PgSimulatorPaymentGateway(
             .retrieve()
             .body(PgTransactionResponse::class.java)
         val data = requireNotNull(response?.data) { "PG 결제 요청 응답이 비어 있다." }
-        return PaymentResponse(transactionKey = data.transactionKey, status = data.status)
+        PaymentResponse(transactionKey = data.transactionKey, status = data.status)
     }
 
-    override fun getTransaction(userId: String, transactionKey: String): PgTransaction {
+    override fun getTransaction(userId: String, transactionKey: String): PgTransaction = execute("결제 조회") {
         val response = pgRestClient.get()
             .uri("/api/v1/payments/{transactionKey}", transactionKey)
             .header(HEADER_USER_ID, userId)
             .retrieve()
             .body(PgTransactionResponse::class.java)
         val data = requireNotNull(response?.data) { "PG 결제 조회 응답이 비어 있다." }
-        return PgTransaction(transactionKey = data.transactionKey, status = data.status, reason = data.reason)
+        PgTransaction(transactionKey = data.transactionKey, status = data.status, reason = data.reason)
     }
 
-    override fun getByOrder(userId: String, orderId: Long): List<PgTransaction> {
+    override fun getByOrder(userId: String, orderId: Long): List<PgTransaction> = execute("주문별 결제 조회") {
         val response = pgRestClient.get()
             .uri { it.path("/api/v1/payments").queryParam("orderId", orderId).build() }
             .header(HEADER_USER_ID, userId)
             .retrieve()
             .body(PgOrderResponse::class.java)
-        val transactions = response?.data?.transactions ?: return emptyList()
-        return transactions.map { PgTransaction(transactionKey = it.transactionKey, status = it.status, reason = it.reason) }
+        val transactions = response?.data?.transactions ?: emptyList()
+        transactions.map { PgTransaction(transactionKey = it.transactionKey, status = it.status, reason = it.reason) }
     }
+
+    /**
+     * 외부 호출을 회로 차단기로 감싸고, 인프라 예외(통신 실패·타임아웃·5xx)·회로 차단을 포트 예외로 변환한다.
+     * 외부 예외가 상위로 누수되지 않으며, 회로가 열린 동안의 호출은 외부를 거치지 않고 즉시 차단된다.
+     */
+    private fun <T> execute(action: String, block: () -> T): T =
+        try {
+            pgCircuitBreaker.executeSupplier {
+                try {
+                    block()
+                } catch (e: RestClientException) {
+                    throw PaymentGatewayException("PG $action 실패", e)
+                }
+            }
+        } catch (e: CallNotPermittedException) {
+            throw PaymentGatewayException("PG 회로 차단 — $action 차단됨", e)
+        }
 
     companion object {
         private const val HEADER_USER_ID = "X-USER-ID"

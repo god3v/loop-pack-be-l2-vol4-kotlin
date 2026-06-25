@@ -88,6 +88,33 @@ class PaymentV1AdminApiE2ETest @Autowired constructor(
             )
         }
 
+        @DisplayName("거래 식별자가 없는 처리 중 결제는, 주문 식별자로 외부 결제건을 찾아 식별자를 접수하고 정산한다(타임아웃 성공 수렴).")
+        @Test
+        fun recoversByOrderWhenNoTransactionId() {
+            // 거래 식별자 미확보(타임아웃 접수 미확인) 결제 + 그 주문.
+            val user = userRepository.save(UserFixture.validUser(loginId = "timeoutuser", email = "timeout@example.com"))
+            val product = productRepository.save(ProductFixture.validProduct(name = "양말", price = 500, stock = 50))
+            val order = orderRepository.save(
+                Order.create(
+                    userId = user.id,
+                    lines = listOf(OrderLine.create(productId = product.id, productName = "양말", unitPrice = 500, quantity = 1)),
+                    idempotencyKey = "no-tx-seed",
+                ).also { it.markPaymentPending() },
+            )
+            val noKeyPaymentId = paymentRepository.save(Payment.request(orderId = order.id, amount = 500L)).id
+            every { paymentGateway.getByOrder(any(), order.id) } returns
+                listOf(PgTransaction("tx-recovered", PgTransactionStatus.SUCCESS, null))
+
+            val response = sync(noKeyPaymentId, adminHeaders())
+
+            assertAll(
+                { assertThat(response.statusCode).isEqualTo(HttpStatus.OK) },
+                { assertThat(response.body?.data?.settled).isTrue() },
+                { assertThat(response.body?.data?.status).isEqualTo(PaymentStatus.APPROVED) },
+                { assertThat(paymentRepository.findById(noKeyPaymentId)!!.transactionId).isEqualTo("tx-recovered") },
+            )
+        }
+
         @DisplayName("외부가 아직 처리 중이면, 상태 변화 없이 settled=false 로 응답한다.")
         @Test
         fun leavesUnsettledWhenExternallyPending() {
@@ -99,6 +126,21 @@ class PaymentV1AdminApiE2ETest @Autowired constructor(
                 { assertThat(response.statusCode).isEqualTo(HttpStatus.OK) },
                 { assertThat(response.body?.data?.settled).isFalse() },
                 { assertThat(response.body?.data?.status).isEqualTo(PaymentStatus.REQUESTED) },
+                { assertThat(paymentRepository.findById(paymentId)!!.status).isEqualTo(PaymentStatus.REQUESTED) },
+            )
+        }
+
+        @DisplayName("외부 상태 조회가 실패(통신 오류·회로 차단)하면, 상태 변화 없이 settled=false 로 응답한다.")
+        @Test
+        fun leavesUnsettledWhenGatewayFails() {
+            every { paymentGateway.getTransaction(any(), "tx-sync") } throws
+                com.loopers.application.payment.port.PaymentGatewayException("회로 차단")
+
+            val response = sync(paymentId, adminHeaders())
+
+            assertAll(
+                { assertThat(response.statusCode).isEqualTo(HttpStatus.OK) },
+                { assertThat(response.body?.data?.settled).isFalse() },
                 { assertThat(paymentRepository.findById(paymentId)!!.status).isEqualTo(PaymentStatus.REQUESTED) },
             )
         }

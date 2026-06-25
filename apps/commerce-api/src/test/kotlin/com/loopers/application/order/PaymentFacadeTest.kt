@@ -3,6 +3,7 @@ package com.loopers.application.order
 import com.loopers.application.payment.PaymentCommand
 import com.loopers.application.payment.PaymentFacade
 import com.loopers.application.payment.port.PaymentGateway
+import com.loopers.application.payment.port.PaymentGatewayException
 import com.loopers.application.payment.port.PaymentResponse
 import com.loopers.application.payment.port.PgTransaction
 import com.loopers.application.payment.port.PgTransactionStatus
@@ -60,6 +61,22 @@ class PaymentFacadeTest {
         assertThat(info.status).isEqualTo(PaymentStatus.REQUESTED)
         assertThat(info.transactionKey).isEqualTo("tx-key-1")
         assertThat(info.amount).isEqualTo(2000L)
+        verify { paymentGateway.request(any()) }
+    }
+
+    @DisplayName("외부 PG 가 일시 장애(PaymentGatewayException)면 결제를 REQUESTED(거래 식별자 없음)로 두고 접수 응답을 반환한다 — 예외를 전파하지 않는다.")
+    @Test
+    fun fallsBackToRequestedOnGatewayFailure() {
+        every { orderRepository.findByIdForUpdate(1L) } returns createdOrder()
+        every { paymentGateway.request(any()) } throws PaymentGatewayException("타임아웃")
+        every { paymentRepository.save(any()) } returns
+            Payment(id = 10L, orderId = 1L, amount = 2000L, requestedAt = LocalDateTime.now())
+
+        val info = paymentFacade.pay(command())
+
+        assertThat(info.paymentId).isEqualTo(10L)
+        assertThat(info.status).isEqualTo(PaymentStatus.REQUESTED)
+        assertThat(info.transactionKey).isNull()
         verify { paymentGateway.request(any()) }
     }
 
