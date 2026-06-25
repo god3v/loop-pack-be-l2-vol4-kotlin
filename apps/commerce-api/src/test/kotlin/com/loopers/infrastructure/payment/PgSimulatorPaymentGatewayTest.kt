@@ -52,7 +52,7 @@ class PgSimulatorPaymentGatewayTest {
     fun requestReturnsTransactionKeyAndPending() {
         val builder = RestClient.builder().baseUrl("http://pg.test")
         val server = MockRestServiceServer.bindTo(builder).build()
-        val gateway = PgSimulatorPaymentGateway(builder.build(), cb(), retry())
+        val gateway = PgSimulatorPaymentGateway(RestClientPaymentApiClient(builder.build()), cb(), retry())
 
         server.expect(requestTo("http://pg.test/api/v1/payments"))
             .andExpect(method(HttpMethod.POST))
@@ -81,7 +81,7 @@ class PgSimulatorPaymentGatewayTest {
     fun getTransactionReturnsStatus() {
         val builder = RestClient.builder().baseUrl("http://pg.test")
         val server = MockRestServiceServer.bindTo(builder).build()
-        val gateway = PgSimulatorPaymentGateway(builder.build(), cb(), retry())
+        val gateway = PgSimulatorPaymentGateway(RestClientPaymentApiClient(builder.build()), cb(), retry())
 
         // RestClient 가 path 변수의 콜론을 %3A 로 인코딩한다(서버는 디코딩해 매칭). 실제 송신 URI 를 검증한다.
         server.expect(requestTo("http://pg.test/api/v1/payments/20260623%3ATR%3A9577c5"))
@@ -108,7 +108,7 @@ class PgSimulatorPaymentGatewayTest {
     fun getByOrderReturnsTransactions() {
         val builder = RestClient.builder().baseUrl("http://pg.test")
         val server = MockRestServiceServer.bindTo(builder).build()
-        val gateway = PgSimulatorPaymentGateway(builder.build(), cb(), retry())
+        val gateway = PgSimulatorPaymentGateway(RestClientPaymentApiClient(builder.build()), cb(), retry())
 
         server.expect(requestTo("http://pg.test/api/v1/payments?orderId=1000001"))
             .andExpect(method(HttpMethod.GET))
@@ -135,7 +135,7 @@ class PgSimulatorPaymentGatewayTest {
     fun translatesServerErrorToGatewayException() {
         val builder = RestClient.builder().baseUrl("http://pg.test")
         val server = MockRestServiceServer.bindTo(builder).build()
-        val gateway = PgSimulatorPaymentGateway(builder.build(), cb(), retry())
+        val gateway = PgSimulatorPaymentGateway(RestClientPaymentApiClient(builder.build()), cb(), retry())
 
         server.expect(requestTo("http://pg.test/api/v1/payments"))
             .andExpect(method(HttpMethod.POST))
@@ -160,7 +160,7 @@ class PgSimulatorPaymentGatewayTest {
                 .waitDurationInOpenState(Duration.ofSeconds(30))
                 .build(),
         )
-        val gateway = PgSimulatorPaymentGateway(builder.build(), circuit, retry())
+        val gateway = PgSimulatorPaymentGateway(RestClientPaymentApiClient(builder.build()), circuit, retry())
 
         // 외부는 딱 2번만 실패 응답한다 — 회로가 열리면 3번째 호출은 외부로 가지 않는다.
         repeat(2) {
@@ -184,7 +184,7 @@ class PgSimulatorPaymentGatewayTest {
     fun retriesTransientFailureUpToMaxAttempts() {
         val builder = RestClient.builder().baseUrl("http://pg.test")
         val server = MockRestServiceServer.bindTo(builder).build()
-        val gateway = PgSimulatorPaymentGateway(builder.build(), cb(), retry(maxAttempts = 3))
+        val gateway = PgSimulatorPaymentGateway(RestClientPaymentApiClient(builder.build()), cb(), retry(maxAttempts = 3))
 
         // 외부가 3번 모두 5xx 로 실패한다 — 최대 시도(3회) 만큼 호출되어야 한다.
         repeat(3) {
@@ -196,5 +196,27 @@ class PgSimulatorPaymentGatewayTest {
         assertThatThrownBy { gateway.request(request()) }
             .isInstanceOf(PaymentGatewayException::class.java)
         server.verify() // 정확히 3번 시도됐다
+    }
+
+    @DisplayName("재시도 대상이 아닌 예외(응답 본문 누락 등)는 재시도 없이 즉시 전파된다.")
+    @Test
+    fun doesNotRetryNonRetryableException() {
+        val builder = RestClient.builder().baseUrl("http://pg.test")
+        val server = MockRestServiceServer.bindTo(builder).build()
+        val gateway = PgSimulatorPaymentGateway(RestClientPaymentApiClient(builder.build()), cb(), retry(maxAttempts = 3))
+
+        // 200 이지만 data 가 비어 있다 → requireNotNull 실패(IllegalArgumentException). 재시도 화이트리스트 밖이라 1번만 호출된다.
+        server.expect(requestTo("http://pg.test/api/v1/payments"))
+            .andExpect(method(HttpMethod.POST))
+            .andRespond(
+                withSuccess(
+                    """{"meta":{"result":"SUCCESS","errorCode":null,"message":null},"data":null}""",
+                    MediaType.APPLICATION_JSON,
+                ),
+            )
+
+        assertThatThrownBy { gateway.request(request()) }
+            .isInstanceOf(IllegalArgumentException::class.java)
+        server.verify() // 정확히 1번만 호출(재시도 없음)
     }
 }
