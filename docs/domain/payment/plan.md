@@ -176,6 +176,53 @@ CREATED → PAYMENT_PENDING → PAID / PAYMENT_FAILED
 
 ---
 
+## 확장 — 멀티 PG enum 매핑 · 카드/실패원인 저장
+
+> 결제 컨텍스트(카드사·마스킹 카드번호·실패 원인)를 영속하고, PG-중립 도메인과 PG별 와이어 표현 사이에 매핑 계층(ACL)을 둔다.
+
+### 결정 (2026-06-26)
+
+- **카드번호 = 마스킹만 저장** — 끝 4자리(`****-****-****-1451`). 원본 PAN 미보관(PCI 부담 회피). 기존 "미저장" 보안 문구를 "마스킹 저장"으로 갱신.
+- **카드사 = 내부 `CardType` 저장**.
+- **실패 원인 = `PaymentFailureCause` enum + 원문 사유 병행 저장**.
+- **멀티 PG = enum 매핑 ACL 까지만** — 내부 `CardType` ↔ PG 와이어 값, PG raw reason → 내부 `PaymentFailureCause` 매핑을 어댑터가 소유. **PG 라우팅·`PaymentGatewayResolver`·`PgProvider` 선택/저장은 보류**(2번째 PG 도입 시).
+
+### 구조 변경 (Tidy First — 행위 무변경, 별도 커밋)
+
+- [ ] 포트 `PaymentRequestCommand.cardType` 를 String → 도메인 `CardType` enum 으로 (와이어 매핑 책임을 어댑터로 이전)
+- [ ] 어댑터가 내부 `CardType` → pg-simulator 와이어 값으로 **명시 매핑**한다 (`cardType.name` 직접 노출 제거 — 같은 값, 매핑만 명시화)
+
+### Phase 1 — 도메인 모델 (`com.loopers.domain.payment`)
+
+- [ ] 카드번호 VO 가 마스킹 표현(끝 4자리)을 제공한다 — 원본은 외부 전달 전용
+- [ ] `PaymentFailureCause` 가 외부 실패를 한도초과/잘못된카드/그외로 분류한다
+- [ ] 결제에 카드사·마스킹 카드번호를 보관할 수 있다
+- [ ] 결제가 실패로 확정될 때 실패 원인(enum)과 원문 사유를 함께 보관한다
+
+### Phase 3 — 인프라 어댑터 (`com.loopers.infrastructure.payment`)
+
+- [ ] 어댑터가 PG 의 실패 사유(raw)를 내부 `PaymentFailureCause` 로 매핑한다 (포트 `PgTransaction` 이 `failureCause` 를 싣는다)
+- [ ] `PaymentEntity` 가 카드사·마스킹 카드번호·실패 원인 컬럼을 영속한다 (DB 마이그레이션)
+
+### Phase 4 — Application Facade (`com.loopers.application.payment`)
+
+- [ ] 결제 요청 시 카드사·마스킹 카드번호가 결제에 저장된다
+- [ ] 정산 실패 시 실패 원인(enum)·원문이 결제에 저장된다
+
+### Phase 5 — 조회/E2E
+
+- [ ] 카드 마스킹·실패 원인이 조회 응답(회원/어드민)에 노출되되, **원본 카드번호는 어떤 응답·로그에도 없다**
+
+### 문서
+
+- [ ] requirements §1(카드 정보)·§5(보안), api-spec §0.4, logical-model 에 "마스킹 저장" 정책 반영 (기존 "미저장" 번복 명시)
+
+### 보류 (이번 미구현)
+
+- PG 라우팅 전략 · `PaymentGatewayResolver` · `PgProvider` 선택/저장 — enum 매핑 ACL 만 우선 도입하고, 실제 라우팅은 2번째 PG 도입 시 별도 ADR 로 다룬다.
+
+---
+
 ## 진행 로그
 
 - **2026-06-23** — 초기 케이스 도출. `Payment.accept`·결제 조회·PG 어댑터(`request`/`getTransaction`/`getByOrder`) 구현.
@@ -184,3 +231,5 @@ CREATED → PAYMENT_PENDING → PAID / PAYMENT_FAILED
 - **2026-06-25** — Retry(Nice-To-Have) 완료. PG 어댑터에 resilience4j-retry 적용(Retry 바깥·CircuitBreaker 안쪽). 재시도/비재시도/backoff/소진→Fallback/누적→차단/이중 결제 없음 6케이스 검증. k6 회복 전략 부하 검증 시나리오를 plan 에 추가.
 - **2026-06-25** — (구조) 전송 추상화 `PaymentApiClient` 분리. `RestClientPaymentApiClient` 가 HTTP 호출·와이어 DTO·예외 변환을, `PgSimulatorPaymentGateway` 는 회복 전략(CB·Retry)만 담당 — 전송 라이브러리 교체가 구현체 교체로 끝나게 됨. 행위 무변경.
 - **2026-06-26** — (행위) Retry·CircuitBreaker 적용 순서를 `CircuitBreaker(Retry(call))` 로 swap — Retry-바깥이 half-open permit 을 시도 수만큼 잡아먹던 함정 해소. half-open permit 3 명시, 재시도 묶음=CB 1 이벤트. `accumulatedRetryFailuresOpenCircuit` → `retriesCountAsSingleCircuitEvent` 재작성. 결정 기록 [resilience-decisions.md](./resilience-decisions.md) ADR-001.
+- **2026-06-26** — (튜닝) CB 파라미터 7종 점검 — `slowCallDurationThreshold` 2s→1s(read timeout 과 겹침 해소), `slowCallRateThreshold` 100%→50%, `recordExceptions(PaymentGatewayException)` 한정. automaticTransition·permitted(3)·window(10)·failAfterMaxAttempts 는 분석 후 유지. 결정 기록 [resilience-decisions.md](./resilience-decisions.md) ADR-002.
+- **2026-06-26** — (행위) 4xx 를 재시도/차단에서 제외 — 새 예외 타입 없이 어댑터가 4xx(`HttpClientErrorException`)를 감싸지 않고, Retry 에 `ignoreExceptions(HttpClientErrorException)` 명시(화이트리스트가 이미 제외·의도 표면화). CB 무변경. Facade 가 `PaymentGatewayException` 만 잡아 4xx 는 fail-fast(폴링 지옥 회피). Retry 고정→지수+지터 backoff. 타임아웃(connect 1s/read 2s/slow 1s)은 접수(100~500ms) 커버로 적정 판단해 유지. `doesNotRetryClientError` 테스트. 결정 기록 ADR-003(안 B 채택, 안 A=신규타입 기각).

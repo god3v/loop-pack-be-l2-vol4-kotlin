@@ -12,6 +12,7 @@ import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
 import org.springframework.http.HttpMethod
+import org.springframework.http.HttpStatus
 import org.springframework.http.MediaType
 import org.springframework.test.web.client.MockRestServiceServer
 import org.springframework.test.web.client.match.MockRestRequestMatchers.header
@@ -19,7 +20,9 @@ import org.springframework.test.web.client.match.MockRestRequestMatchers.jsonPat
 import org.springframework.test.web.client.match.MockRestRequestMatchers.method
 import org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo
 import org.springframework.test.web.client.response.MockRestResponseCreators.withServerError
+import org.springframework.test.web.client.response.MockRestResponseCreators.withStatus
 import org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess
+import org.springframework.web.client.HttpClientErrorException
 import org.springframework.web.client.RestClient
 import java.time.Duration
 import kotlin.system.measureTimeMillis
@@ -145,6 +148,23 @@ class PgSimulatorPaymentGatewayTest {
         assertThatThrownBy { gateway.request(request()) }
             .isInstanceOf(PaymentGatewayException::class.java)
         server.verify()
+    }
+
+    @DisplayName("외부가 4xx(클라이언트 오류)면 감싸지 않고 HttpClientErrorException 그대로 전파하며 재시도하지 않는다 — 일시 장애와 구분된다.")
+    @Test
+    fun doesNotRetryClientError() {
+        val builder = RestClient.builder().baseUrl("http://pg.test")
+        val server = MockRestServiceServer.bindTo(builder).build()
+        val gateway = PgSimulatorPaymentGateway(RestClientPaymentApiClient(builder.build()), cb(), retry(maxAttempts = 3))
+
+        // 4xx 는 한 번만 응답 — 재시도 제외(ignoreExceptions/화이트리스트 밖)라 1번만 호출돼야 한다.
+        server.expect(requestTo("http://pg.test/api/v1/payments"))
+            .andExpect(method(HttpMethod.POST))
+            .andRespond(withStatus(HttpStatus.BAD_REQUEST))
+
+        assertThatThrownBy { gateway.request(request()) }
+            .isInstanceOf(HttpClientErrorException::class.java)
+        server.verify() // 정확히 1번 호출(재시도 없음)
     }
 
     @DisplayName("외부가 반복 실패하면 회로가 열려, 이후 호출은 외부를 거치지 않고 PaymentGatewayException 으로 차단된다.")

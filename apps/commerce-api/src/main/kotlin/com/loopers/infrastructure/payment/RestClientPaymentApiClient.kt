@@ -8,6 +8,7 @@ import com.loopers.application.payment.port.PgTransaction
 import com.loopers.application.payment.port.PgTransactionStatus
 import org.springframework.http.MediaType
 import org.springframework.stereotype.Component
+import org.springframework.web.client.HttpClientErrorException
 import org.springframework.web.client.RestClient
 import org.springframework.web.client.RestClientException
 
@@ -52,10 +53,16 @@ class RestClientPaymentApiClient(
         transactions.map { PgTransaction(transactionKey = it.transactionKey, status = it.status, reason = it.reason) }
     }
 
-    /** RestClient 예외(통신 실패·타임아웃·5xx)를 라이브러리 비의존 `PaymentGatewayException` 으로 변환한다. */
+    /**
+     * RestClient 예외를 포트 예외로 변환한다.
+     * - **5xx·타임아웃·통신 실패**(`RestClientException`) → `PaymentGatewayException`: 일시 장애. 재시도·회로 차단 대상.
+     * - **4xx**(`HttpClientErrorException`) → **감싸지 않고 그대로 전파**: 우리 요청이 PG 규약에 안 맞는 결정적 실패라, 재시도(`retryExceptions` 화이트리스트)·회로 차단(`recordExceptions` 화이트리스트)에서 자동 제외되고 Facade Fallback(=`PaymentGatewayException` 한정)에도 안 잡혀 빠르게 실패한다. (전송 예외 비누수 원칙의 의도적·좁은 예외 — ADR-003.)
+     */
     private fun <T> call(action: String, block: () -> T): T =
         try {
             block()
+        } catch (e: HttpClientErrorException) {
+            throw e
         } catch (e: RestClientException) {
             throw PaymentGatewayException("PG $action 실패", e)
         }

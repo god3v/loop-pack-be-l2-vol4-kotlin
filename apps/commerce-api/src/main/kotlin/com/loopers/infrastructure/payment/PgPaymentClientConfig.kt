@@ -3,12 +3,14 @@ package com.loopers.infrastructure.payment
 import com.loopers.application.payment.port.PaymentGatewayException
 import io.github.resilience4j.circuitbreaker.CircuitBreaker
 import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig
+import io.github.resilience4j.core.IntervalFunction
 import io.github.resilience4j.retry.Retry
 import io.github.resilience4j.retry.RetryConfig
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.http.client.SimpleClientHttpRequestFactory
+import org.springframework.web.client.HttpClientErrorException
 import org.springframework.web.client.RestClient
 import java.time.Duration
 
@@ -42,22 +44,29 @@ class PgPaymentClientConfig {
             // half-open 은 가볍게 — 재시도가 안쪽이라 permit 1개 = 사용자 요청 1번(시도 묶음 전체).
             .permittedNumberOfCallsInHalfOpenState(3)
             .automaticTransitionFromOpenToHalfOpenEnabled(true)
-            // PG 전송 실패만 차단에 집계 — 우리 측 예외(파싱 오류·버그)는 회로를 열지 않는다.
+            // PG 전송 실패만 차단에 집계 — 그 외 예외(4xx HttpClientErrorException, 우리 측 파싱 오류·버그)는 회로를 열지 않는다.
             .recordExceptions(PaymentGatewayException::class.java)
             .build()
         return CircuitBreaker.of("pg", config)
     }
 
     /**
-     * 외부 PG 연동 재시도 — 일시 장애(통신 실패·타임아웃·5xx)로 변환된 `PaymentGatewayException` 만 backoff 를 두고 재시도한다.
-     * 영구 실패(잘못된 카드·한도 초과)는 비동기 콜백으로 도착하므로 이 경로를 타지 않고, 회로 차단(`CallNotPermittedException`)은 재시도 대상이 아니다.
+     * 외부 PG 연동 재시도 — 일시 장애(통신 실패·타임아웃·5xx)로 변환된 `PaymentGatewayException` 만 재시도한다.
+     * 영구 실패(잘못된 카드·한도 초과)는 비동기 콜백으로 도착하므로 이 경로를 타지 않는다.
+     *
+     * **4xx(`HttpClientErrorException`)는 재시도 제외** (ADR-003) — 우리 요청이 PG 규약에 안 맞는 결정적 실패라 재시도해도 동일하다.
+     * `retryExceptions` 화이트리스트가 이미 제외하지만, `ignoreExceptions` 로 의도를 명시한다(재시도 정책이 4xx 제외를 직접 소유).
+     *
+     * **지수 + 지터(random) backoff** (ADR-003) — 고정 간격은 동시 다발 재시도가 회복 중인 PG 를 같은 박자로 때리는 thundering herd 를 부른다.
+     * 지터로 재시도 시점을 흩고, 지수로 실패가 이어질수록 간격을 늘린다. 시도 간 대기 ≈ 200ms → 400ms 에 ±50% 지터(총 backoff ≈ 0.3~0.9s).
      */
     @Bean
     fun pgRetry(): Retry {
         val config = RetryConfig.custom<Any>()
             .maxAttempts(3)
-            .waitDuration(Duration.ofMillis(200))
+            .intervalFunction(IntervalFunction.ofExponentialRandomBackoff(Duration.ofMillis(200), 2.0, 0.5))
             .retryExceptions(PaymentGatewayException::class.java)
+            .ignoreExceptions(HttpClientErrorException::class.java)
             .build()
         return Retry.of("pg", config)
     }
