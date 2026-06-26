@@ -94,13 +94,12 @@ class OrderCouponIntegrationTest @Autowired constructor(
         assertThat(result.originalAmount).isEqualTo(2000L)
         assertThat(result.discountAmount).isEqualTo(200L)
         assertThat(result.totalAmount).isEqualTo(1800L)
-        assertThat(result.status).isEqualTo(OrderStatus.PAYMENT_PENDING)
+        assertThat(result.status).isEqualTo(OrderStatus.CREATED)
         // 쿠폰은 즉시 USED 로 소진된다.
         assertThat(userCouponRepository.findById(userCoupon.id)!!.status).isEqualTo(UserCouponStatus.USED)
-        // 커밋 후 결제 이벤트 리스너가 PG 결제를 처리해 주문이 PAID 로 전이되고 결제 메타가 박힌다.
+        // 주문은 생성 상태로 저장되고 종료된다
         val persisted = orderJpaRepository.findById(result.orderId).get()
-        assertThat(persisted.status).isEqualTo(OrderStatus.PAID)
-        assertThat(persisted.paymentTransactionId).isEqualTo("tx-${result.orderId}")
+        assertThat(persisted.status).isEqualTo(OrderStatus.CREATED)
     }
 
     @DisplayName("이미 사용된 쿠폰으로 주문하면 실패하고, 주문 생성·재고 차감이 모두 롤백된다.")

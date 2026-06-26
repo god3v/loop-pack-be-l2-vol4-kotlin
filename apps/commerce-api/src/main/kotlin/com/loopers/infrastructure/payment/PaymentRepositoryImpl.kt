@@ -3,6 +3,7 @@ package com.loopers.infrastructure.payment
 import com.loopers.domain.payment.Payment
 import com.loopers.domain.payment.PaymentErrorType
 import com.loopers.domain.payment.PaymentRepository
+import com.loopers.domain.payment.PaymentStatus
 import com.loopers.support.error.CoreException
 import org.springframework.stereotype.Component
 
@@ -29,4 +30,13 @@ class PaymentRepositoryImpl(
 
     override fun findLatestByOrderId(orderId: Long): Payment? =
         paymentJpaRepository.findFirstByOrderIdOrderByIdDesc(orderId)?.toDomain()
+
+    override fun findByTransactionId(transactionId: String): Payment? =
+        paymentJpaRepository.findByTransactionId(transactionId)?.toDomain()
+
+    override fun findByTransactionIdForUpdate(transactionId: String): Payment? =
+        paymentJpaRepository.findByTransactionIdForUpdate(transactionId)?.toDomain()
+
+    override fun findAllByStatus(status: PaymentStatus): List<Payment> =
+        paymentJpaRepository.findAllByStatus(status).map { it.toDomain() }
 }

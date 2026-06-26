@@ -1,7 +1,7 @@
 # 주문(Order) API 명세
 
 > 본 문서는 `docs/guideline/api-spec-template.md` 의 규약을 따른다.
-> 요구사항: [requirements.md (v0.5)](./requirements.md)
+> 요구사항: [requirements.md (v0.7)](./requirements.md)
 > 데이터 모델: [docs/design/04-erd.md](../../design/04-erd.md) 의 `orders` · `order_lines` · `coupons` · `user_coupons`
 > 작성일: 2026-06-10
 > Base URL: 회원 채널 `/api/v1`, 어드민 채널 `/api-admin/v1`
@@ -40,13 +40,14 @@
 > 원 과제(week4) 요청 예시는 와이어 필드를 `couponId` 로 적었으나, 본 명세는 식별자의 실제 의미(발급 쿠폰)를 와이어에 그대로 드러내기 위해 **`userCouponId`** 로 명명한다.
 
 ### 0.5 주문 상태(status) 표기
-와이어 값은 도메인 `OrderStatus` 의 이름을 그대로 쓴다(대문자). 주문 저장 직후의 상태는 `PAYMENT_PENDING` 이며, 결제가 반영된 뒤 `PAID`(성공) 또는 `PAYMENT_FAILED`(실패) 로 마감된다. **주문 생성(UC-1) 응답의 상태는 `PAYMENT_PENDING`** 이다 — 결제는 주문 저장 트랜잭션이 커밋된 뒤 이벤트 처리기가 반영하므로 생성 응답 시점엔 아직 결제 전이다. **이후 조회(UC-2·3·4·5) 응답의 상태는 결제 결과에 따라 `PAID` 또는 `PAYMENT_FAILED`** 다.
+와이어 값은 도메인 `OrderStatus` 의 이름을 그대로 쓴다(대문자). 주문 생성 직후의 상태는 `CREATED` 다. 회원이 결제를 요청하면(결제 도메인 `POST /api/v1/payments`) 주문이 `PAYMENT_PENDING` 으로 전이하고, 결제가 반영된 뒤 `PAID`(성공) 또는 `PAYMENT_FAILED`(실패) 로 마감된다. **주문 생성(UC-1) 응답의 상태는 `CREATED`** 다 — 결제는 별도 명시 흐름이라 생성 응답 시점엔 아직 결제 전이다. **이후 조회(UC-2·3·4·5) 응답의 상태는 결제 진행/결과에 따라 `PAYMENT_PENDING` · `PAID` · `PAYMENT_FAILED`** 다.
 
 | 값 | 의미 | 비고 |
 |---|---|---|
-| `PAYMENT_PENDING` | 결제대기 | 주문 저장 트랜잭션 직후의 과도 상태 — 결제 반영 전 |
-| `PAID` | 결제완료 | 결제 성공 반영 후. 정상 응답의 상태 |
-| `PAYMENT_FAILED` | 결제실패 | 결제 실패 시 도달하는 마감 상태 — 이후 조회에서 노출된다(재고·쿠폰은 보상으로 원복). 운영 PG 는 항상 성공 mock 이라 정상 실행에선 발생하지 않으나, 실패 경로 자체는 구현·검증되어 있다 |
+| `CREATED` | 생성 | 주문 생성 직후의 상태 — 결제 시작 전. **생성 응답의 상태** |
+| `PAYMENT_PENDING` | 결제대기(진행) | 회원의 결제 요청이 전이시킨 상태 — 결제 결과 반영 전 |
+| `PAID` | 결제완료 | 결제 성공 반영 후 |
+| `PAYMENT_FAILED` | 결제실패 | 결제 실패 시 도달하는 마감 상태 — 이후 조회에서 노출된다(재고·쿠폰은 보상으로 원복) |
 
 ### 0.6 금액 필드(3금액 스냅샷)
 주문 응답은 쿠폰 적용 전/후를 분리해 세 금액을 모두 노출한다.
@@ -104,7 +105,7 @@
   "data": {
     "orderId":        1001,
     "userId":         7,
-    "status":         "PAYMENT_PENDING",
+    "status":         "CREATED",
     "orderedAt":      "2026-06-10T21:30:00",
     "originalAmount":    35000,
     "discountAmount": 3500,
@@ -122,7 +123,7 @@
 |---|---|---|
 | `data.orderId` | Long | 생성된 주문 식별자 |
 | `data.userId` | Long | 주문 소유 회원 식별자 |
-| `data.status` | String | 주문 상태 (`§0.5`) — **생성 응답은 `PAYMENT_PENDING`** (커밋 후 결제 반영으로 `PAID`/`PAYMENT_FAILED` 전이) |
+| `data.status` | String | 주문 상태 (`§0.5`) — **생성 응답은 `CREATED`** (이후 결제 요청으로 `PAYMENT_PENDING`, 정산으로 `PAID`/`PAYMENT_FAILED` 전이) |
 | `data.orderedAt` | String | 주문 시각 (`Asia/Seoul`) |
 | `data.originalAmount` | Long | 상품 합계 (쿠폰 적용 전) (`§0.6`) |
 | `data.discountAmount` | Long | 할인 금액 — 미적용 시 `0` (`§0.6`) |
@@ -134,12 +135,12 @@
 | `data.items[].quantity` | Int | 주문 수량 |
 | `data.items[].subtotal` | Long | `unitPrice × quantity` |
 
-> **처리 순서**: 재고 차감 · 쿠폰 사용 · 주문 저장(`PAYMENT_PENDING`) 이 단일 트랜잭션으로 처리되고 **주문 발생 이벤트**가 발행된다. 트랜잭션 커밋 후 이벤트 처리기가 `PaymentFacade.pay` 로 결제를 반영해 주문을 `PAID`(성공) 또는 `PAYMENT_FAILED`(실패 — 재고·쿠폰 보상 후) 로 마감한다. **생성 응답 자체는 `PAYMENT_PENDING`** 이며, 결제 결과는 이후 조회에서 드러난다(자세한 흐름은 §부록).
+> **처리 순서**: 재고 차감 · 쿠폰 사용 · 주문 저장(`CREATED`) 이 단일 트랜잭션으로 처리되고 종료된다. **결제는 별도 명시 흐름** — 회원이 결제(Payment) 도메인의 `POST /api/v1/payments` 를 호출하면 주문이 `PAYMENT_PENDING` 으로 전이하고, 콜백/폴링 정산이 `PAID`(성공) 또는 `PAYMENT_FAILED`(실패 — 재고·쿠폰 보상 후) 로 마감한다. **생성 응답 자체는 `CREATED`** 이며, 결제 진행·결과는 이후 조회에서 드러난다(결제 흐름은 [payment/api-spec.md](../payment/api-spec.md)).
 > **멱등 재요청**: 같은 회원이 같은 `Idempotency-Key` 로 재요청하면 신규 주문을 만들지 않고 기존 주문과 동일한 본문으로 `200 OK` 를 응답한다.
 
 ### 실패 응답
 
-실패 응답 본문 형식은 템플릿 §0.3 을 참조한다. 아래 케이스는 모두 주문 저장 트랜잭션 안에서 발생하며, 트랜잭션이 전부 롤백되어 주문·재고·쿠폰 어떤 변경도 남지 않는다. 결제는 주문 저장 트랜잭션이 커밋된 뒤 비동기(이벤트)로 일어나므로 **생성 응답 자체에는 결제-실패 에러가 없고, 생성 응답의 상태는 항상 `PAYMENT_PENDING`** 이다. 결제가 실패하면 그 사실은 생성 응답이 아니라 **이후 조회**에서 주문이 `PAYMENT_FAILED` 로 드러나며(차감된 재고·소진된 쿠폰은 보상으로 원복), 자세한 흐름은 §부록을 참조한다.
+실패 응답 본문 형식은 템플릿 §0.3 을 참조한다. 아래 케이스는 모두 주문 저장 트랜잭션 안에서 발생하며, 트랜잭션이 전부 롤백되어 주문·재고·쿠폰 어떤 변경도 남지 않는다. 결제는 주문 생성과 분리된 별도 명시 흐름이므로 **생성 응답 자체에는 결제-실패 에러가 없고, 생성 응답의 상태는 항상 `CREATED`** 다. 결제가 실패하면 그 사실은 생성 응답이 아니라 **이후 조회**에서 주문이 `PAYMENT_FAILED` 로 드러나며(차감된 재고·소진된 쿠폰은 보상으로 원복), 자세한 흐름은 §부록을 참조한다.
 
 | HTTP | errorCode | 케이스 |
 |---|---|---|
@@ -377,7 +378,7 @@
 ## 부록 — 쿠폰/결제 연동 메모
 
 - **쿠폰 사용 결선**: 주문 생성 시 쿠폰 사용(소유·사용·만료·최소금액 검증 + 할인 계산 + 소진)은 `OrderFacade` 가 **쿠폰 도메인 객체·리포지토리를 자신의 트랜잭션 안에서 직접 조율**한다(`CouponFacade.applyCoupon` 경유 아님). 할인 계산식·단일 사용·만료 판정 규칙 자체는 Coupon 도메인이 소유한다. 쿠폰 사용은 독립 엔드포인트로 노출하지 않는다.
-- **결제 게이트웨이**: `application.order.port.PaymentGateway`(outbound port) + `infrastructure.order` 의 **항상 성공** 어댑터(`AlwaysSuccessPaymentGateway`). 결제 금액을 받아 `PaymentResult`(transactionId·resultCode·success) VO 를 반환한다.
-- **결제 오케스트레이션**: 결제 조율과 트랜잭션 경계는 `application.order.PaymentFacade.pay(orderId)` 가 소유한다. 주문 저장 시 발행된 `OrderPlacedEvent` 를 `OrderPaymentEventListener` 가 **`@TransactionalEventListener(AFTER_COMMIT)`** 시점에 받아 `paymentFacade.pay(...)` 로 위임하는 **얇은 트리거**(비즈니스 로직 0)일 뿐이고, 실제 로드→PG 호출→상태 전이→저장은 `PaymentFacade` 가 수행한다. `pay` 는 **별도 트랜잭션(`REQUIRES_NEW`)** 으로 실행된다 — AFTER_COMMIT 콜백에는 이미 커밋된 원 트랜잭션이 바인딩돼 있어 평범한 `@Transactional` 은 조인만 하고 커밋되지 않기 때문이다. 진입 시 `order.status != PAYMENT_PENDING` 이면 early-return 하는 **멱등 가드**로 중복 트리거의 이중 청구·이중 보상을 막는다.
-- **결제 실패 보상**: PG 가 실패를 반환하면 같은(`REQUIRES_NEW`) 트랜잭션에서 보상이 수행된다 — 주문 라인별 `Product.restoreStock(quantity)` 로 차감했던 재고를 원복(saveAll), `UserCoupon.cancelUse()` 로 소진한 쿠폰을 복원(`USED→AVAILABLE`, `usedAt=null`; 사용 전이면 멱등 no-op), 이어 `Order.markPaymentFailed(...)` 로 주문을 `PAYMENT_FAILED` 로 전이한다. 운영 PG 는 항상 성공 mock 이라 정상 실행에선 실패가 나지 않지만, 실패 경로·보상은 구현되어 있고 테스트(`OrderPaymentFailureIntegrationTest` — 실패 게이트웨이를 `@MockkBean` 주입해 실제 DB로 재고·쿠폰·주문상태 원복을 검증, + `PaymentFacadeTest` 단위)로 커버된다. **남은 향후 과제는 실제 외부 PG 연동(mock 교체)** 뿐이다(requirements §미해결).
+- **결제 진입(명시 API)**: 결제는 회원이 직접 호출하는 결제(Payment) 도메인 API(`POST /api/v1/payments`, `application.payment.PaymentFacade.pay(command)`)가 처리한다. 주문 생성과 분리된 별도 흐름이며, 자동 결제 이벤트(`OrderPlacedEvent`)·항상성공 mock(`AlwaysSuccessPaymentGateway`)·구 `application.order.port.PaymentGateway` 는 제거되었다.
+- **결제 진행 전이**: `pay` 는 주문을 잠금 조회해 `Order.validatePayable()`(`CREATED` 만 결제 가능) 로 검증하고 `Order.markPaymentPending()` 으로 `CREATED → PAYMENT_PENDING` 전이시킨다. 동시·중복 결제 요청은 주문 잠금 + 단방향 전이로 차단된다(두 번째는 `validatePayable` 가 `ORDER_NOT_PAYABLE` 로 거부). 외부 PG 연동·접수·정산은 [payment/api-spec.md](../payment/api-spec.md) 가 소유한다.
+- **결제 실패 보상**: 결제 실패 정산 시 재고 원복(`Product.restoreStock`)·쿠폰 사용 취소(`UserCoupon.cancelUse`) 후 `Order.markPaymentFailed(...)` 로 `PAYMENT_FAILED` 전이한다(멱등). 이 전이·보상 규칙은 주문(및 Product·Coupon) 도메인이 소유하고, **언제 호출하는지(조율)** 는 결제 정산이 트리거한다(payment 도메인).
 - **락 전략**: 발급 쿠폰 단일 사용은 Coupon 도메인이 비관적 행 락(`findByIdForUpdate`)을 제공한다. 재고 차감 락(비관/낙관)은 **TBD** — requirements §미해결 결정 사항 참조. 보상의 `restoreStock` 도 차감과 같은 read-modify-write 라 동일한 재고 락 TBD 선상에 있다.

@@ -77,24 +77,19 @@ class OrderV1ApiE2ETest @Autowired constructor(
     @DisplayName("POST /api/v1/orders 주문 생성")
     @Nested
     inner class PlaceOrder {
-        @DisplayName("쿠폰을 적용해 주문하면, 200 과 PAYMENT_PENDING + 3금액(할인 반영) 을 받고, 커밋 후 결제로 PAID 가 된다.")
+        @DisplayName("쿠폰을 적용해 주문하면, 200 과 CREATED + 3금액(할인 반영) 을 받는다.")
         @Test
-        fun placesWithCoupon_thenBecomesPaid() {
+        fun placesWithCoupon() {
             val response = placeOrder(request(quantity = 2, userCouponId = userCouponId), idempotencyKey = "idem-1")
 
             assertAll(
                 { assertThat(response.statusCode).isEqualTo(HttpStatus.OK) },
-                { assertThat(response.body?.data?.status).isEqualTo(OrderStatus.PAYMENT_PENDING) },
+                { assertThat(response.body?.data?.status).isEqualTo(OrderStatus.CREATED) },
                 { assertThat(response.body?.data?.originalAmount).isEqualTo(2000L) },
                 { assertThat(response.body?.data?.discountAmount).isEqualTo(200L) },
                 { assertThat(response.body?.data?.totalAmount).isEqualTo(1800L) },
                 { assertThat(response.body?.data?.userCouponId).isEqualTo(userCouponId) },
             )
-
-            // 커밋 후 결제 이벤트 리스너가 동기 실행되어 PAID 로 전이된다.
-            val orderId = response.body!!.data!!.orderId
-            val detail = getOrderDetail(orderId)
-            assertThat(detail.body?.data?.status).isEqualTo(OrderStatus.PAID)
         }
 
         @DisplayName("쿠폰 없이 주문하면, 할인 0 이고 결제 금액은 상품 합계와 같다.")
@@ -291,14 +286,6 @@ class OrderV1ApiE2ETest @Autowired constructor(
         HttpEntity(request, authHeaders(idempotencyKey = idempotencyKey)),
         orderResponse(),
     )
-
-    private fun getOrderDetail(orderId: Long): ResponseEntity<ApiResponse<OrderV1Dto.OrderResponse>> =
-        testRestTemplate.exchange(
-            "/api/v1/orders/$orderId",
-            HttpMethod.GET,
-            HttpEntity<Void>(authHeaders()),
-            orderResponse(),
-        )
 
     private fun signup(loginId: String, email: String) {
         testRestTemplate.exchange(

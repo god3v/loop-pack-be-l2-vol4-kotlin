@@ -1,42 +1,148 @@
 package com.loopers.application.payment
 
-import com.loopers.application.order.port.PaymentGateway
+import com.loopers.application.order.OrderCompensator
+import com.loopers.application.payment.port.PaymentGateway
+import com.loopers.application.payment.port.PaymentGatewayException
+import com.loopers.application.payment.port.PaymentRequestCommand
+import com.loopers.application.payment.port.PgTransaction
+import com.loopers.application.payment.port.PgTransactionStatus
+import com.loopers.domain.order.OrderErrorType
+import com.loopers.domain.order.OrderRepository
+import com.loopers.domain.payment.CardNumber
+import com.loopers.domain.payment.CardType
+import com.loopers.domain.payment.Payment
 import com.loopers.domain.payment.PaymentErrorType
 import com.loopers.domain.payment.PaymentRepository
 import com.loopers.support.error.CoreException
+import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
+import org.springframework.transaction.annotation.Transactional
+import java.time.LocalDateTime
 
-/**
- * 주문 결제 오케스트레이션. 주문 저장 트랜잭션 커밋 후(이벤트 리스너가 트리거) 실행된다.
- *
- * 트랜잭션 경계를 두지 않는다 — 외부 결제 호출(charge·refund)을 어떤 락/트랜잭션에도 가두지 않기 위함이다.
- * 결제: 요청(REQUESTED 커밋) → **락 밖** charge → 정산. 취소: **락 밖** refund(승인분) → 취소 정산.
- * 각 트랜잭션 경계는 별도 빈(`PaymentInitiator`·`PaymentSettler`·`PaymentCanceler`)이 소유한다(REQUIRES_NEW — 프록시 경유 필수).
- */
 @Component
 class PaymentFacade(
-    private val paymentInitiator: PaymentInitiator,
-    private val paymentSettler: PaymentSettler,
-    private val paymentCanceler: PaymentCanceler,
+    private val orderRepository: OrderRepository,
     private val paymentRepository: PaymentRepository,
     private val paymentGateway: PaymentGateway,
+    private val orderCompensator: OrderCompensator,
 ) {
-    fun pay(orderId: Long) {
-        // 요청이 성사되지 않으면(이미 처리·진행 중·주문 없음) 외부 호출 없이 종료 — 중복 트리거 방어.
-        val payment = paymentInitiator.request(orderId) ?: return
-        val result = paymentGateway.charge(payment.orderId, payment.amount)
-        paymentSettler.settle(payment.id, result)
+    private val log = LoggerFactory.getLogger(PaymentFacade::class.java)
+
+    @Transactional
+    fun pay(command: PaymentCommand): PaymentRequestResult {
+        // 카드 입력 검증(400) — 외부 호출·DB 조회 전에 먼저 거른다.
+        val cardType = CardType.from(command.cardType)
+        val cardNo = CardNumber(command.cardNo)
+
+        val order = orderRepository.findByIdForUpdate(command.orderId)
+            ?: throw CoreException(OrderErrorType.ORDER_NOT_FOUND)
+        // 본인 주문인지 검증
+        order.validateOwnedBy(command.userId.toLong())
+        // 이미 결제 진행/완료인지 검증
+        order.validatePayable()
+        // 결제 진행 상태 변경
+        order.markPaymentPending()
+        orderRepository.save(order)
+
+        // 외부 호출 전에 결제를 먼저 영속(REQUESTED, 거래 식별자 없음) — 호출 실패 시에도 폴링 복구 대상으로 남긴다(선커밋).
+        var payment = paymentRepository.save(Payment.request(orderId = order.id, amount = order.totalAmount))
+        try {
+            // 외부 PG 에 결제 요청 → 접수(거래 식별자 + 처리 중). 접수된 거래 식별자를 결제에 기록한다.
+            val acceptance = paymentGateway.request(
+                PaymentRequestCommand(
+                    userId = command.userId,
+                    orderId = order.id,
+                    amount = order.totalAmount,
+                    cardType = cardType.name,
+                    cardNo = cardNo.value,
+                    callbackUrl = CALLBACK_URL,
+                ),
+            )
+            payment.accept(acceptance.transactionKey)
+            payment = paymentRepository.save(payment)
+        } catch (e: PaymentGatewayException) {
+            // Fallback(일시 장애: 타임아웃·통신 실패·회로 차단) — 거래 식별자 미확보로 REQUESTED 유지, 폴링으로 복구한다.
+            log.warn("PG 결제 요청 일시 실패 — 결제 {} 를 REQUESTED 로 유지(폴링 복구 대상): {}", payment.id, e.message)
+        }
+        return PaymentRequestResult(
+            paymentId = payment.id,
+            orderId = order.id,
+            status = payment.status,
+            transactionKey = payment.transactionId,
+            amount = payment.amount,
+            requestedAt = payment.requestedAt,
+        )
     }
 
-    fun cancel(paymentId: Long) {
-        // 락/트랜잭션 없이 payment 를 읽어 refund 필요 여부만 판단한다 — 외부 환불을 락 밖에서 호출하기 위함.
-        // 실제 상태 전이·보상의 락·트랜잭션 경계는 PaymentCanceler.cancel(REQUIRES_NEW) 이 소유한다.
+    /**
+     * 정산 — 콜백·폴링이 전달한 외부 거래 결과를 결제·주문에 반영한다. 거래 식별자로 결제를 찾아 확정한다.
+     * 성공이면 결제 APPROVED + 주문 PAID. (실패·미확정 분기는 후속 구현.)
+     */
+    @Transactional
+    fun settle(transaction: PgTransaction) {
+        // 거래 식별자로 결제를 비관 락 조회 — 콜백·폴링 동시 도착을 직렬화한다.
+        val payment = paymentRepository.findByTransactionIdForUpdate(transaction.transactionKey) ?: return
+        if (!payment.isRequested()) return // 이미 정산(승인·실패·취소)됨 — 중복 결과는 멱등하게 무시한다
+        val order = orderRepository.findByIdForUpdate(payment.orderId) ?: return
+
+        when (transaction.status) {
+            PgTransactionStatus.SUCCESS -> {
+                payment.approve(transaction.transactionKey, LocalDateTime.now())
+                order.markPaid(transaction.transactionKey, transaction.status.name)
+            }
+            PgTransactionStatus.FAILED -> {
+                payment.fail(transaction.reason)
+                orderCompensator.restore(order)
+                order.markPaymentFailed(transaction.transactionKey, transaction.reason)
+            }
+            PgTransactionStatus.PENDING -> return // 아직 처리 중 — 미확정으로 둔다(후속 item)
+        }
+        paymentRepository.save(payment)
+        orderRepository.save(order)
+    }
+
+    /**
+     * 수동 복구 — 처리 중(REQUESTED) 결제의 외부 상태를 조회해, 확정(SUCCESS/FAILED)이면 정산한다.
+     * 거래 식별자가 있으면 그것으로 조회하고, 미확보(타임아웃 접수 미확인)면 주문 식별자로 외부 결제건을 찾아 식별자를 접수한 뒤 정산한다.
+     * 이미 확정됐거나 외부가 아직 처리 중(확정 거래 없음)이면 상태를 바꾸지 않고 `settled = false` 로 반환한다.
+     */
+    @Transactional
+    fun sync(paymentId: Long): PaymentSyncResult {
         val payment = paymentRepository.findById(paymentId)
             ?: throw CoreException(PaymentErrorType.PAYMENT_NOT_FOUND)
-        // 승인된 결제만 외부 환불이 필요하다(REQUESTED 는 청구 전이라 환불 불필요). 환불은 락 밖에서 호출한다.
-        if (payment.isApproved()) {
-            paymentGateway.refund(requireNotNull(payment.transactionId), payment.amount)
+        if (!payment.isRequested()) {
+            return PaymentSyncResult(paymentId, payment.status, settled = false) // 이미 확정 — 변화 없음
         }
-        paymentCanceler.cancel(paymentId)
+        val order = orderRepository.findById(payment.orderId)
+            ?: throw CoreException(OrderErrorType.ORDER_NOT_FOUND)
+        val userId = order.userId.toString()
+
+        // 거래 식별자가 있으면 그것으로, 없으면 주문 식별자로 외부 확정 거래를 찾는다(타임아웃 성공 수렴).
+        // 외부 조회가 실패(통신 오류·회로 차단)하면 상태를 바꾸지 않고 미확정으로 둔다.
+        val transaction = try {
+            payment.transactionId
+                ?.let { paymentGateway.getTransaction(userId, it) }
+                ?: paymentGateway.getByOrder(userId, order.id).firstOrNull { it.status != PgTransactionStatus.PENDING }
+        } catch (e: PaymentGatewayException) {
+            log.warn("PG 상태 조회 실패 — 결제 {} 미확정 유지: {}", paymentId, e.message)
+            null
+        }
+
+        if (transaction == null || transaction.status == PgTransactionStatus.PENDING) {
+            return PaymentSyncResult(paymentId, payment.status, settled = false) // 외부 미확정
+        }
+        // 식별자 미확보였다면 발견한 거래 식별자를 접수 기록한다 — settle 이 거래 식별자로 결제를 매칭한다.
+        if (!payment.hasTransactionId()) {
+            payment.accept(transaction.transactionKey)
+            paymentRepository.save(payment)
+        }
+        settle(transaction)
+        val settled = paymentRepository.findById(paymentId)!!
+        return PaymentSyncResult(paymentId, settled.status, settled = true)
+    }
+
+    companion object {
+        // TODO: 환경별 외부화(payment.callback-url). pg-simulator 는 callbackUrl 이 http://localhost:8080 으로 시작할 것을 요구한다.
+        private const val CALLBACK_URL = "http://localhost:8080/api/v1/payments/callback"
     }
 }

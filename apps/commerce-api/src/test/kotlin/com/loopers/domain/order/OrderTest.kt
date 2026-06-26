@@ -72,12 +72,12 @@ class OrderTest {
             assertThat(order.orderedAt).isBetween(before, after)
         }
 
-        @DisplayName("초기 status 는 PAYMENT_PENDING 이다 (markPaid/markPaymentFailed 호출 전).")
+        @DisplayName("초기 status 는 CREATED 이다 (markPaymentPending/markPaid/markPaymentFailed 호출 전).")
         @Test
-        fun initialStatusIsPaymentPending() {
+        fun initialStatusIsCreated() {
             val order = Order.create(userId = 42L, lines = listOf(line()), idempotencyKey = "abc")
 
-            assertThat(order.status).isEqualTo(OrderStatus.PAYMENT_PENDING)
+            assertThat(order.status).isEqualTo(OrderStatus.CREATED)
         }
     }
 
@@ -136,6 +136,7 @@ class OrderTest {
         @Test
         fun markPaidUpdatesState() {
             val order = Order.create(userId = 42L, lines = listOf(line()), idempotencyKey = "abc")
+            order.markPaymentPending()
 
             order.markPaid(transactionId = "tx-1", resultCode = "APPROVED")
 
@@ -148,6 +149,7 @@ class OrderTest {
         @Test
         fun markPaymentFailedUpdatesState() {
             val order = Order.create(userId = 42L, lines = listOf(line()), idempotencyKey = "abc")
+            order.markPaymentPending()
 
             order.markPaymentFailed(transactionId = null, resultCode = "DECLINED")
 
@@ -160,6 +162,7 @@ class OrderTest {
         @Test
         fun markPaidIsIdempotent() {
             val order = Order.create(userId = 42L, lines = listOf(line()), idempotencyKey = "abc")
+            order.markPaymentPending()
             order.markPaid("tx-1", "APPROVED")
 
             order.markPaid("tx-2", "APPROVED")
@@ -172,6 +175,7 @@ class OrderTest {
         @Test
         fun cannotTransitPaidToFailed() {
             val order = Order.create(userId = 42L, lines = listOf(line()), idempotencyKey = "abc")
+            order.markPaymentPending()
             order.markPaid("tx-1", "APPROVED")
 
             val ex = assertThrows<CoreException> { order.markPaymentFailed(null, "DECLINED") }
@@ -184,6 +188,7 @@ class OrderTest {
         @Test
         fun markPaymentFailedIsIdempotent() {
             val order = Order.create(userId = 42L, lines = listOf(line()), idempotencyKey = "abc")
+            order.markPaymentPending()
             order.markPaymentFailed("tx-1", "DECLINED")
 
             order.markPaymentFailed("tx-2", "OTHER")
@@ -196,6 +201,7 @@ class OrderTest {
         @Test
         fun cannotTransitFailedToPaid() {
             val order = Order.create(userId = 42L, lines = listOf(line()), idempotencyKey = "abc")
+            order.markPaymentPending()
             order.markPaymentFailed(null, "DECLINED")
 
             val ex = assertThrows<CoreException> { order.markPaid("tx-1", "APPROVED") }
@@ -212,6 +218,7 @@ class OrderTest {
         @Test
         fun cancelsPendingOrder() {
             val order = Order.create(userId = 42L, lines = listOf(line()), idempotencyKey = "abc")
+            order.markPaymentPending()
 
             order.cancel()
 
@@ -222,6 +229,7 @@ class OrderTest {
         @Test
         fun cancelsPaidOrder() {
             val order = Order.create(userId = 42L, lines = listOf(line()), idempotencyKey = "abc")
+            order.markPaymentPending()
             order.markPaid("tx-1", "APPROVED")
 
             order.cancel()
@@ -244,6 +252,7 @@ class OrderTest {
         @Test
         fun cannotCancelFailedOrder() {
             val order = Order.create(userId = 42L, lines = listOf(line()), idempotencyKey = "abc")
+            order.markPaymentPending()
             order.markPaymentFailed(null, "DECLINED")
 
             val ex = assertThrows<CoreException> { order.cancel() }
