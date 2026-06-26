@@ -96,10 +96,10 @@ CREATED → PAYMENT_PENDING → PAID / PAYMENT_FAILED
 
 - [x] 일시적 통신 실패는 지정한 횟수까지 재시도된다
 - [x] 재시도 대상이 아닌 예외(영구 실패 등)는 재시도 없이 즉시 전파된다
-- [ ] 재시도 사이에 backoff 대기를 둔다
-- [ ] 최대 시도를 소진하면 재시도를 멈추고 Fallback 으로 이어진다
-- [ ] 반복 재시도의 누적 실패가 회로 차단으로 이어진다
-- [ ] 재시도로 같은 요청이 여러 번 나가도 이중 결제가 발생하지 않는다
+- [x] 재시도 사이에 backoff 대기를 둔다
+- [x] 최대 시도를 소진하면 재시도를 멈추고 Fallback 으로 이어진다
+- [x] 반복 재시도의 누적 실패가 회로 차단으로 이어진다
+- [x] 재시도로 같은 요청이 여러 번 나가도 이중 결제가 발생하지 않는다
 
 ## Phase 4 — Application Facade (`com.loopers.application.payment`)
 
@@ -181,5 +181,6 @@ CREATED → PAYMENT_PENDING → PAID / PAYMENT_FAILED
 - **2026-06-23** — 초기 케이스 도출. `Payment.accept`·결제 조회·PG 어댑터(`request`/`getTransaction`/`getByOrder`) 구현.
 - **2026-06-24** — `PaymentFacade`(pay/settle/sync) 단일 진입점 확립. 컨트롤러·콜백·수동복구 E2E. 동기 잔재(`PaymentSettler`·`PaymentResult`·자동 트리거·refund) 제거.
 - **2026-06-25** — Timeout·CircuitBreaker·Fallback 적용. 외부 호출 전 선영속으로 복구 보장.
-- **2026-06-25** — Retry(Nice-To-Have) 착수. PG 어댑터에 resilience4j-retry 적용(Retry 바깥·CircuitBreaker 안쪽), 일시 실패 최대 시도까지 재시도(첫 케이스). k6 회복 전략 부하 검증 시나리오를 plan 에 추가.
+- **2026-06-25** — Retry(Nice-To-Have) 완료. PG 어댑터에 resilience4j-retry 적용(Retry 바깥·CircuitBreaker 안쪽). 재시도/비재시도/backoff/소진→Fallback/누적→차단/이중 결제 없음 6케이스 검증. k6 회복 전략 부하 검증 시나리오를 plan 에 추가.
 - **2026-06-25** — (구조) 전송 추상화 `PaymentApiClient` 분리. `RestClientPaymentApiClient` 가 HTTP 호출·와이어 DTO·예외 변환을, `PgSimulatorPaymentGateway` 는 회복 전략(CB·Retry)만 담당 — 전송 라이브러리 교체가 구현체 교체로 끝나게 됨. 행위 무변경.
+- **2026-06-26** — (행위) Retry·CircuitBreaker 적용 순서를 `CircuitBreaker(Retry(call))` 로 swap — Retry-바깥이 half-open permit 을 시도 수만큼 잡아먹던 함정 해소. half-open permit 3 명시, 재시도 묶음=CB 1 이벤트. `accumulatedRetryFailuresOpenCircuit` → `retriesCountAsSingleCircuitEvent` 재작성. 결정 기록 [resilience-decisions.md](./resilience-decisions.md) ADR-001.

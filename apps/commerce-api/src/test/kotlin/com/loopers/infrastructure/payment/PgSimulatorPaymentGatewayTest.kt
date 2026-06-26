@@ -22,18 +22,19 @@ import org.springframework.test.web.client.response.MockRestResponseCreators.wit
 import org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess
 import org.springframework.web.client.RestClient
 import java.time.Duration
+import kotlin.system.measureTimeMillis
 
 class PgSimulatorPaymentGatewayTest {
     private fun cb(config: CircuitBreakerConfig = CircuitBreakerConfig.ofDefaults()): CircuitBreaker =
         CircuitBreaker.of("test", config)
 
-    // 기본 maxAttempts=1 → 재시도 없음(기존 테스트 행위 보존). 재시도 케이스만 명시적으로 횟수를 올린다.
-    private fun retry(maxAttempts: Int = 1): Retry =
+    // 기본 maxAttempts=1 → 재시도 없음(기존 테스트 행위 보존). 재시도 케이스만 명시적으로 횟수·대기를 올린다.
+    private fun retry(maxAttempts: Int = 1, waitMillis: Long = 1): Retry =
         Retry.of(
             "test",
             RetryConfig.custom<Any>()
                 .maxAttempts(maxAttempts)
-                .waitDuration(Duration.ofMillis(1))
+                .waitDuration(Duration.ofMillis(waitMillis))
                 .retryExceptions(PaymentGatewayException::class.java)
                 .build(),
         )
@@ -218,5 +219,70 @@ class PgSimulatorPaymentGatewayTest {
         assertThatThrownBy { gateway.request(request()) }
             .isInstanceOf(IllegalArgumentException::class.java)
         server.verify() // 정확히 1번만 호출(재시도 없음)
+    }
+
+    @DisplayName("재시도 사이에 backoff 대기를 둔다 — 시도 간 대기 시간만큼 지연된다.")
+    @Test
+    fun waitsBetweenRetries() {
+        val builder = RestClient.builder().baseUrl("http://pg.test")
+        val server = MockRestServiceServer.bindTo(builder).build()
+        val gateway = PgSimulatorPaymentGateway(
+            RestClientPaymentApiClient(builder.build()),
+            cb(),
+            retry(maxAttempts = 3, waitMillis = 50),
+        )
+
+        // 3회 모두 5xx → 시도 사이에 2번의 backoff(각 50ms) 가 끼어든다.
+        repeat(3) {
+            server.expect(requestTo("http://pg.test/api/v1/payments"))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withServerError())
+        }
+
+        val elapsed = measureTimeMillis {
+            assertThatThrownBy { gateway.request(request()) }
+                .isInstanceOf(PaymentGatewayException::class.java)
+        }
+
+        // 2번의 대기(2 × 50ms) 만큼은 최소로 지연된다. 하한만 검증(상한은 부하에 흔들리므로 보지 않는다).
+        assertThat(elapsed).isGreaterThanOrEqualTo(90L)
+        server.verify()
+    }
+
+    @DisplayName("한 번의 request() 안 재시도는 회로 차단기에 한 번의 실패로만 집계된다 — 재시도가 permit 을 개별 소비하지 않는다.")
+    @Test
+    fun retriesCountAsSingleCircuitEvent() {
+        val builder = RestClient.builder().baseUrl("http://pg.test")
+        val server = MockRestServiceServer.bindTo(builder).build()
+        val circuit = cb(
+            CircuitBreakerConfig.custom()
+                .slidingWindowType(CircuitBreakerConfig.SlidingWindowType.COUNT_BASED)
+                .slidingWindowSize(2)
+                .minimumNumberOfCalls(2)
+                .failureRateThreshold(50f)
+                .waitDurationInOpenState(Duration.ofSeconds(30))
+                .build(),
+        )
+        val gateway = PgSimulatorPaymentGateway(RestClientPaymentApiClient(builder.build()), circuit, retry(maxAttempts = 3))
+
+        // 모든 시도에 5xx — 6번(요청 2 × 재시도 3) 기대를 미리 등록한다(MockServer 는 호출 시작 후 기대 추가 불가).
+        repeat(6) {
+            server.expect(requestTo("http://pg.test/api/v1/payments"))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withServerError())
+        }
+
+        // 첫 request(): 3번 재시도해도 회로 차단기에는 실패 1건만 집계된다 → 윈도우(2) 미달, 회로는 닫힌 채.
+        assertThatThrownBy { gateway.request(request()) }.isInstanceOf(PaymentGatewayException::class.java)
+        assertThat(circuit.state).isEqualTo(CircuitBreaker.State.CLOSED)
+
+        // 둘째 request(): 실패 2건째 → 윈도우(2) 충족, 실패율 100% → 회로 OPEN.
+        assertThatThrownBy { gateway.request(request()) }.isInstanceOf(PaymentGatewayException::class.java)
+        assertThat(circuit.state).isEqualTo(CircuitBreaker.State.OPEN)
+
+        // 셋째 request(): OPEN — 재시도에 들어가기 전에 차단되어 외부로 한 번도 나가지 않는다.
+        assertThatThrownBy { gateway.request(request()) }.isInstanceOf(PaymentGatewayException::class.java)
+
+        server.verify() // 외부 호출은 정확히 6번(요청 2 × 재시도 3) — 셋째 요청은 0번
     }
 }

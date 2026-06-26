@@ -30,14 +30,15 @@ class PgSimulatorPaymentGateway(
         execute("주문별 결제 조회") { paymentApiClient.getByOrder(userId, orderId) }
 
     /**
-     * 전송 호출을 회로 차단기(안쪽)·재시도(바깥쪽)로 감싼다. 전송 실패는 `PaymentApiClient` 가 `PaymentGatewayException` 으로 변환해 던지며,
-     * 각 시도가 회로 차단기를 거쳐 실패로 누적된다 — 누적 실패가 임계를 넘으면 회로가 열린다.
-     * 회로가 열린 동안의 호출(`CallNotPermittedException`)은 재시도하지 않고 즉시 차단으로 변환한다.
+     * 전송 호출을 재시도(안쪽)·회로 차단기(바깥쪽)로 감싼다. 전송 실패는 `PaymentApiClient` 가 `PaymentGatewayException` 으로 변환해 던진다.
+     * 한 번의 호출에서 **재시도 시퀀스 전체가 회로 차단기에 한 번의 이벤트로 집계**된다 — half-open 에서 한 요청이 permit 하나만 쓰도록(가벼운 probe) 회로 차단기를 바깥에 둔다.
+     * 회로가 열린 동안의 호출은 재시도에 들어가기 *전에* `CallNotPermittedException` 으로 차단되어, 죽어 있을 수 있는 PG 로 재시도가 새어 나가지 않는다.
      */
     private fun <T> execute(action: String, block: () -> T): T {
-        val guarded = CircuitBreaker.decorateSupplier(pgCircuitBreaker) { block() }
+        val retried = Retry.decorateSupplier(pgRetry) { block() }
+        val guarded = CircuitBreaker.decorateSupplier(pgCircuitBreaker, retried)
         return try {
-            Retry.decorateSupplier(pgRetry, guarded).get()
+            guarded.get()
         } catch (e: CallNotPermittedException) {
             throw PaymentGatewayException("PG 회로 차단 — $action 차단됨", e)
         }

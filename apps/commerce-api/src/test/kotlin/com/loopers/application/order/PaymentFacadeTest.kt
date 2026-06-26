@@ -4,6 +4,7 @@ import com.loopers.application.payment.PaymentCommand
 import com.loopers.application.payment.PaymentFacade
 import com.loopers.application.payment.port.PaymentGateway
 import com.loopers.application.payment.port.PaymentGatewayException
+import com.loopers.application.payment.port.PaymentRequestCommand
 import com.loopers.application.payment.port.PaymentResponse
 import com.loopers.application.payment.port.PgTransaction
 import com.loopers.application.payment.port.PgTransactionStatus
@@ -15,7 +16,12 @@ import com.loopers.domain.order.OrderStatus
 import com.loopers.domain.payment.Payment
 import com.loopers.domain.payment.PaymentRepository
 import com.loopers.domain.payment.PaymentStatus
+import com.loopers.infrastructure.payment.PaymentApiClient
+import com.loopers.infrastructure.payment.PgSimulatorPaymentGateway
 import com.loopers.support.error.CoreException
+import io.github.resilience4j.circuitbreaker.CircuitBreaker
+import io.github.resilience4j.retry.Retry
+import io.github.resilience4j.retry.RetryConfig
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -24,6 +30,7 @@ import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import java.time.Duration
 import java.time.LocalDateTime
 
 @DisplayName("PaymentFacade — 결제 요청(pay)·정산(settle)")
@@ -78,6 +85,84 @@ class PaymentFacadeTest {
         assertThat(info.status).isEqualTo(PaymentStatus.REQUESTED)
         assertThat(info.transactionKey).isNull()
         verify { paymentGateway.request(any()) }
+    }
+
+    @DisplayName("외부 PG 가 계속 실패하면 최대 시도까지 재시도한 뒤 멈추고, 결제를 REQUESTED 로 두는 Fallback 으로 이어진다.")
+    @Test
+    fun exhaustsRetriesThenFallsBack() {
+        // 항상 일시 장애를 던지는 스텁 전송 클라이언트 — 실제 Retry 가 몇 번 호출하는지 센다.
+        var calls = 0
+        val failingClient = object : PaymentApiClient {
+            override fun requestPayment(command: PaymentRequestCommand): PaymentResponse {
+                calls++
+                throw PaymentGatewayException("타임아웃")
+            }
+
+            override fun getTransaction(userId: String, transactionKey: String): PgTransaction =
+                throw UnsupportedOperationException()
+
+            override fun getByOrder(userId: String, orderId: Long): List<PgTransaction> =
+                throw UnsupportedOperationException()
+        }
+        // 실제 Retry(최대 3회) 를 입힌 게이트웨이 + 실제 facade 로 "소진 → Fallback" 통합을 검증한다.
+        val retry = Retry.of(
+            "test",
+            RetryConfig.custom<Any>()
+                .maxAttempts(3)
+                .waitDuration(Duration.ofMillis(1))
+                .retryExceptions(PaymentGatewayException::class.java)
+                .build(),
+        )
+        val gateway = PgSimulatorPaymentGateway(failingClient, CircuitBreaker.ofDefaults("test"), retry)
+        val facade = PaymentFacade(orderRepository, paymentRepository, gateway, orderCompensator)
+        every { orderRepository.findByIdForUpdate(1L) } returns createdOrder()
+        every { paymentRepository.save(any()) } returns
+            Payment(id = 10L, orderId = 1L, amount = 2000L, requestedAt = LocalDateTime.now())
+
+        val info = facade.pay(command())
+
+        assertThat(calls).isEqualTo(3) // 최대 시도(3)까지 재시도하고 멈춤
+        assertThat(info.status).isEqualTo(PaymentStatus.REQUESTED) // Fallback — 예외 전파 없음
+        assertThat(info.transactionKey).isNull()
+    }
+
+    @DisplayName("재시도가 성공으로 회복돼도 결제는 한 건만 접수된다 — 재시도로 인한 이중 결제가 없다.")
+    @Test
+    fun retrySuccessYieldsSingleAcceptance() {
+        // 첫 시도는 일시 실패, 두 번째 시도는 성공하는 스텁 — 재시도로 회복되는 경로.
+        var calls = 0
+        val flakyClient = object : PaymentApiClient {
+            override fun requestPayment(command: PaymentRequestCommand): PaymentResponse {
+                calls++
+                if (calls == 1) throw PaymentGatewayException("일시 실패")
+                return PaymentResponse("tx-recovered", PgTransactionStatus.PENDING)
+            }
+
+            override fun getTransaction(userId: String, transactionKey: String): PgTransaction =
+                throw UnsupportedOperationException()
+
+            override fun getByOrder(userId: String, orderId: Long): List<PgTransaction> =
+                throw UnsupportedOperationException()
+        }
+        val retry = Retry.of(
+            "test",
+            RetryConfig.custom<Any>()
+                .maxAttempts(3)
+                .waitDuration(Duration.ofMillis(1))
+                .retryExceptions(PaymentGatewayException::class.java)
+                .build(),
+        )
+        val gateway = PgSimulatorPaymentGateway(flakyClient, CircuitBreaker.ofDefaults("test"), retry)
+        val facade = PaymentFacade(orderRepository, paymentRepository, gateway, orderCompensator)
+        every { orderRepository.findByIdForUpdate(1L) } returns createdOrder()
+        every { paymentRepository.save(any()) } returns
+            Payment(id = 10L, orderId = 1L, amount = 2000L, requestedAt = LocalDateTime.now())
+
+        val info = facade.pay(command())
+
+        assertThat(calls).isEqualTo(2) // 1 실패 + 1 성공 — 재시도로 회복
+        assertThat(info.paymentId).isEqualTo(10L) // 결제는 한 건만
+        assertThat(info.transactionKey).isEqualTo("tx-recovered") // 거래 식별자도 하나만 기록
     }
 
     @DisplayName("이미 결제 진행/완료인 주문(결제 가능 상태 아님)에 결제를 요청하면 ORDER_NOT_PAYABLE 이 발생하고 외부 PG 를 호출하지 않는다.")

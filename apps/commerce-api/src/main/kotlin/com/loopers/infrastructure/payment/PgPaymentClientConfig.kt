@@ -17,6 +17,10 @@ class PgPaymentClientConfig {
     /**
      * 외부 PG 연동 회로 차단기 — 반복 실패·느린 응답이 임계치를 넘으면 회로를 열어 이후 호출을 외부까지 가지 않고 즉시 차단한다.
      * 차단 중 호출은 `CallNotPermittedException` 으로 거부되며, 어댑터가 이를 `PaymentGatewayException` 으로 변환해 Fallback 으로 흐른다.
+     *
+     * **재시도를 바깥에서 감싼다**(어댑터 `execute`: `CircuitBreaker(Retry(call))`) — 한 요청의 재시도 묶음이 차단기에 한 이벤트로 집계되고,
+     * half-open permit 을 1요청당 1개만 소비한다(가벼운 probe). 배경·트레이드오프는 `docs/domain/payment/resilience-decisions.md` ADR-001.
+     * 결과로 `slowCallDurationThreshold` 는 재시도 묶음 전체 시간을 보게 된다 — 재시도가 낀 호출은 느린 호출로 잡힐 수 있다(의도된 동작: 재시도로도 못 살릴 만큼 느리면 차단). 정확한 값은 k6 부하 검증에서 재조정한다.
      */
     @Bean
     fun pgCircuitBreaker(): CircuitBreaker {
@@ -28,6 +32,9 @@ class PgPaymentClientConfig {
             .slowCallDurationThreshold(Duration.ofSeconds(2))
             .slowCallRateThreshold(100f)
             .waitDurationInOpenState(Duration.ofSeconds(10))
+            // half-open 은 가볍게 — 재시도가 안쪽이라 permit 1개 = 사용자 요청 1번(시도 묶음 전체).
+            .permittedNumberOfCallsInHalfOpenState(3)
+            .automaticTransitionFromOpenToHalfOpenEnabled(true)
             .build()
         return CircuitBreaker.of("pg", config)
     }
