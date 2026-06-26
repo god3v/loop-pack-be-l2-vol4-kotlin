@@ -9,10 +9,8 @@ import com.loopers.domain.payment.PaymentStatus
 import java.time.LocalDateTime
 
 /**
- * 결제 API DTO.
- *
- * 와이어의 `status` 는 도메인 `PaymentStatus` 이름(대문자) 을 그대로 직렬화한다.
- * 카드 번호(`cardNo`)는 요청으로만 들어오고 외부 PG 로만 전달되며, 어떤 응답에도 노출하지 않는다.
+ * 결제 API DTO. `status` 는 도메인 `PaymentStatus` 이름을 그대로 직렬화한다.
+ * 카드 번호는 요청으로만 받아 외부 PG 로만 전달하고, 어떤 응답에도 노출하지 않는다.
  */
 class PaymentV1Dto {
     data class PayRequest(

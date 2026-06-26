@@ -41,8 +41,7 @@ class ProductRepositoryImpl(
         if (ids.isEmpty()) {
             emptyList()
         } else {
-            // native FOR UPDATE 로 (삭제 마크 포함) 엔티티를 영속성 컨텍스트에 적재·잠근다.
-            // 이후 saveAll → save 의 findById(em.find) 는 1차 캐시 히트로 @SQLRestriction SQL 필터를 우회해 삭제 행도 갱신된다.
+            // native FOR UPDATE 로 (삭제분 포함) 적재·잠근다. 이후 save 의 findById 는 1차 캐시 히트라 삭제 행도 갱신된다.
             productJpaRepository.findAllByIdInForUpdateIncludingDeleted(ids).map { it.toDomain() }
         }
 
@@ -78,9 +77,8 @@ class ProductRepositoryImpl(
     override fun existsByBrandIdAndName(brandId: Long, name: String): Boolean =
         productJpaRepository.existsByBrandIdAndName(brandId, name)
 
-    // 타이브레이크(id) 방향을 주 정렬 방향과 통일한다.
-    // 혼합 방향(예: price ASC + id DESC)은 단일 인덱스로 못 맞춰 filesort 를 유발하므로,
-    // 평범한 오름차순 복합 인덱스(정/역방향 스캔)만으로 모든 정렬을 커버하도록 방향을 맞춘다.
+    // 타이브레이크(id) 방향을 주 정렬과 통일한다 — 혼합 방향은 filesort 를 부르므로
+    // 오름차순 복합 인덱스 하나로 모든 정렬을 커버하도록 맞춘다.
     private fun ProductSortType.toJpaSort(): Sort {
         val (primary, tiebreak) = when (this) {
             ProductSortType.LATEST -> Sort.Order.desc("createdAt") to Sort.Order.desc("id")

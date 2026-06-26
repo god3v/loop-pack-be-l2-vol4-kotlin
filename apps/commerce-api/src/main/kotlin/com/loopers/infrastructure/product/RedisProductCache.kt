@@ -15,16 +15,14 @@ import org.springframework.stereotype.Component
 import java.time.Duration
 
 /**
- * 상품 조회 Redis 캐시 어댑터. 직렬화는 Jackson JSON, 키에 버전(v1)을 둔다.
- *
- * 모든 Redis 호출은 read/write/evict 헬퍼를 거치며 저장소 장애를 흡수한다 —
- * 읽기는 null(miss), 쓰기/삭제는 no-op 로 폴백해 Redis 다운에도 Facade 가 DB 로 정상 동작한다.
+ * 상품 조회 Redis 캐시 어댑터.
+ * 모든 호출은 저장소 장애를 흡수한다 — 읽기는 miss, 쓰기/삭제는 no-op 로 폴백해 Redis 다운에도 DB 로 동작한다.
  */
 @Component
 class RedisProductCache(
-    // 읽기: @Primary(ReadFrom.REPLICA_PREFERRED) 템플릿 — read 트래픽을 replica 로 분산해 master 단일 천장을 완화한다.
+    // 읽기: replica 분산 템플릿 — read 트래픽을 master 에서 덜어낸다.
     private val readTemplate: RedisTemplate<String, String>,
-    // 쓰기/삭제: master — 복제 지연 없이 즉시 반영.
+    // 쓰기/삭제: master — 즉시 반영.
     @Qualifier(RedisConfig.REDIS_TEMPLATE_MASTER)
     private val writeTemplate: RedisTemplate<String, String>,
     private val objectMapper: ObjectMapper,

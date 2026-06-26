@@ -64,8 +64,7 @@ class OrderEntity private constructor(
     var paymentResultCode: String? = paymentResultCode
         protected set
 
-    // 목록 조회 시 주문별 lines 지연 로딩이 N+1 이 되지 않도록, 페이지의 주문들을 모아
-    // IN 절로 한 번에 적재한다 (페이징과 호환 — fetch join 과 달리 메모리 페이징을 유발하지 않음).
+    // 목록 조회 시 lines 지연 로딩 N+1 을 피한다 — 페이지의 주문들을 IN 절로 모아 적재(페이징 호환).
     @OneToMany(mappedBy = "order", cascade = [CascadeType.ALL], orphanRemoval = true)
     @BatchSize(size = 100)
     var lines: MutableList<OrderLineEntity> = mutableListOf()
