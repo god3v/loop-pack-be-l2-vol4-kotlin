@@ -78,13 +78,16 @@ class ProductRepositoryImpl(
     override fun existsByBrandIdAndName(brandId: Long, name: String): Boolean =
         productJpaRepository.existsByBrandIdAndName(brandId, name)
 
+    // 타이브레이크(id) 방향을 주 정렬 방향과 통일한다.
+    // 혼합 방향(예: price ASC + id DESC)은 단일 인덱스로 못 맞춰 filesort 를 유발하므로,
+    // 평범한 오름차순 복합 인덱스(정/역방향 스캔)만으로 모든 정렬을 커버하도록 방향을 맞춘다.
     private fun ProductSortType.toJpaSort(): Sort {
-        val primary = when (this) {
-            ProductSortType.LATEST -> Sort.Order.desc("createdAt")
-            ProductSortType.PRICE_ASC -> Sort.Order.asc("price")
-            ProductSortType.LIKES_DESC -> Sort.Order.desc("likeCount")
+        val (primary, tiebreak) = when (this) {
+            ProductSortType.LATEST -> Sort.Order.desc("createdAt") to Sort.Order.desc("id")
+            ProductSortType.PRICE_ASC -> Sort.Order.asc("price") to Sort.Order.asc("id")
+            ProductSortType.LIKES_DESC -> Sort.Order.desc("likeCount") to Sort.Order.desc("id")
         }
-        return Sort.by(primary, Sort.Order.desc("id"))
+        return Sort.by(primary, tiebreak)
     }
 
     private fun findPage(brandId: Long?, pageRequest: PageRequest): Page<ProductEntity> =

@@ -10,11 +10,25 @@ import jakarta.persistence.Column
 import jakarta.persistence.Entity
 import jakarta.persistence.EnumType
 import jakarta.persistence.Enumerated
+import jakarta.persistence.Index
 import jakarta.persistence.Table
 import org.hibernate.annotations.SQLRestriction
 
+// 목록 조회 유즈케이스별 복합 인덱스. (필터 brand_id) + (정렬 컬럼) + (타이브레이크 id) 순.
+// 타이브레이크 방향을 주 정렬과 통일했으므로(ProductRepositoryImpl.toJpaSort) 평범한 오름차순 인덱스로
+// 정/역방향 스캔을 모두 커버한다. deleted_at(98% NULL) 은 선택도가 없어 인덱스에서 제외하고 post-filter 로 처리.
 @Entity
-@Table(name = "products")
+@Table(
+    name = "products",
+    indexes = [
+        Index(name = "idx_products_created_id", columnList = "created_at, id"),
+        Index(name = "idx_products_price_id", columnList = "price, id"),
+        Index(name = "idx_products_like_id", columnList = "like_count, id"),
+        Index(name = "idx_products_brand_created_id", columnList = "brand_id, created_at, id"),
+        Index(name = "idx_products_brand_price_id", columnList = "brand_id, price, id"),
+        Index(name = "idx_products_brand_like_id", columnList = "brand_id, like_count, id"),
+    ],
+)
 @SQLRestriction("deleted_at IS NULL")
 class ProductEntity private constructor(
     name: String,
