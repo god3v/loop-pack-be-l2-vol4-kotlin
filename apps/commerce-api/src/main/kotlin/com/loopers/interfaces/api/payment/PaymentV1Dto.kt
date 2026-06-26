@@ -30,7 +30,7 @@ class PaymentV1Dto {
 
     /**
      * 외부 PG 결제 결과 콜백 본문. `transactionKey` 로 정산 대상 결제를 매칭한다.
-     * `cardType`·`cardNo`·`amount` 는 수신만 하고 사용·저장·로깅하지 않는다(§0.4).
+     * `cardType`·`cardNo`·`amount` 는 수신만 하고 사용·저장·로깅하지 않는다.
      */
     data class CallbackRequest(
         val transactionKey: String,

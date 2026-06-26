@@ -16,7 +16,7 @@ interface PaymentJpaRepository : JpaRepository<PaymentEntity, Long> {
     // 주문의 최신 결제 1건(id 내림차순). 진행 중 결제 dedupe 에 사용.
     fun findFirstByOrderIdOrderByIdDesc(orderId: Long): PaymentEntity?
 
-    // 외부 거래 식별자로 결제 1건. 콜백·폴링 정산 매칭에 사용(활성 행 한정 유일 — uk_payments_transaction_id).
+    // 외부 거래 식별자로 결제 1건. 콜백·폴링 정산 매칭에 사용(활성 행 한정 유일).
     fun findByTransactionId(transactionId: String): PaymentEntity?
 
     // 정산 경로 전용 — 거래 식별자로 비관적 쓰기 락(SELECT ... FOR UPDATE). 콜백·폴링 동시/중복 정산을 직렬화한다.
