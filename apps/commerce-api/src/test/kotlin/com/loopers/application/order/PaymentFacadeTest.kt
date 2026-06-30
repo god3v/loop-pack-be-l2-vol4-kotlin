@@ -1,85 +1,276 @@
 package com.loopers.application.order
 
-import com.loopers.application.order.port.PaymentGateway
-import com.loopers.application.order.port.PaymentResult
-import com.loopers.application.payment.PaymentCanceler
+import com.loopers.application.payment.PaymentCommand
 import com.loopers.application.payment.PaymentFacade
-import com.loopers.application.payment.PaymentInitiator
-import com.loopers.application.payment.PaymentSettler
+import com.loopers.application.payment.port.PaymentGateway
+import com.loopers.application.payment.port.PaymentGatewayException
+import com.loopers.application.payment.port.PaymentRequestCommand
+import com.loopers.application.payment.port.PaymentResponse
+import com.loopers.application.payment.port.PgTransaction
+import com.loopers.application.payment.port.PgTransactionStatus
+import com.loopers.domain.order.Order
+import com.loopers.domain.order.OrderErrorType
+import com.loopers.domain.order.OrderLine
+import com.loopers.domain.order.OrderRepository
+import com.loopers.domain.order.OrderStatus
 import com.loopers.domain.payment.Payment
 import com.loopers.domain.payment.PaymentRepository
+import com.loopers.domain.payment.PaymentStatus
+import com.loopers.infrastructure.payment.PaymentApiClient
+import com.loopers.infrastructure.payment.PgSimulatorPaymentGateway
+import com.loopers.support.error.CoreException
+import io.github.resilience4j.circuitbreaker.CircuitBreaker
+import io.github.resilience4j.retry.Retry
+import io.github.resilience4j.retry.RetryConfig
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
+import java.time.Duration
 import java.time.LocalDateTime
 
-@DisplayName("PaymentFacade — 결제 오케스트레이션")
+@DisplayName("PaymentFacade — 결제 요청(pay)·정산(settle)")
 class PaymentFacadeTest {
-    private val paymentInitiator: PaymentInitiator = mockk()
-    private val paymentSettler: PaymentSettler = mockk(relaxed = true)
-    private val paymentCanceler: PaymentCanceler = mockk(relaxed = true)
+    private val orderRepository: OrderRepository = mockk(relaxed = true)
     private val paymentRepository: PaymentRepository = mockk()
     private val paymentGateway: PaymentGateway = mockk(relaxed = true)
-    private val paymentFacade =
-        PaymentFacade(paymentInitiator, paymentSettler, paymentCanceler, paymentRepository, paymentGateway)
+    private val orderCompensator: OrderCompensator = mockk(relaxed = true)
+    private val paymentFacade = PaymentFacade(orderRepository, paymentRepository, paymentGateway, orderCompensator)
 
-    @DisplayName("결제 — 요청 → 락 밖 charge → 정산")
-    @Nested
-    inner class Pay {
-        @DisplayName("요청이 성사되면 결제 금액으로 외부 결제를 호출하고 그 결과로 정산한다.")
-        @Test
-        fun requestsThenChargesThenSettles() {
-            val payment = Payment(id = 10L, orderId = 1L, amount = 2000L, requestedAt = LocalDateTime.now())
-            every { paymentInitiator.request(1L) } returns payment
-            every { paymentGateway.charge(1L, 2000L) } returns PaymentResult("tx-1", "APPROVED", true)
+    private fun createdOrder() = Order(
+        id = 1L,
+        userId = 1L,
+        lines = listOf(OrderLine.create(productId = 1L, productName = "운동화", unitPrice = 1000, quantity = 2)),
+        orderedAt = LocalDateTime.now(),
+        idempotencyKey = "k",
+    )
 
-            paymentFacade.pay(1L)
+    // 주문 소유자(userId=1L)와 같은 회원이 결제를 요청하는 정상 케이스.
+    private fun command() =
+        PaymentCommand(userId = "1", orderId = 1L, cardType = "SAMSUNG", cardNo = "1234-5678-9814-1451")
 
-            verify { paymentGateway.charge(1L, 2000L) }
-            verify { paymentSettler.settle(10L, match { it.success }) }
-        }
+    @DisplayName("결제대기 주문에 결제를 요청하면 주문을 결제 진행으로 전이하고, 발급된 거래 식별자를 기록해 접수 정보를 반환한다.")
+    @Test
+    fun marksPendingRecordsTransactionKeyAndReturnsAcceptance() {
+        every { orderRepository.findByIdForUpdate(1L) } returns createdOrder()
+        every { paymentGateway.request(any()) } returns PaymentResponse("tx-key-1", PgTransactionStatus.PENDING)
+        every { paymentRepository.save(any()) } returns
+            Payment(id = 10L, orderId = 1L, amount = 2000L, transactionId = "tx-key-1", requestedAt = LocalDateTime.now())
 
-        @DisplayName("요청이 성사되지 않으면(이미 처리/진행 중) 외부 결제도 정산도 하지 않는다.")
-        @Test
-        fun skipsWhenRequestDeclined() {
-            every { paymentInitiator.request(1L) } returns null
+        val info = paymentFacade.pay(command())
 
-            paymentFacade.pay(1L)
-
-            verify(exactly = 0) { paymentGateway.charge(any(), any()) }
-            verify(exactly = 0) { paymentSettler.settle(any(), any()) }
-        }
+        assertThat(info.paymentId).isEqualTo(10L)
+        assertThat(info.orderId).isEqualTo(1L)
+        assertThat(info.status).isEqualTo(PaymentStatus.REQUESTED)
+        assertThat(info.transactionKey).isEqualTo("tx-key-1")
+        assertThat(info.amount).isEqualTo(2000L)
+        verify { paymentGateway.request(any()) }
     }
 
-    @DisplayName("취소 — 락 밖 refund(승인분) → 취소 정산")
-    @Nested
-    inner class Cancel {
-        @DisplayName("승인된 결제를 취소하면 외부 환불을 호출하고 취소 정산한다.")
-        @Test
-        fun refundsApprovedThenCancels() {
-            val payment = Payment(id = 10L, orderId = 1L, amount = 2000L, requestedAt = LocalDateTime.now())
-                .also { it.approve("tx-1", LocalDateTime.now()) }
-            every { paymentRepository.findById(10L) } returns payment
+    @DisplayName("외부 PG 가 일시 장애(PaymentGatewayException)면 결제를 REQUESTED(거래 식별자 없음)로 두고 접수 응답을 반환한다 — 예외를 전파하지 않는다.")
+    @Test
+    fun fallsBackToRequestedOnGatewayFailure() {
+        every { orderRepository.findByIdForUpdate(1L) } returns createdOrder()
+        every { paymentGateway.request(any()) } throws PaymentGatewayException("타임아웃")
+        every { paymentRepository.save(any()) } returns
+            Payment(id = 10L, orderId = 1L, amount = 2000L, requestedAt = LocalDateTime.now())
 
-            paymentFacade.cancel(10L)
+        val info = paymentFacade.pay(command())
 
-            verify { paymentGateway.refund("tx-1", 2000L) }
-            verify { paymentCanceler.cancel(10L) }
+        assertThat(info.paymentId).isEqualTo(10L)
+        assertThat(info.status).isEqualTo(PaymentStatus.REQUESTED)
+        assertThat(info.transactionKey).isNull()
+        verify { paymentGateway.request(any()) }
+    }
+
+    @DisplayName("외부 PG 가 계속 실패하면 최대 시도까지 재시도한 뒤 멈추고, 결제를 REQUESTED 로 두는 Fallback 으로 이어진다.")
+    @Test
+    fun exhaustsRetriesThenFallsBack() {
+        // 항상 일시 장애를 던지는 스텁 전송 클라이언트 — 실제 Retry 가 몇 번 호출하는지 센다.
+        var calls = 0
+        val failingClient = object : PaymentApiClient {
+            override fun requestPayment(command: PaymentRequestCommand): PaymentResponse {
+                calls++
+                throw PaymentGatewayException("타임아웃")
+            }
+
+            override fun getTransaction(userId: String, transactionKey: String): PgTransaction =
+                throw UnsupportedOperationException()
+
+            override fun getByOrder(userId: String, orderId: Long): List<PgTransaction> =
+                throw UnsupportedOperationException()
+        }
+        // 실제 Retry(최대 3회) 를 입힌 게이트웨이 + 실제 facade 로 "소진 → Fallback" 통합을 검증한다.
+        val retry = Retry.of(
+            "test",
+            RetryConfig.custom<Any>()
+                .maxAttempts(3)
+                .waitDuration(Duration.ofMillis(1))
+                .retryExceptions(PaymentGatewayException::class.java)
+                .build(),
+        )
+        val gateway = PgSimulatorPaymentGateway(failingClient, CircuitBreaker.ofDefaults("test"), retry)
+        val facade = PaymentFacade(orderRepository, paymentRepository, gateway, orderCompensator)
+        every { orderRepository.findByIdForUpdate(1L) } returns createdOrder()
+        every { paymentRepository.save(any()) } returns
+            Payment(id = 10L, orderId = 1L, amount = 2000L, requestedAt = LocalDateTime.now())
+
+        val info = facade.pay(command())
+
+        assertThat(calls).isEqualTo(3) // 최대 시도(3)까지 재시도하고 멈춤
+        assertThat(info.status).isEqualTo(PaymentStatus.REQUESTED) // Fallback — 예외 전파 없음
+        assertThat(info.transactionKey).isNull()
+    }
+
+    @DisplayName("재시도가 성공으로 회복돼도 결제는 한 건만 접수된다 — 재시도로 인한 이중 결제가 없다.")
+    @Test
+    fun retrySuccessYieldsSingleAcceptance() {
+        // 첫 시도는 일시 실패, 두 번째 시도는 성공하는 스텁 — 재시도로 회복되는 경로.
+        var calls = 0
+        val flakyClient = object : PaymentApiClient {
+            override fun requestPayment(command: PaymentRequestCommand): PaymentResponse {
+                calls++
+                if (calls == 1) throw PaymentGatewayException("일시 실패")
+                return PaymentResponse("tx-recovered", PgTransactionStatus.PENDING)
+            }
+
+            override fun getTransaction(userId: String, transactionKey: String): PgTransaction =
+                throw UnsupportedOperationException()
+
+            override fun getByOrder(userId: String, orderId: Long): List<PgTransaction> =
+                throw UnsupportedOperationException()
+        }
+        val retry = Retry.of(
+            "test",
+            RetryConfig.custom<Any>()
+                .maxAttempts(3)
+                .waitDuration(Duration.ofMillis(1))
+                .retryExceptions(PaymentGatewayException::class.java)
+                .build(),
+        )
+        val gateway = PgSimulatorPaymentGateway(flakyClient, CircuitBreaker.ofDefaults("test"), retry)
+        val facade = PaymentFacade(orderRepository, paymentRepository, gateway, orderCompensator)
+        every { orderRepository.findByIdForUpdate(1L) } returns createdOrder()
+        every { paymentRepository.save(any()) } returns
+            Payment(id = 10L, orderId = 1L, amount = 2000L, requestedAt = LocalDateTime.now())
+
+        val info = facade.pay(command())
+
+        assertThat(calls).isEqualTo(2) // 1 실패 + 1 성공 — 재시도로 회복
+        assertThat(info.paymentId).isEqualTo(10L) // 결제는 한 건만
+        assertThat(info.transactionKey).isEqualTo("tx-recovered") // 거래 식별자도 하나만 기록
+    }
+
+    @DisplayName("이미 결제 진행/완료인 주문(결제 가능 상태 아님)에 결제를 요청하면 ORDER_NOT_PAYABLE 이 발생하고 외부 PG 를 호출하지 않는다.")
+    @Test
+    fun rejectsWhenOrderNotPayable() {
+        every { orderRepository.findByIdForUpdate(1L) } returns createdOrder().also { it.markPaymentPending() }
+
+        assertThrows<CoreException> { paymentFacade.pay(command()) }
+
+        verify(exactly = 0) { paymentGateway.request(any()) }
+    }
+
+    @DisplayName("타인 소유 주문에 결제를 요청하면 ORDER_FORBIDDEN 이 발생하고 외부 PG 를 호출하지 않는다.")
+    @Test
+    fun rejectsWhenOrderOwnedByAnother() {
+        every { orderRepository.findByIdForUpdate(1L) } returns createdOrder() // 주문 소유자 = 1L
+
+        val ex = assertThrows<CoreException> {
+            paymentFacade.pay(
+                PaymentCommand(userId = "999", orderId = 1L, cardType = "SAMSUNG", cardNo = "1234-5678-9814-1451"),
+            )
         }
 
-        @DisplayName("아직 승인 전(REQUESTED)인 결제는 외부 환불 없이 취소 정산만 한다.")
+        assertThat(ex.errorType).isEqualTo(OrderErrorType.ORDER_FORBIDDEN)
+        verify(exactly = 0) { paymentGateway.request(any()) }
+    }
+
+    @DisplayName("주문이 존재하지 않으면 ORDER_NOT_FOUND 가 발생한다.")
+    @Test
+    fun rejectsWhenOrderMissing() {
+        every { orderRepository.findByIdForUpdate(1L) } returns null
+
+        assertThrows<CoreException> { paymentFacade.pay(command()) }
+
+        verify(exactly = 0) { paymentGateway.request(any()) }
+    }
+
+    @DisplayName("정산(settle) 은, ")
+    @Nested
+    inner class Settle {
+        private fun pendingOrder() = createdOrder().also { it.markPaymentPending() }
+
+        @DisplayName("외부 결과가 성공이면 결제는 APPROVED, 주문은 PAID 로 전이한다.")
         @Test
-        fun cancelsRequestedWithoutRefund() {
-            val payment = Payment.request(orderId = 1L, amount = 2000L)
-            every { paymentRepository.findById(10L) } returns payment
+        fun approvesAndMarksPaidOnSuccess() {
+            val payment = Payment(id = 10L, orderId = 1L, amount = 2000L, transactionId = "tx-1", requestedAt = LocalDateTime.now())
+            val order = pendingOrder()
+            every { paymentRepository.findByTransactionIdForUpdate("tx-1") } returns payment
+            every { orderRepository.findByIdForUpdate(1L) } returns order
+            every { paymentRepository.save(any()) } answers { firstArg() }
+            every { orderRepository.save(any()) } answers { firstArg() }
 
-            paymentFacade.cancel(10L)
+            paymentFacade.settle(PgTransaction("tx-1", PgTransactionStatus.SUCCESS, null))
 
-            verify(exactly = 0) { paymentGateway.refund(any(), any()) }
-            verify { paymentCanceler.cancel(10L) }
+            assertThat(payment.status).isEqualTo(PaymentStatus.APPROVED)
+            assertThat(payment.transactionId).isEqualTo("tx-1")
+            assertThat(order.status).isEqualTo(OrderStatus.PAID)
+            verify(exactly = 0) { orderCompensator.restore(any()) }
+        }
+
+        @DisplayName("외부 결과가 실패면 결제는 FAILED, 주문은 PAYMENT_FAILED 로 전이하고 보상(재고·쿠폰 원복)을 수행한다.")
+        @Test
+        fun failsCompensatesAndMarksFailedOnFailure() {
+            val payment = Payment(id = 10L, orderId = 1L, amount = 2000L, transactionId = "tx-f", requestedAt = LocalDateTime.now())
+            val order = pendingOrder()
+            every { paymentRepository.findByTransactionIdForUpdate("tx-f") } returns payment
+            every { orderRepository.findByIdForUpdate(1L) } returns order
+            every { paymentRepository.save(any()) } answers { firstArg() }
+            every { orderRepository.save(any()) } answers { firstArg() }
+
+            paymentFacade.settle(PgTransaction("tx-f", PgTransactionStatus.FAILED, "DECLINED"))
+
+            assertThat(payment.status).isEqualTo(PaymentStatus.FAILED)
+            assertThat(payment.failureReason).isEqualTo("DECLINED")
+            assertThat(order.status).isEqualTo(OrderStatus.PAYMENT_FAILED)
+            verify { orderCompensator.restore(order) }
+        }
+
+        @DisplayName("이미 정산된(REQUESTED 가 아닌) 결제에 결과를 다시 반영하면 멱등하게 무시한다 — 주문 조회·저장·보상이 일어나지 않는다.")
+        @Test
+        fun ignoresWhenAlreadySettled() {
+            val payment = Payment(
+                id = 10L,
+                orderId = 1L,
+                amount = 2000L,
+                status = PaymentStatus.APPROVED,
+                transactionId = "tx-1",
+                requestedAt = LocalDateTime.now(),
+            )
+            every { paymentRepository.findByTransactionIdForUpdate("tx-1") } returns payment
+
+            paymentFacade.settle(PgTransaction("tx-1", PgTransactionStatus.SUCCESS, null))
+
+            verify(exactly = 0) { orderRepository.findByIdForUpdate(any()) }
+            verify(exactly = 0) { paymentRepository.save(any()) }
+            verify(exactly = 0) { orderCompensator.restore(any()) }
+        }
+
+        @DisplayName("알 수 없는 거래 식별자의 결과 통지는 정산 없이 무시한다 — 주문 조회·저장·보상이 일어나지 않는다.")
+        @Test
+        fun ignoresUnknownTransaction() {
+            every { paymentRepository.findByTransactionIdForUpdate("unknown") } returns null
+
+            paymentFacade.settle(PgTransaction("unknown", PgTransactionStatus.SUCCESS, null))
+
+            verify(exactly = 0) { orderRepository.findByIdForUpdate(any()) }
+            verify(exactly = 0) { paymentRepository.save(any()) }
+            verify(exactly = 0) { orderCompensator.restore(any()) }
         }
     }
 }

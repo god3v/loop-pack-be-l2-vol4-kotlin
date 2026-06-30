@@ -37,7 +37,10 @@ class OrderRepositoryImplIntegrationTest @Autowired constructor(
         lines: List<OrderLine> = listOf(line()),
     ): Order {
         val order = Order.create(userId = userId, lines = lines, idempotencyKey = idempotencyKey)
-            .also { it.markPaid("tx-1", "APPROVED") }
+            .also {
+                it.markPaymentPending()
+                it.markPaid("tx-1", "APPROVED")
+            }
         val saved = orderRepository.save(order)
         testEntityManager.flush()
         return saved
