@@ -13,8 +13,8 @@ import org.hibernate.annotations.SQLRestriction
 import java.time.LocalDateTime
 
 /**
- * 결제 엔티티. 한 주문에 여러 결제 시도가 누적될 수 있어 `order_id` 는 유니크가 아니다(1:N).
- * `transaction_id`(외부 거래 식별자) 는 활성 행 한정 유일 — 같은 거래의 중복 매핑을 차단한다(REQUESTED 는 NULL 이라 다중 허용).
+ * 결제 엔티티. 한 주문에 여러 결제 시도가 쌓일 수 있어 `order_id` 는 유니크가 아니다(1:N).
+ * `transaction_id` 는 활성 행 한정 유일 — 같은 거래의 중복 매핑을 막는다(REQUESTED 는 NULL 이라 다중 허용).
  */
 @Entity
 @Table(

@@ -13,9 +13,8 @@ import org.springframework.web.client.RestClient
 import org.springframework.web.client.RestClientException
 
 /**
- * `PaymentApiClient` 의 RestClient 구현. pg-simulator 응답 봉투(meta/data) 에서 결제 결과만 추출하고,
- * RestClient 예외(통신 실패·타임아웃·5xx)를 `PaymentGatewayException` 으로 변환해 전송 라이브러리 예외가 상위로 누수되지 않게 한다.
- * 전송 라이브러리를 바꾸려면 본 구현 대신 다른 `PaymentApiClient` 구현을 등록하면 된다.
+ * `PaymentApiClient` 의 RestClient 구현. 응답 봉투(meta/data)에서 결제 결과를 추출하고,
+ * 전송 실패(통신 실패·타임아웃·5xx)를 PaymentGatewayException 으로 변환한다.
  */
 @Component
 class RestClientPaymentApiClient(
@@ -55,8 +54,8 @@ class RestClientPaymentApiClient(
 
     /**
      * RestClient 예외를 포트 예외로 변환한다.
-     * - **5xx·타임아웃·통신 실패**(`RestClientException`) → `PaymentGatewayException`: 일시 장애. 재시도·회로 차단 대상.
-     * - **4xx**(`HttpClientErrorException`) → **감싸지 않고 그대로 전파**: 우리 요청이 PG 규약에 안 맞는 결정적 실패라, 재시도(`retryExceptions` 화이트리스트)·회로 차단(`recordExceptions` 화이트리스트)에서 자동 제외되고 Facade Fallback(=`PaymentGatewayException` 한정)에도 안 잡혀 빠르게 실패한다. (전송 예외 비누수 원칙의 의도적·좁은 예외 — ADR-003.)
+     * - 5xx·타임아웃·통신 실패 → PaymentGatewayException (일시 장애, 재시도·회로 차단 대상)
+     * - 4xx → 그대로 전파 (결정적 실패라 재시도·회로 차단·Fallback 에서 모두 빠져 즉시 실패)
      */
     private fun <T> call(action: String, block: () -> T): T =
         try {

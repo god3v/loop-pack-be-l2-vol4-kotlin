@@ -8,12 +8,7 @@ import com.loopers.support.page.PageResult
 
 /**
  * 상품 조회 캐시 (outbound port).
- *
- * 어댑터 구현은 캐시 저장소 장애를 흡수해야 한다 — get 은 null(=miss), put/evict 은 no-op.
- * 그래야 Facade 의 read-through 가 캐시 미스/저장소 다운에도 DB 로 정상 폴백한다.
- *
- * 이 포트 추상화 덕분에 추후 로컬 캐시(L1)를 "L1 → L2(Redis) → DB" 복합 어댑터로 끼워도
- * Facade 는 변경되지 않는다.
+ * 어댑터는 저장소 장애를 흡수한다 — get 은 null(miss), put/evict 은 no-op 로 폴백해 DB 조회를 막지 않는다.
  */
 interface ProductCache {
     fun getDetail(productId: Long): CachedProductDetail?

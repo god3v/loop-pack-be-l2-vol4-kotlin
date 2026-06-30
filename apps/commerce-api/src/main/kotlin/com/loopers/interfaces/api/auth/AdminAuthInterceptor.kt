@@ -11,7 +11,7 @@ import org.springframework.web.servlet.HandlerInterceptor
 /**
  * 관리자 채널(api-admin) 의 식별·인증 인터셉터.
  *
- * admin/logical-model.md v0.2 — 관리자는 도메인 모델을 두지 않고 헤더로만 식별한다.
+ * 관리자는 도메인 모델을 두지 않고 헤더로만 식별한다.
  * `X-Loopers-Ldap` 헤더 값이 기대값과 일치해야 통과하며, 누락/불일치는 `401 UNAUTHORIZED`.
  * 적용 경로 한정은 `WebMvcConfig` 의 등록 패턴이 담당한다.
  */

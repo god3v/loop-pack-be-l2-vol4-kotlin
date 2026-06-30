@@ -14,9 +14,8 @@ import jakarta.persistence.Index
 import jakarta.persistence.Table
 import org.hibernate.annotations.SQLRestriction
 
-// 목록 조회 유즈케이스별 복합 인덱스. (필터 brand_id) + (정렬 컬럼) + (타이브레이크 id) 순.
-// 타이브레이크 방향을 주 정렬과 통일했으므로(ProductRepositoryImpl.toJpaSort) 평범한 오름차순 인덱스로
-// 정/역방향 스캔을 모두 커버한다. deleted_at(98% NULL) 은 선택도가 없어 인덱스에서 제외하고 post-filter 로 처리.
+// 목록 조회용 복합 인덱스 — (brand_id 필터) + (정렬 컬럼) + (id 타이브레이크) 순.
+// 타이브레이크 방향을 주 정렬과 통일해, 오름차순 인덱스 하나로 정·역방향 스캔을 모두 커버한다.
 @Entity
 @Table(
     name = "products",

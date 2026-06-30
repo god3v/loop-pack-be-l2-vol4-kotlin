@@ -12,13 +12,12 @@ import java.time.LocalDateTime
 interface OrderJpaRepository : JpaRepository<OrderEntity, Long> {
     fun findByUserIdAndIdempotencyKey(userId: Long, idempotencyKey: String): OrderEntity?
 
-    // 결제 처리 경로 전용 — 비관적 쓰기 락(SELECT ... FOR UPDATE). 동시 pay 가 같은 주문의 상태 전이를 다투지 않도록 직렬화한다.
+    // 결제 처리 경로 전용 — 비관 쓰기 락. 동시 pay 의 상태 전이를 직렬화한다.
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT o FROM OrderEntity o WHERE o.id = :id")
     fun findByIdForUpdate(@Param("id") id: Long): OrderEntity?
 
-    // 기간 경계가 null 이면 해당 절을 무력화한다 — BETWEEN 에 sentinel 시각을 넣지 않으므로
-    // MySQL DATETIME 표현 범위(1000~9999) 밖 값으로 매칭이 비는 문제를 피한다. 경계는 모두 포함(inclusive).
+    // 기간 경계가 null 이면 해당 조건을 건너뛴다 — sentinel 시각을 넣지 않아 범위 밖 값으로 매칭이 비는 문제를 피한다. 경계는 inclusive.
     @Query(
         value = """
         SELECT o FROM OrderEntity o

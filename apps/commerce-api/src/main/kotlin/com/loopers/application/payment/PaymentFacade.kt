@@ -44,7 +44,7 @@ class PaymentFacade(
         order.markPaymentPending()
         orderRepository.save(order)
 
-        // 외부 호출 전에 결제를 먼저 영속(REQUESTED, 거래 식별자 없음) — 호출 실패 시에도 폴링 복구 대상으로 남긴다(선커밋).
+        // 외부 호출 전에 결제를 먼저 영속한다 — 호출이 실패해도 폴링 복구 대상으로 남긴다.
         var payment = paymentRepository.save(Payment.request(orderId = order.id, amount = order.totalAmount))
         try {
             // 외부 PG 에 결제 요청 → 접수(거래 식별자 + 처리 중). 접수된 거래 식별자를 결제에 기록한다.
@@ -74,10 +74,7 @@ class PaymentFacade(
         )
     }
 
-    /**
-     * 정산 — 콜백·폴링이 전달한 외부 거래 결과를 결제·주문에 반영한다. 거래 식별자로 결제를 찾아 확정한다.
-     * 성공이면 결제 APPROVED + 주문 PAID. (실패·미확정 분기는 후속 구현.)
-     */
+    /** 정산 — 콜백·폴링이 전달한 거래 결과를 거래 식별자로 매칭해 결제·주문에 반영한다. */
     @Transactional
     fun settle(transaction: PgTransaction) {
         // 거래 식별자로 결제를 비관 락 조회 — 콜백·폴링 동시 도착을 직렬화한다.
@@ -102,9 +99,8 @@ class PaymentFacade(
     }
 
     /**
-     * 수동 복구 — 처리 중(REQUESTED) 결제의 외부 상태를 조회해, 확정(SUCCESS/FAILED)이면 정산한다.
-     * 거래 식별자가 있으면 그것으로 조회하고, 미확보(타임아웃 접수 미확인)면 주문 식별자로 외부 결제건을 찾아 식별자를 접수한 뒤 정산한다.
-     * 이미 확정됐거나 외부가 아직 처리 중(확정 거래 없음)이면 상태를 바꾸지 않고 `settled = false` 로 반환한다.
+     * 수동 복구 — 처리 중(REQUESTED) 결제의 외부 상태를 조회해 확정이면 정산한다.
+     * 거래 식별자가 없으면(타임아웃 미확인) 주문 식별자로 외부 건을 찾아 식별자를 접수한 뒤 정산한다.
      */
     @Transactional
     fun sync(paymentId: Long): PaymentSyncResult {

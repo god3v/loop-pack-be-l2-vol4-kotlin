@@ -10,11 +10,8 @@ import com.loopers.support.page.PageResult
 import java.time.LocalDateTime
 
 /**
- * 주문 API DTO.
- *
- * 와이어의 `status`(PAYMENT_PENDING/PAID) 는 도메인 `OrderStatus` 이름(대문자) 을 그대로 직렬화한다.
- * 금액은 3금액(상품 합계 전 `originalAmount` · 할인 `discountAmount` · 결제 `totalAmount`) 을 모두 노출한다.
- * `userCouponId` 는 적용한 발급 쿠폰(`UserCoupon`) 식별자다 — 미적용 시 `null`.
+ * 주문 API DTO. `status` 는 도메인 `OrderStatus` 이름을 그대로 직렬화하고,
+ * 금액은 원가(`originalAmount`)·할인(`discountAmount`)·결제(`totalAmount`) 세 가지를 노출한다.
  */
 class OrderV1Dto {
     data class PlaceOrderRequest(
