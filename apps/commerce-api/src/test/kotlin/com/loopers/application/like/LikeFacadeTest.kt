@@ -1,5 +1,7 @@
 package com.loopers.application.like
 
+import com.loopers.application.support.event.DomainEventPublisher
+import com.loopers.domain.like.LikeEvent
 import com.loopers.domain.like.LikeRepository
 import com.loopers.domain.product.ProductRepository
 import com.loopers.domain.like.Like
@@ -10,9 +12,7 @@ import com.loopers.domain.product.ProductFixture
 import com.loopers.support.error.CoreException
 import com.loopers.support.page.PageQuery
 import com.loopers.support.page.PageResult
-import io.mockk.Runs
 import io.mockk.every
-import io.mockk.just
 import io.mockk.mockk
 import io.mockk.verify
 import org.assertj.core.api.Assertions.assertThat
@@ -25,29 +25,29 @@ import org.junit.jupiter.api.assertThrows
 class LikeFacadeTest {
     private val likeRepository: LikeRepository = mockk()
     private val productRepository: ProductRepository = mockk()
-    private val likeFacade = LikeFacade(likeRepository, productRepository)
+    private val eventPublisher: DomainEventPublisher = mockk(relaxed = true)
+    private val likeFacade = LikeFacade(likeRepository, productRepository, eventPublisher)
 
     @Nested
     @DisplayName("like — UC-1 멱등 등록")
     inner class LikeRegister {
         @Test
-        @DisplayName("신규 호출 시 Like 가 저장되고 좋아요 수가 원자적으로 1 증가한다")
-        fun newLikeIncreasesLikeCount() {
+        @DisplayName("신규 호출 시 Like 가 저장되고 LikeChangedEvent(+1) 를 발행한다")
+        fun newLikePublishesLikeChangedEvent() {
             val product = ProductFixture.validProduct(likeCount = 3L)
             every { productRepository.findById(1L) } returns product
             every { likeRepository.existsByUserIdAndProductId(7L, 1L) } returns false
             every { likeRepository.save(any()) } answers { firstArg() }
-            every { productRepository.increaseLikeCount(1L) } just Runs
 
             likeFacade.like(userId = 7L, productId = 1L)
 
-            // 좋아요 수는 애그리거트 인메모리 증감이 아니라 원자 UPDATE 로 갱신한다(동시 좋아요 lost update 방지).
+            // 좋아요 수 집계는 직접 UPDATE 가 아니라 이벤트로 위임한다 — 커밋 이후 리스너가 원자 증감으로 반영.
             verify { likeRepository.save(any()) }
-            verify { productRepository.increaseLikeCount(1L) }
+            verify { eventPublisher.publish(match { it is LikeEvent.Created && it.productId == 1L }) }
         }
 
         @Test
-        @DisplayName("이미 좋아요한 상태에서 재호출하면 추가 저장·증가 없이 멱등 통과한다")
+        @DisplayName("이미 좋아요한 상태에서 재호출하면 추가 저장·발행 없이 멱등 통과한다")
         fun idempotentWhenAlreadyLiked() {
             val product = ProductFixture.validProduct(likeCount = 3L)
             every { productRepository.findById(1L) } returns product
@@ -56,7 +56,7 @@ class LikeFacadeTest {
             likeFacade.like(userId = 7L, productId = 1L)
 
             verify(exactly = 0) { likeRepository.save(any()) }
-            verify(exactly = 0) { productRepository.increaseLikeCount(any()) }
+            verify(exactly = 0) { eventPublisher.publish(any()) }
         }
 
         @Test
@@ -74,35 +74,34 @@ class LikeFacadeTest {
     @DisplayName("unlike — UC-2 멱등 취소")
     inner class Unlike {
         @Test
-        @DisplayName("좋아요 행이 실제로 제거되면(1건) 좋아요 수가 원자적으로 1 감소한다")
-        fun removesLikeAndDecreasesCount() {
+        @DisplayName("좋아요 행이 실제로 제거되면(1건) LikeChangedEvent(-1) 를 발행한다")
+        fun removesLikeAndPublishesLikeChangedEvent() {
             val product = ProductFixture.validProduct(likeCount = 5L)
             val existing = Like.create(userId = 7L, productId = 1L)
             every { productRepository.findById(1L) } returns product
             every { likeRepository.findByUserIdAndProductId(7L, 1L) } returns existing
             every { likeRepository.delete(existing) } returns 1L
-            every { productRepository.decreaseLikeCount(1L) } just Runs
 
             likeFacade.unlike(userId = 7L, productId = 1L)
 
             verify { likeRepository.delete(existing) }
-            verify { productRepository.decreaseLikeCount(1L) }
+            verify { eventPublisher.publish(match { it is LikeEvent.Canceled && it.productId == 1L }) }
         }
 
         @Test
-        @DisplayName("삭제된 행이 0건이면(동시 중복 취소 패자) 좋아요 수를 감소시키지 않는다")
-        fun skipsDecreaseWhenNothingDeleted() {
+        @DisplayName("삭제된 행이 0건이면(동시 중복 취소 패자) 이벤트를 발행하지 않는다")
+        fun skipsPublishWhenNothingDeleted() {
             val product = ProductFixture.validProduct(likeCount = 5L)
             val existing = Like.create(userId = 7L, productId = 1L)
             every { productRepository.findById(1L) } returns product
             every { likeRepository.findByUserIdAndProductId(7L, 1L) } returns existing
-            // 다른 동시 요청이 먼저 삭제 → 이 요청의 delete 는 0건. 감소 게이트가 닫혀 카운트 drift 를 막는다.
+            // 다른 동시 요청이 먼저 삭제 → 이 요청의 delete 는 0건. 발행 게이트가 닫혀 카운트 drift 를 막는다.
             every { likeRepository.delete(existing) } returns 0L
 
             likeFacade.unlike(userId = 7L, productId = 1L)
 
             verify { likeRepository.delete(existing) }
-            verify(exactly = 0) { productRepository.decreaseLikeCount(any()) }
+            verify(exactly = 0) { eventPublisher.publish(any()) }
         }
 
         @Test
@@ -115,7 +114,7 @@ class LikeFacadeTest {
             likeFacade.unlike(userId = 7L, productId = 1L)
 
             verify(exactly = 0) { likeRepository.delete(any()) }
-            verify(exactly = 0) { productRepository.decreaseLikeCount(any()) }
+            verify(exactly = 0) { eventPublisher.publish(any()) }
         }
 
         @Test

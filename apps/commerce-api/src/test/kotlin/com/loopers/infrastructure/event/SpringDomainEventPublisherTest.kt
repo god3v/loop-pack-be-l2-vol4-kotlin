@@ -1,7 +1,7 @@
 package com.loopers.infrastructure.event
 
 import com.loopers.application.support.event.DomainEventPublisher
-import com.loopers.domain.like.LikeChangedEvent
+import com.loopers.domain.like.LikeEvent
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
@@ -22,8 +22,8 @@ class SpringDomainEventPublisherTest @Autowired constructor(
     private val listener: CapturingLikeListener,
 ) {
     @Test
-    fun `publish 하면 LikeChangedEvent 리스너가 호출된다`() {
-        val event = LikeChangedEvent.of(productId = 1L, delta = 1L)
+    fun `publish 하면 LikeEvent 리스너가 호출된다`() {
+        val event = LikeEvent.Created(productId = 1L)
 
         publisher.publish(event)
 
@@ -37,10 +37,10 @@ class SpringDomainEventPublisherTest @Autowired constructor(
     }
 
     class CapturingLikeListener {
-        val received = mutableListOf<LikeChangedEvent>()
+        val received = mutableListOf<LikeEvent>()
 
         @EventListener
-        fun on(event: LikeChangedEvent) {
+        fun on(event: LikeEvent) {
             received.add(event)
         }
     }

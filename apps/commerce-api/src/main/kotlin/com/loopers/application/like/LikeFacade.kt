@@ -1,10 +1,12 @@
 package com.loopers.application.like
 
+import com.loopers.application.support.event.DomainEventPublisher
 import com.loopers.domain.like.LikeRepository
 import com.loopers.application.like.query.GetMyLikesQuery
 import com.loopers.application.like.result.LikedProductResult
 import com.loopers.domain.product.ProductRepository
 import com.loopers.domain.like.Like
+import com.loopers.domain.like.LikeEvent
 import com.loopers.domain.like.LikeErrorType
 import com.loopers.domain.product.ProductErrorType
 import com.loopers.support.error.CoreException
@@ -16,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional
 class LikeFacade(
     private val likeRepository: LikeRepository,
     private val productRepository: ProductRepository,
+    private val eventPublisher: DomainEventPublisher,
 ) {
     @Transactional
     fun like(userId: Long, productId: Long) {
@@ -25,7 +28,7 @@ class LikeFacade(
             return
         }
         likeRepository.save(Like.create(userId = userId, productId = productId))
-        productRepository.increaseLikeCount(productId)
+        eventPublisher.publish(LikeEvent.Created(productId = productId))
     }
 
     @Transactional
@@ -34,7 +37,7 @@ class LikeFacade(
             ?: throw CoreException(ProductErrorType.PRODUCT_NOT_FOUND)
         val existing = likeRepository.findByUserIdAndProductId(userId, productId) ?: return
         if (likeRepository.delete(existing) > 0) {
-            productRepository.decreaseLikeCount(productId)
+            eventPublisher.publish(LikeEvent.Canceled(productId = productId))
         }
     }
 
