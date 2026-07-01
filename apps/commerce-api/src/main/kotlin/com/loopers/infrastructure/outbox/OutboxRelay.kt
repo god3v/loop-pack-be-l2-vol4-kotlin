@@ -1,5 +1,7 @@
 package com.loopers.infrastructure.outbox
 
+import com.fasterxml.jackson.databind.ObjectMapper
+import com.loopers.kafka.EventEnvelope
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.scheduling.annotation.Scheduled
@@ -16,6 +18,7 @@ import java.time.LocalDateTime
 class OutboxRelay(
     private val outboxEventJpaRepository: OutboxEventJpaRepository,
     private val kafkaTemplate: KafkaTemplate<Any, Any>,
+    private val objectMapper: ObjectMapper,
 ) {
     private val log = LoggerFactory.getLogger(OutboxRelay::class.java)
 
@@ -24,7 +27,7 @@ class OutboxRelay(
     fun relay() {
         outboxEventJpaRepository.findByStatusOrderByIdAsc(OutboxStatus.PENDING).forEach { event ->
             runCatching {
-                kafkaTemplate.send(topicOf(event.aggregateType), event.aggregateId, event.payload).get()
+                kafkaTemplate.send(topicOf(event.aggregateType), event.aggregateId, envelopeOf(event)).get()
             }.onSuccess {
                 event.markPublished(LocalDateTime.now())
             }.onFailure { e ->
@@ -32,6 +35,15 @@ class OutboxRelay(
             }
         }
     }
+
+    private fun envelopeOf(event: OutboxEventEntity): EventEnvelope = EventEnvelope(
+        eventId = event.eventId,
+        eventType = event.eventType,
+        aggregateType = event.aggregateType,
+        aggregateId = event.aggregateId,
+        occurredAt = event.occurredAt,
+        payload = objectMapper.readTree(event.payload),
+    )
 
     private fun topicOf(aggregateType: String): String = when (aggregateType) {
         "ORDER" -> ORDER_EVENTS

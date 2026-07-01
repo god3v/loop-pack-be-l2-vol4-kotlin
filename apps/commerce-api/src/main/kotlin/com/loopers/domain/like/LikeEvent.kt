@@ -13,11 +13,15 @@ sealed class LikeEvent : ExternalEvent {
         override val productId: Long,
         override val eventId: UUID = UUID.randomUUID(),
         override val occurredAt: LocalDateTime = LocalDateTime.now(),
-    ) : LikeEvent()
+    ) : LikeEvent() {
+        override val eventType: String get() = "LIKE_CREATED"
+    }
 
     data class Canceled(
         override val productId: Long,
         override val eventId: UUID = UUID.randomUUID(),
         override val occurredAt: LocalDateTime = LocalDateTime.now(),
-    ) : LikeEvent()
+    ) : LikeEvent() {
+        override val eventType: String get() = "LIKE_CANCELED"
+    }
 }

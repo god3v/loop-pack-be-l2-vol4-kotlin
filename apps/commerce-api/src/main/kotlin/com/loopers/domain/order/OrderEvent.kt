@@ -22,6 +22,8 @@ sealed class OrderEvent : ExternalEvent {
         override val eventId: UUID = UUID.randomUUID(),
         override val occurredAt: LocalDateTime = LocalDateTime.now(),
     ) : OrderEvent() {
+        override val eventType: String get() = "ORDER_CREATED"
+
         data class Line(val productId: Long, val quantity: Int)
 
         companion object {

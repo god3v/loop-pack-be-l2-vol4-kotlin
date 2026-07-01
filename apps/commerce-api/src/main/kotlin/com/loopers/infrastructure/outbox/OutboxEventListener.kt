@@ -23,7 +23,7 @@ class OutboxEventListener(
                 eventId = event.eventId,
                 aggregateType = event.aggregateType,
                 aggregateId = event.aggregateId,
-                eventType = event.javaClass.typeName,
+                eventType = event.eventType,
                 payload = objectMapper.writeValueAsString(event),
                 occurredAt = event.occurredAt,
             ),

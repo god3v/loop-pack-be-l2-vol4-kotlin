@@ -48,7 +48,7 @@ class OrderOutboxIntegrationTest @Autowired constructor(
         assertThat(rows).hasSize(1)
         assertThat(rows[0].aggregateType).isEqualTo("ORDER")
         assertThat(rows[0].aggregateId).isEqualTo(result.orderId.toString())
-        assertThat(rows[0].eventType).contains("OrderEvent")
+        assertThat(rows[0].eventType).isEqualTo("ORDER_CREATED")
         assertThat(rows[0].payload).contains("\"userId\":${result.userId}")
         assertThat(rows[0].status).isEqualTo(OutboxStatus.PENDING)
         assertThat(rows[0].occurredAt).isNotNull()
