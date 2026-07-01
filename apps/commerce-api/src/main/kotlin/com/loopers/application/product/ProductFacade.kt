@@ -13,8 +13,10 @@ import com.loopers.application.product.result.AdminProductSummaryResult
 import com.loopers.application.product.result.ProductDetailResult
 import com.loopers.application.product.result.ProductSummaryResult
 import com.loopers.domain.brand.BrandErrorType
+import com.loopers.application.support.event.DomainEventPublisher
 import com.loopers.domain.product.Product
 import com.loopers.domain.product.ProductErrorType
+import com.loopers.domain.product.ProductEvent
 import com.loopers.domain.product.ProductSortType
 import com.loopers.support.error.CoreException
 import com.loopers.support.page.PageQuery
@@ -28,6 +30,7 @@ class ProductFacade(
     private val brandRepository: BrandRepository,
     private val likeRepository: LikeRepository,
     private val productCache: ProductCache,
+    private val eventPublisher: DomainEventPublisher,
 ) {
     @Transactional(readOnly = true)
     fun getProducts(query: GetProductsQuery): PageResult<ProductSummaryResult> {
@@ -57,6 +60,8 @@ class ProductFacade(
             CachedProductDetail.of(product, brand).also { productCache.putDetail(it) }
         }
         val likedByMe = userId != null && likeRepository.existsByUserIdAndProductId(userId, productId)
+
+        eventPublisher.publish(ProductEvent.Viewed(productId = productId, userId = userId))
         return ProductDetailResult(
             id = detail.id,
             name = detail.name,
