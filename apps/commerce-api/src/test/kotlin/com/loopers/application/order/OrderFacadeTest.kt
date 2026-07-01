@@ -2,6 +2,8 @@ package com.loopers.application.order
 
 import com.loopers.application.order.command.OrderLineCommand
 import com.loopers.application.order.command.PlaceOrderCommand
+import com.loopers.application.support.event.DomainEventPublisher
+import com.loopers.domain.order.OrderEvent
 import com.loopers.domain.coupon.CouponErrorType
 import com.loopers.domain.coupon.CouponFixture
 import com.loopers.domain.coupon.CouponRepository
@@ -39,8 +41,9 @@ class OrderFacadeTest {
     private val orderRepository: OrderRepository = mockk()
     private val couponRepository: CouponRepository = mockk()
     private val userCouponRepository: UserCouponRepository = mockk()
+    private val eventPublisher: DomainEventPublisher = mockk(relaxed = true)
     private val orderFacade =
-        OrderFacade(userRepository, productRepository, orderRepository, couponRepository, userCouponRepository)
+        OrderFacade(userRepository, productRepository, orderRepository, couponRepository, userCouponRepository, eventPublisher)
 
     private val loginId = UserFixture.DEFAULT_LOGIN_ID
     private val idempotencyKey = "idem-001"
@@ -84,6 +87,41 @@ class OrderFacadeTest {
             assertThat(productB.stock.value).isEqualTo(2)
             verify(exactly = 1) { productRepository.findAllByIdsForUpdate(any()) }
             verify(exactly = 1) { productRepository.saveAll(any()) }
+        }
+
+        @Test
+        @DisplayName("주문이 저장되면 OrderEvent.Created 를 발행한다(userId·총액·라인 스냅샷 포함)")
+        fun publishesOrderCreatedEvent() {
+            val user = UserFixture.validUser()
+            val productA = ProductFixture.validProduct(id = 1L, name = "A", price = 1000, stock = 10)
+            val productB = ProductFixture.validProduct(id = 2L, name = "B", price = 2000, stock = 5)
+            every { userRepository.findByLoginId(loginId) } returns user
+            every { orderRepository.findByUserIdAndIdempotencyKey(user.id, idempotencyKey) } returns null
+            every { productRepository.findAllByIdsForUpdate(any()) } returns listOf(productA, productB)
+            every { productRepository.saveAll(any()) } answers { firstArg<Collection<com.loopers.domain.product.Product>>().toList() }
+            val savedOrder = slot<Order>()
+            every { orderRepository.save(capture(savedOrder)) } answers { savedOrder.captured }
+
+            orderFacade.placeOrder(
+                placeOrderCommand(
+                    lines = listOf(
+                        OrderLineCommand(productId = 1L, quantity = 2),
+                        OrderLineCommand(productId = 2L, quantity = 3),
+                    ),
+                ),
+            )
+
+            verify {
+                eventPublisher.publish(
+                    match {
+                        it is OrderEvent.Created &&
+                            it.userId == user.id &&
+                            it.totalAmount == 8000L &&
+                            it.lines.map { line -> line.productId to line.quantity }
+                                .toSet() == setOf(1L to 2, 2L to 3)
+                    },
+                )
+            }
         }
 
         @Test
