@@ -1,11 +1,13 @@
 package com.loopers.domain.like
 
-import com.loopers.support.event.DomainEvent
+import com.loopers.support.event.ExternalEvent
 import java.time.LocalDateTime
 import java.util.UUID
 
-sealed class LikeEvent : DomainEvent {
+sealed class LikeEvent : ExternalEvent {
     abstract val productId: Long
+    override val aggregateType: String get() = "PRODUCT"
+    override val aggregateId: String get() = productId.toString()
 
     data class Created(
         override val productId: Long,
