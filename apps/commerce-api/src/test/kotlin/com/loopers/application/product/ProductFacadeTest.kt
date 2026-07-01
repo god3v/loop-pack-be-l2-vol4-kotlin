@@ -8,6 +8,8 @@ import com.loopers.application.product.port.CachedProductDetail
 import com.loopers.application.product.port.ProductCache
 import com.loopers.application.product.query.GetProductsQuery
 import com.loopers.application.product.result.ProductSummaryResult
+import com.loopers.application.support.event.DomainEventPublisher
+import com.loopers.domain.product.ProductEvent
 import com.loopers.domain.product.ProductRepository
 import com.loopers.domain.brand.BrandErrorType
 import com.loopers.domain.brand.BrandFixture
@@ -37,7 +39,9 @@ class ProductFacadeTest {
 
     // relaxed: put/evict(Unit) 은 no-op. get 은 기본 null(miss) 로 명시해 DB 경로로 폴백시킨다.
     private val productCache: ProductCache = mockk(relaxed = true)
-    private val productFacade = ProductFacade(productRepository, brandRepository, likeRepository, productCache)
+    private val eventPublisher: DomainEventPublisher = mockk(relaxed = true)
+    private val productFacade =
+        ProductFacade(productRepository, brandRepository, likeRepository, productCache, eventPublisher)
 
     init {
         every { productCache.getDetail(any()) } returns null
@@ -183,7 +187,21 @@ class ProductFacadeTest {
         }
 
         @Test
-        @DisplayName("존재하지 않는 productId 면 PRODUCT_NOT_FOUND 예외가 발생한다")
+        @DisplayName("상세 조회 시 ProductEvent.Viewed(productId·userId) 를 발행한다")
+        fun publishesProductViewedEvent() {
+            val product = ProductFixture.validProduct()
+            val brand = BrandFixture.validBrand()
+            every { productRepository.findById(1L) } returns product
+            every { brandRepository.findById(product.brandId) } returns brand
+            every { likeRepository.existsByUserIdAndProductId(7L, 1L) } returns false
+
+            productFacade.getProductDetail(productId = 1L, userId = 7L)
+
+            verify { eventPublisher.publish(match { it is ProductEvent.Viewed && it.productId == 1L && it.userId == 7L }) }
+        }
+
+        @Test
+        @DisplayName("존재하지 않는 productId 면 PRODUCT_NOT_FOUND 예외가 발생하고 조회 이벤트를 발행하지 않는다")
         fun throwsWhenProductMissing() {
             every { productRepository.findById(99L) } returns null
 
@@ -191,6 +209,7 @@ class ProductFacadeTest {
                 productFacade.getProductDetail(productId = 99L, userId = null)
             }
             assertThat(ex.errorType).isEqualTo(ProductErrorType.PRODUCT_NOT_FOUND)
+            verify(exactly = 0) { eventPublisher.publish(any()) }
         }
 
         @Test

@@ -6,7 +6,9 @@ import com.loopers.application.order.result.OrderResult
 import com.loopers.domain.coupon.CouponErrorType
 import com.loopers.domain.coupon.CouponRepository
 import com.loopers.domain.coupon.UserCouponRepository
+import com.loopers.application.support.event.DomainEventPublisher
 import com.loopers.domain.order.OrderErrorType
+import com.loopers.domain.order.OrderEvent
 import com.loopers.domain.order.OrderRepository
 import com.loopers.domain.order.OrderService
 import com.loopers.domain.product.ProductRepository
@@ -25,6 +27,7 @@ class OrderFacade(
     private val orderRepository: OrderRepository,
     private val couponRepository: CouponRepository,
     private val userCouponRepository: UserCouponRepository,
+    private val eventPublisher: DomainEventPublisher,
 ) {
     @Transactional
     fun placeOrder(command: PlaceOrderCommand): OrderResult {
@@ -63,6 +66,7 @@ class OrderFacade(
         productRepository.saveAll(products.values)
         val saved = orderRepository.save(order)
 
+        eventPublisher.publish(OrderEvent.Created.from(saved))
         return OrderResult.from(saved)
     }
 

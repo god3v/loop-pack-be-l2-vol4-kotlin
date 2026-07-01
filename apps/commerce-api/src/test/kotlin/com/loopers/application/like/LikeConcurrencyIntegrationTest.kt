@@ -5,11 +5,13 @@ import com.loopers.domain.like.LikeRepository
 import com.loopers.domain.product.ProductFixture
 import com.loopers.domain.product.ProductRepository
 import org.assertj.core.api.Assertions.assertThat
+import org.awaitility.Awaitility.await
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
+import java.time.Duration
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -17,6 +19,7 @@ import java.util.concurrent.TimeUnit
 /**
  * 좋아요 동시성 — 좋아요 수 캐시(`products.like_count`)가 원자 증감(+ 취소 시 삭제행 게이팅)으로
  * 동시/중복 요청에도 정확히 집계되는지 실제 영속 계층으로 검증한다.
+ * 집계는 `LikeChangedEvent` 를 받은 리스너가 커밋 이후 비동기로 반영하므로, 카운트는 최종 일관성으로 수렴한다(await).
  *
  * test 프로파일 기본 커넥션 풀은 10 이라, 비관 락/원자 UPDATE 대기 중 커넥션을 점유하는 다수 스레드를
  * 충분히 돌리기 어렵다. 이 동시성 스펙에 한해 풀을 키워(테스트 한정) "여러명"을 재현한다.
@@ -67,7 +70,7 @@ class LikeConcurrencyIntegrationTest @Autowired constructor(
 
         runConcurrently(users) { i -> likeFacade.like(userId = (i + 1).toLong(), productId = product.id) }
 
-        assertThat(productRepository.findById(product.id)!!.likeCount).isEqualTo(users.toLong())
+        awaitLikeCount(product.id, users.toLong())
     }
 
     @DisplayName("[2] 서로 다른 사용자가 같은 상품에 동시에 unlike 하면, 좋아요 수가 0 까지 정확히 차감된다.")
@@ -79,7 +82,7 @@ class LikeConcurrencyIntegrationTest @Autowired constructor(
 
         runConcurrently(users) { i -> likeFacade.unlike(userId = (i + 1).toLong(), productId = product.id) }
 
-        assertThat(productRepository.findById(product.id)!!.likeCount).isEqualTo(0L)
+        awaitLikeCount(product.id, 0L)
         assertThat((1..users).none { likeRepository.existsByUserIdAndProductId(it.toLong(), product.id) }).isTrue()
     }
 
@@ -91,8 +94,8 @@ class LikeConcurrencyIntegrationTest @Autowired constructor(
 
         runConcurrently(16) { likeFacade.like(userId = userId, productId = product.id) }
 
-        // 유니크 제약 + 원자 증감 — 승자 1건만 저장·증가하고 패자는 롤백되어 카운트가 정확히 1.
-        assertThat(productRepository.findById(product.id)!!.likeCount).isEqualTo(1L)
+        // 유니크 제약 + 원자 증감 — 승자 1건만 저장·발행하고 패자는 롤백되어(발행 없음) 카운트가 정확히 1 로 수렴.
+        awaitLikeCount(product.id, 1L)
         assertThat(likeRepository.existsByUserIdAndProductId(userId, product.id)).isTrue()
     }
 
@@ -107,8 +110,14 @@ class LikeConcurrencyIntegrationTest @Autowired constructor(
 
         runConcurrently(16) { likeFacade.unlike(userId = userId, productId = product.id) }
 
-        // 삭제행 게이팅(`if delete > 0`) 으로 실제 삭제한 승자만 1 감소, 패자(삭제 0건)는 감소하지 않는다.
-        assertThat(productRepository.findById(product.id)!!.likeCount).isEqualTo(initial - 1)
+        // 삭제행 게이팅(`if delete > 0`) 으로 실제 삭제한 승자만 -1 발행, 패자(삭제 0건)는 발행하지 않는다.
+        awaitLikeCount(product.id, initial - 1)
         assertThat(likeRepository.existsByUserIdAndProductId(userId, product.id)).isFalse()
+    }
+
+    private fun awaitLikeCount(productId: Long, expected: Long) {
+        await().atMost(Duration.ofSeconds(5)).untilAsserted {
+            assertThat(productRepository.findById(productId)!!.likeCount).isEqualTo(expected)
+        }
     }
 }

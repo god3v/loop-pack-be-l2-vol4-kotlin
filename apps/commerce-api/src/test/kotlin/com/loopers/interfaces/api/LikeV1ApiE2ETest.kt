@@ -179,7 +179,6 @@ class LikeV1ApiE2ETest @Autowired constructor(
                 { assertThat(response.body?.data?.content).hasSize(1) },
                 { assertThat(response.body?.data?.content?.first()?.productId).isEqualTo(productId) },
                 { assertThat(response.body?.data?.content?.first()?.name).isEqualTo("운동화") },
-                { assertThat(response.body?.data?.content?.first()?.likeCount).isEqualTo(1L) },
                 { assertThat(response.body?.data?.totalElements).isEqualTo(1L) },
                 { assertThat(response.body?.data?.totalPages).isEqualTo(1) },
                 { assertThat(response.body?.data?.page).isEqualTo(0) },
